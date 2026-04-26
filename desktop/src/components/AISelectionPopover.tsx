@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { Loader2, Sparkles, CheckCheck, ArrowDown, ArrowUp, Mic } from 'lucide-react'
 import { transformText, type TransformAction } from '@/lib/ai-transform-client'
 
@@ -133,6 +133,19 @@ export default function AISelectionPopover({ editorContainerRef, getMarkdown, se
       setLoading(false)
     }
   }, [popover.selectedText, loading, getMarkdown, setMarkdown, onChange, hide])
+
+  // Clamp after render so the popover never overflows the viewport edges
+  useLayoutEffect(() => {
+    if (!popoverRef.current || !popover.visible) return
+    const el = popoverRef.current
+    const MARGIN = 8
+    const popoverWidth = el.offsetWidth
+    const vw = window.innerWidth
+    const desired = popover.x - popoverWidth / 2
+    const clamped = Math.max(MARGIN, Math.min(desired, vw - popoverWidth - MARGIN))
+    el.style.left = `${clamped}px`
+    el.style.transform = 'none'
+  }, [popover.x, popover.y, popover.visible])
 
   if (!popover.visible || !noteId) return null
 

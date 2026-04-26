@@ -1,0 +1,11 @@
+
+> web@0.1.0 dev
+> next dev --turbopack --port 3001
+
+   ▲ Next.js 15.4.2 (Turbopack)
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.0.195:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 1068ms

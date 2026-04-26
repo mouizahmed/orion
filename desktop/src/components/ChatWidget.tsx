@@ -244,8 +244,8 @@ export default function ChatWidget({ variant = 'dashboard' }: ChatWidgetProps) {
       <div
         className={cn(
           'flex flex-col rounded-2xl border border-neutral-700/50 bg-[#2a2a2b]/95 text-neutral-100 shadow-2xl backdrop-blur-md overflow-hidden',
-          'transition-[width,height] duration-200 ease-out',
-          isOpen ? 'w-[400px]' : 'w-[210px]',
+          'transition-[width,height,filter] duration-200 ease-out',
+          isOpen ? 'w-[400px]' : 'w-[210px] hover:brightness-[1.35]',
         )}
         style={{ height: isOpen ? 500 : 48 }}
       >

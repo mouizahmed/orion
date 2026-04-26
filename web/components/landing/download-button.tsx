@@ -9,14 +9,23 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import Image from "next/image";
-import { Monitor } from "lucide-react";
 import { useOS } from "@/hooks/useOS";
 
 interface DownloadButtonProps {
   variant?: "default" | "outline";
   size?: "sm" | "md" | "lg";
   className?: string;
+}
+
+function DownloadGridIcon() {
+  return (
+    <span className="grid h-4 w-4 grid-cols-2 gap-0.5">
+      <span className="bg-current" />
+      <span className="bg-current" />
+      <span className="bg-current" />
+      <span className="bg-current" />
+    </span>
+  );
 }
 
 export default function DownloadButton({
@@ -35,7 +44,8 @@ export default function DownloadButton({
   };
   const variantClasses = {
     default: "bg-violet-600 hover:bg-violet-700 text-white",
-    outline: "bg-white hover:bg-gray-50 text-black border border-gray-300",
+    outline:
+      "bg-zinc-900 hover:bg-zinc-800 text-zinc-50 border border-zinc-700",
   };
 
   const buttonClasses = `${baseClasses} ${sizeClasses[size]} ${variantClasses[variant]} ${className}`;
@@ -44,13 +54,7 @@ export default function DownloadButton({
   if (os === "windows") {
     return (
       <Button className={buttonClasses}>
-        <Image
-          src="/windows.svg"
-          alt="Windows"
-          width={20}
-          height={20}
-          className={`w-5 h-5 ${variant === "default" ? "filter invert" : ""}`}
-        />
+        <DownloadGridIcon />
         Download
       </Button>
     );
@@ -60,13 +64,7 @@ export default function DownloadButton({
   if (os === "mac") {
     return (
       <Button className={buttonClasses}>
-        <Image
-          src="/apple.svg"
-          alt="Mac"
-          width={20}
-          height={20}
-          className={`w-5 h-5 ${variant === "default" ? "filter invert" : ""}`}
-        />
+        <DownloadGridIcon />
         Download
       </Button>
     );
@@ -77,7 +75,7 @@ export default function DownloadButton({
     <Dialog>
       <DialogTrigger asChild>
         <div className={`${buttonClasses} cursor-pointer`}>
-          <Monitor className="w-5 h-5" />
+          <DownloadGridIcon />
           Download
         </div>
       </DialogTrigger>
@@ -90,26 +88,14 @@ export default function DownloadButton({
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <Button className="flex items-center gap-3 p-4 h-auto">
-            <Image
-              src="/windows.svg"
-              alt="Windows"
-              width={20}
-              height={20}
-              className="w-5 h-5"
-            />
+            <DownloadGridIcon />
             <div className="text-left">
               <div className="font-medium">Download for Windows</div>
               <div className="text-sm text-muted-foreground">Windows 10/11</div>
             </div>
           </Button>
           <Button className="flex items-center gap-3 p-4 h-auto">
-            <Image
-              src="/apple.svg"
-              alt="Mac"
-              width={20}
-              height={20}
-              className="w-5 h-5"
-            />
+            <DownloadGridIcon />
             <div className="text-left">
               <div className="font-medium">Download for Mac</div>
               <div className="text-sm text-muted-foreground">macOS 10.15+</div>

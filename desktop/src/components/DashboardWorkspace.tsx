@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { cn } from '@/lib/utils'
 import { Check, Folder, Loader2, Sparkles, FileText, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -196,7 +197,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
   }
 
   return (
-    <div className="flex h-full min-h-0 gap-2">
+    <div className="flex h-full min-h-0">
 
       {/* ── Main panel ── */}
       <div className="relative flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
@@ -305,8 +306,13 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
       </div>
 
       {/* ── Transcript sidebar ── */}
-      {transcriptOpen && (
-        <div className="flex w-80 flex-shrink-0 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+      <div
+        className={cn(
+          'flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
+          transcriptOpen ? 'w-[328px]' : 'w-0',
+        )}
+      >
+        <div className="ml-2 flex h-full w-80 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
           <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Transcript</span>
             <button
@@ -328,7 +334,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
             />
           </div>
         </div>
-      )}
+      </div>
 
     </div>
   )

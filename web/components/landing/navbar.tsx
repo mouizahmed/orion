@@ -18,7 +18,7 @@ export default function Navbar() {
   }, []);
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 p-4">
-      <div className="bg-white/70 backdrop-blur-sm rounded-full border border-gray-200 shadow-lg mx-auto w-fit">
+      <div className="bg-zinc-950/75 backdrop-blur-sm rounded-full border border-zinc-800 shadow-lg shadow-black/30 mx-auto w-fit">
         <div className="px-6 py-2">
           <div className="flex items-center gap-8">
             {/* Logo */}
@@ -34,22 +34,22 @@ export default function Navbar() {
 
             {/* Navigation Links */}
             <a
-              href="#pricing"
-              className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm"
+              href="/pricing"
+              className="text-zinc-300 hover:text-white font-medium transition-colors text-sm"
             >
               Pricing
             </a>
 
             <a
               href="/changelog"
-              className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm"
+              className="text-zinc-300 hover:text-white font-medium transition-colors text-sm"
             >
               Changelog
             </a>
 
             <a
               href="/support"
-              className="text-gray-600 hover:text-gray-900 font-medium transition-colors text-sm"
+              className="text-zinc-300 hover:text-white font-medium transition-colors text-sm"
             >
               Support
             </a>

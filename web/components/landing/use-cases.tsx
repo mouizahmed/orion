@@ -63,9 +63,9 @@ export default function UseCases() {
   };
 
   return (
-    <section id="use-cases" className="py-12 bg-gradient-to-b from-amber-50/20 via-yellow-50/10 to-amber-50/15">
+    <section id="use-cases" className="py-12 bg-gradient-to-b from-zinc-950 via-amber-950/10 to-zinc-950">
       <div className="px-6 max-w-6xl mx-auto mb-12">
-        <h2 className="text-3xl font-bold text-gray-900 text-center">
+        <h2 className="text-3xl font-bold text-zinc-50 text-center">
           Your go-to solution for localization and productivity
         </h2>
       </div>
@@ -88,14 +88,14 @@ export default function UseCases() {
             {useCases.map((useCase, index) => {
               const IconComponent = useCase.icon;
               return (
-                <div key={index} className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-white/50 shadow-lg hover:shadow-xl transition-shadow flex flex-col" style={{ height: '280px' }}>
-                  <div className="w-14 h-14 bg-amber-100 rounded-2xl flex items-center justify-center mb-6 flex-shrink-0">
+                <div key={index} className="bg-zinc-900/80 backdrop-blur-sm rounded-2xl p-6 border border-zinc-800 shadow-lg hover:shadow-xl transition-shadow flex flex-col" style={{ height: '280px' }}>
+                  <div className="w-14 h-14 bg-amber-950/60 rounded-2xl flex items-center justify-center mb-6 flex-shrink-0">
                     <IconComponent className="w-7 h-7 text-amber-600" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-3 flex-shrink-0">
+                  <h3 className="text-xl font-bold text-zinc-50 mb-3 flex-shrink-0">
                     {useCase.title}
                   </h3>
-                  <p className="text-gray-600 leading-relaxed flex-grow">
+                  <p className="text-zinc-400 leading-relaxed flex-grow">
                     {useCase.description}
                   </p>
                 </div>
@@ -143,7 +143,7 @@ export default function UseCases() {
           height: 8px;
           border-radius: 50%;
           border: none;
-          background-color: #d1d5db;
+          background-color: #52525b;
           cursor: pointer;
           transition: background-color 0.3s ease;
         }
@@ -155,7 +155,7 @@ export default function UseCases() {
         }
         
         .custom-dot-list-style li button:hover {
-          background-color: #9ca3af;
+          background-color: #a1a1aa;
         }
         
         .custom-dot-list-style li.react-multi-carousel-dot--active button:hover {

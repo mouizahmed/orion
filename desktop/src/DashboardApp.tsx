@@ -9,6 +9,15 @@ import { DashboardNotesProvider } from '@/contexts/DashboardNotesContext'
 import { useEffect, useMemo, useRef } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
+function SidebarNoteAutoClose() {
+  const { selectedId } = useDashboardNotes()
+  const { setOpen } = useSidebar()
+  useEffect(() => {
+    if (selectedId) setOpen(false)
+  }, [selectedId, setOpen])
+  return null
+}
+
 function useDashboardNoteIdFromUrl() {
   return useMemo(() => {
     if (typeof window === 'undefined') return null
@@ -54,7 +63,7 @@ function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null
 
 function DashboardContent() {
   const { user, isLoading } = useAuth()
-  const { isOpen } = useSidebar()
+  const { isOpen, setOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
 
   if (isLoading) return null
@@ -62,6 +71,7 @@ function DashboardContent() {
   return (
     <DashboardNotesProvider userId={user?.id}>
       <DashboardNoteSelector initialNoteId={initialNoteId} />
+      <SidebarNoteAutoClose />
       <div className="h-screen w-full bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-50">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
           <DashboardTopBar onBackToOverlay={() => window.dashboard?.close?.()} />

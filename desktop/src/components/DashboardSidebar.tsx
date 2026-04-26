@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { FileText, Home, Users } from 'lucide-react'
+import { Home, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Sidebar as SidebarContainer, SidebarContent } from '@/components/ui/sidebar'
@@ -84,19 +84,9 @@ export default function DashboardSidebar() {
             isActive={selectedId === null}
           />
           <NavButton
-            icon={FileText}
-            label="All Files"
-            onClick={() => {
-              selectFolder(null)
-            }}
-            isActive={false}
-          />
-          <NavButton
             icon={Users}
             label="Shared with me"
-            onClick={() => {
-              console.log('Shared with me clicked')
-            }}
+            onClick={() => {}}
             isActive={false}
           />
         </div>

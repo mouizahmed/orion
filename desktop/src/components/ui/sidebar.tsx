@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react'
+import React, { createContext, useCallback, useContext, useState } from 'react'
 import { PanelLeft } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 type SidebarContextType = {
   isOpen: boolean
   toggle: () => void
+  setOpen: (open: boolean) => void
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null)
@@ -32,9 +33,10 @@ export function SidebarProvider({
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
 
-  const toggle = () => setIsOpen((prev) => !prev)
+  const toggle = useCallback(() => setIsOpen((prev) => !prev), [])
+  const setOpen = useCallback((open: boolean) => setIsOpen(open), [])
 
-  return <SidebarContext.Provider value={{ isOpen, toggle }}>{children}</SidebarContext.Provider>
+  return <SidebarContext.Provider value={{ isOpen, toggle, setOpen }}>{children}</SidebarContext.Provider>
 }
 
 export function Sidebar({ children, className }: { children: React.ReactNode; className?: string }) {
