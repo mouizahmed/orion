@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button'
-import { MonitorCog, Bell, Keyboard } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -46,7 +46,6 @@ const shortcutGroups: ShortcutGroup[] = [
   },
   {
     title: 'Window Position',
-    layout: 'two-column',
     actions: [
       {
         key: 'moveUp',
@@ -75,8 +74,6 @@ const sections = [
   {
     key: 'behaviour',
     title: 'Behaviour',
-    description: 'Control when the app launches and how it responds.',
-    icon: MonitorCog,
     actions: [
       { label: 'Launch on Startup', hint: 'Coming soon' },
       { label: 'Global Shortcut', hint: 'Coming soon' },
@@ -85,8 +82,6 @@ const sections = [
   {
     key: 'notifications',
     title: 'Notifications',
-    description: 'Choose how the app lets you know about updates.',
-    icon: Bell,
     actions: [{ label: 'Desktop Alerts', hint: 'Coming soon' }],
   },
 ]
@@ -274,57 +269,52 @@ export default function SettingsPanel({
   )
 
   return (
-    <div className="flex w-full flex-col gap-2">
-      <div className="attachments-scrollbar flex max-h-[420px] flex-col gap-1.5 overflow-y-auto rounded-lg border border-white/10 bg-black/70 px-2 py-2 text-sm text-white/80 backdrop-blur-xl">
-        <div className="flex flex-col gap-1.5 rounded-md border border-white/10 bg-white/15 p-2">
-          <div className="flex items-start gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/70 text-white/60">
-              <Keyboard className="h-4 w-4" />
+    <div className="flex w-full select-none flex-col gap-2">
+      <div className="relative max-h-[520px] overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/55 p-1 text-sm text-white/80 ring-1 ring-white/10 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-violet-500/5">
+        <div className="attachments-scrollbar relative flex max-h-[512px] flex-col gap-2 overflow-y-auto p-1">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-zinc-900/55 text-zinc-100">
+              <Settings className="h-4 w-4" />
             </div>
-            <div className="flex flex-col">
-              <h3 className="text-sm font-medium text-white">
-                Keybinds
-              </h3>
-              <p className="text-xs text-white/60">
-                Manage the global shortcuts registered by the notepad.
-              </p>
+            <div className="flex min-w-0 flex-col">
+              <h3 className="text-sm font-semibold text-white">Settings</h3>
             </div>
           </div>
 
           {!canManageShortcuts ? (
-            <div className="rounded-md border border-white/10 bg-black/70 px-3 py-2 text-xs text-white/60">
+            <div className="rounded-full border border-white/15 bg-zinc-900/55 px-4 py-2 text-xs text-white/60">
               Keybind controls are only available in the desktop app.
             </div>
           ) : (
             <div className="flex flex-col gap-3">
               {error && (
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                <div className="rounded-full border border-red-400/20 bg-red-500/20 px-4 py-2 text-xs text-red-50">
                   {error}
                 </div>
               )}
 
               {isLoadingShortcuts ? (
-                <div className="flex items-center gap-2 text-xs text-white/60">
+                <div className="flex h-8 items-center gap-2 rounded-full border border-white/15 bg-zinc-900/55 px-4 text-xs text-white/60">
                   <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-white/60" />
                   Loading shortcuts...
                 </div>
               ) : !shortcutState ? (
-                <div className="text-xs text-white/60">
+                <div className="rounded-full border border-white/15 bg-zinc-900/55 px-4 py-2 text-xs text-white/60">
                   Shortcuts are not available right now.
                 </div>
               ) : (
                 <>
                   {shortcutGroups.map((group) => (
-                    <div key={group.title} className="flex flex-col gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
+                    <div key={group.title} className="flex flex-col gap-1.5">
+                      <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
                         {group.title}
                       </span>
 
                       <div
                         className={
                           group.layout === 'two-column'
-                            ? 'grid gap-2 sm:grid-cols-2'
-                            : 'flex flex-col gap-2'
+                            ? 'grid gap-1.5 sm:grid-cols-2'
+                            : 'flex flex-col gap-1.5'
                         }
                       >
                         {group.actions.map((action) => {
@@ -343,15 +333,6 @@ export default function SettingsPanel({
                             currentValue === defaultValue ||
                             isUpdating ||
                             Boolean(recordingAction)
-                          const keyDisplayClassName = [
-                            'flex h-8 flex-1 items-center gap-2 rounded-md border px-2.5 py-1.5 font-mono text-xs uppercase tracking-wide transition-colors',
-                            isRecording
-                              ? 'border-white bg-black/70 text-white'
-                              : 'border-white/15 bg-black/70 text-white/80',
-                            isUpdating ? 'opacity-70' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')
                           const displayValue = isRecording
                             ? 'Press new key combination...'
                             : currentValue || 'Not set'
@@ -359,44 +340,48 @@ export default function SettingsPanel({
                           return (
                             <div
                               key={action.key}
-                              className="flex h-full flex-col gap-2 rounded-md border border-white/10 bg-black/60 p-2 sm:flex-row sm:items-center sm:justify-between"
+                              className="flex h-10 items-center gap-1 rounded-full border border-white/15 bg-zinc-900/55 p-1"
                             >
-                              <div className="flex flex-col">
-                                <span className="text-sm font-medium text-white">
+                              <div className="flex h-8 min-w-0 flex-1 items-center px-2.5">
+                                <div className="truncate text-sm font-semibold text-white">
                                   {action.label}
-                                </span>
-                                <span className="text-xs text-white/60">
-                                  {action.description}
-                                </span>
+                                </div>
                               </div>
 
-                              <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
-                                <div className={`${keyDisplayClassName} min-w-[8rem]`}>
-                                  <span className="truncate">{displayValue}</span>
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="sm"
-                                    className="h-8 px-3 text-xs bg-white/20 text-white hover:bg-white/15 hover:text-white"
-                                    disabled={recordButtonDisabled}
-                                    onClick={() => handleRecordToggle(action.key)}
-                                  >
-                                    {isRecording ? 'Cancel' : isUpdating ? 'Saving...' : 'Record'}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 px-3 text-xs text-white/80 hover:bg-white/20 hover:text-white"
-                                    disabled={resetDisabled}
-                                    onClick={() => handleReset(action.key)}
-                                  >
-                                    Reset
-                                  </Button>
-                                </div>
+                              <div
+                                className={[
+                                  'flex h-8 w-[5.9rem] items-center justify-center rounded-full border px-2 font-mono text-[11px] uppercase tracking-wide',
+                                  isRecording
+                                    ? 'border-white/40 bg-zinc-950/70 text-white'
+                                    : 'border-white/15 bg-zinc-950/55 text-white/80',
+                                  isUpdating ? 'opacity-70' : '',
+                                ]
+                                  .filter(Boolean)
+                                  .join(' ')}
+                              >
+                                <span className="truncate">{displayValue}</span>
                               </div>
+
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                size="sm"
+                                className="h-8 w-14 rounded-full border border-white/15 bg-zinc-900/55 px-0 py-0 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
+                                disabled={recordButtonDisabled}
+                                onClick={() => handleRecordToggle(action.key)}
+                              >
+                                {isRecording ? 'Cancel' : isUpdating ? 'Saving...' : 'Record'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 w-12 rounded-full border-white/15 bg-zinc-900/55 px-0 py-0 text-xs text-white/80 hover:bg-zinc-800/65 hover:text-white"
+                                disabled={resetDisabled}
+                                onClick={() => handleReset(action.key)}
+                              >
+                                Reset
+                              </Button>
                             </div>
                           )
                         })}
@@ -404,74 +389,55 @@ export default function SettingsPanel({
                     </div>
                   ))}
 
-                  <p className="text-[11px] text-white/50">
+                  <p className="px-1.5 text-[11px] text-white/50">
                     Press Escape to cancel while recording. Shortcuts update immediately.
                   </p>
                 </>
               )}
             </div>
           )}
-        </div>
 
-        {sections.map(({ key, title, description, icon: Icon, actions }) => (
-          <div
-            key={key}
-            className="flex flex-col gap-1.5 rounded-md border border-white/10 bg-white/15 p-2"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-black/70 text-white/60">
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div className="flex flex-col">
-                  <h3 className="text-sm font-medium text-white">
-                    {title}
-                  </h3>
-                  <p className="text-xs text-white/60">
-                    {description}
-                  </p>
-                </div>
+          {sections.map(({ key, title, actions }) => (
+            <div key={key} className="flex flex-col gap-1.5">
+              <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
+                {title}
+              </span>
+
+              <div className="flex flex-col gap-1.5">
+                {actions.map(({ label, hint }) => (
+                  <Button
+                    key={label}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled
+                    className="h-10 justify-between rounded-full border-white/15 bg-zinc-900/55 px-3 text-sm font-semibold text-white/70 hover:bg-zinc-800/65"
+                  >
+                    {label}
+                    {hint && (
+                      <span className="ml-2 rounded-full border border-white/10 bg-zinc-950/55 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/50">
+                        {hint}
+                      </span>
+                    )}
+                  </Button>
+                ))}
               </div>
             </div>
+          ))}
 
-            <div className="flex flex-wrap gap-2">
-              {actions.map(({ label, hint }) => (
-                <Button
-                  key={label}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  className="h-8 px-3 text-xs border-white/15 bg-white/15 text-white/70 hover:bg-white/20"
-                >
-                  {label}
-                  {hint && (
-                    <span className="ml-2 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/50">
-                      {hint}
-                    </span>
-                  )}
-                </Button>
-              ))}
-            </div>
-          </div>
-        ))}
-        <div className="h-px w-full bg-white/20" />
-
-        <div className="flex flex-col gap-2 rounded-md border border-white/10 bg-white/15 p-2">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-white/70">
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-2 text-sm text-white/70">
             <Button
               type="button"
               variant="outline"
-              className="h-8 flex-1 min-w-[12rem] bg-white/20 px-3 text-xs text-white hover:bg-white/20 hover:text-white"
+              className="h-8 min-w-[12rem] flex-1 rounded-full border-white/15 bg-zinc-900/55 px-2.5 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
               onClick={onLogout}
             >
               Log out on this device
             </Button>
-            <div className="h-8 w-px bg-white/15 sm:h-auto sm:self-stretch" />
             <Button
               type="button"
               variant="outline"
-              className="h-8 flex-1 min-w-[12rem] bg-white/20 px-3 text-xs text-white hover:bg-white/20 hover:text-white"
+              className="h-8 min-w-[12rem] flex-1 rounded-full border-white/15 bg-zinc-900/55 px-2.5 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
               onClick={onLogoutEverywhere}
             >
               Log out everywhere

@@ -61,7 +61,7 @@ export function setupIpcHandlers() {
   ipcMain.on('set-window-size', (_event, payload: { width: number; height: number }) => {
     const win = getWindow()
     if (!win) return
-    const width = Math.max(420, Math.round(payload?.width ?? 0))
+    const width = Math.max(240, Math.round(payload?.width ?? 0))
     const height = Math.max(60, Math.round(payload?.height ?? 0))
     const [currentWidth, currentHeight] = win.getSize()
     if (currentWidth === width && currentHeight === height) return
@@ -88,8 +88,9 @@ export function setupIpcHandlers() {
 
   ipcMain.on('dashboard:open', (_event, payload?: { noteId?: string }) => {
     const overlay = getWindow()
-    if (overlay && !overlay.isDestroyed() && overlay.isVisible()) {
-      overlay.hide()
+    if (overlay && !overlay.isDestroyed()) {
+      overlay.setIgnoreMouseEvents(true, { forward: true })
+      overlay.setOpacity(0)
     }
 
     const noteId = typeof payload?.noteId === 'string' ? payload.noteId : undefined
@@ -109,15 +110,20 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.on('dashboard:close', () => {
+    const overlay = getWindow()
+    if (overlay && !overlay.isDestroyed()) {
+      if (!overlay.isVisible()) {
+        overlay.setOpacity(0)
+        overlay.showInactive()
+      }
+      overlay.setIgnoreMouseEvents(false)
+      overlay.setOpacity(1)
+      overlay.moveTop()
+    }
+
     const dashboard = getDashboardWindow()
     if (dashboard && !dashboard.isDestroyed()) {
       dashboard.hide()
-    }
-
-    const overlay = getWindow()
-    if (overlay && !overlay.isDestroyed()) {
-      overlay.show()
-      overlay.focus()
     }
   })
 

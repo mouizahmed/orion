@@ -1,5 +1,5 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { CornerDownLeft, Grid3X3, GripVertical, Mic, MicOff, Settings, Volume2, VolumeX } from 'lucide-react'
+import { CornerDownLeft, Grid3X3, Mic, MicOff, Settings, Volume2, VolumeX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils'
 type CompactOverlayBarProps = {
   onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void
   meetingActive: boolean
-  meetingElapsedSeconds?: number
   onToggleMeeting: () => void
   micMuted: boolean
   onToggleMicMuted: () => void
@@ -21,7 +20,6 @@ type CompactOverlayBarProps = {
 export default function CompactOverlayBar({
   onMouseDown,
   meetingActive,
-  meetingElapsedSeconds,
   onToggleMeeting,
   micMuted,
   onToggleMicMuted,
@@ -31,109 +29,98 @@ export default function CompactOverlayBar({
   onToggleSettings,
   settingsOpen = false,
 }: CompactOverlayBarProps) {
-  const formatElapsed = (totalSeconds?: number) => {
-    if (typeof totalSeconds !== 'number') return ''
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
-
   return (
-    <div className="flex w-full items-center gap-2 rounded-lg bg-black/70 px-2.5 py-2 backdrop-blur-xl">
-      <div className="flex items-center p-0.5" onMouseDown={onMouseDown}>
-        <GripVertical className="h-4 w-4 text-white/40" />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <img
-          src="/logo.png"
-          alt="Sunless logo"
-          className="h-6 w-6 rounded-md border border-white/10 bg-white/15 object-cover p-0.5"
-          draggable={false}
-        />
-        <div className="flex flex-col leading-tight">
-          <span className="text-sm font-medium text-white">
-            {meetingActive ? 'Meeting active' : 'Ready'}
-          </span>
-          {meetingActive && (
-            <span className="text-[11px] text-white/50">
-              {formatElapsed(meetingElapsedSeconds)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="flex-1" />
-
-      <Button
-        type="button"
-        variant={meetingActive ? 'destructive' : 'secondary'}
-        className={cn(
-          'h-8 rounded-full px-3 text-xs font-medium',
-          meetingActive
-            ? 'bg-red-500/25 text-red-50 hover:bg-red-500/30'
-            : 'bg-white/20 text-white hover:bg-white/20',
-        )}
-        onClick={onToggleMeeting}
-        title={meetingActive ? 'Stop meeting' : 'Start meeting'}
+    <div className="flex w-full transform-gpu select-none items-center gap-2 will-change-transform [backface-visibility:hidden]">
+      <div
+        className="flex h-10 w-10 shrink-0 transform-gpu cursor-grab items-center justify-center rounded-full border border-white/15 bg-zinc-950/55 ring-1 ring-white/10 will-change-transform [backface-visibility:hidden] active:cursor-grabbing"
+        onMouseDown={onMouseDown}
       >
-        {meetingActive ? 'Stop meeting' : 'Start meeting'}
-      </Button>
+        <img
+          src="/sunless_ring_exact_editable_svg.svg"
+          alt="Sunless logo"
+          className="pointer-events-none h-7 w-7 select-none object-contain"
+          draggable={false}
+          onContextMenu={(event) => event.preventDefault()}
+        />
+      </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="relative flex min-w-0 flex-1 transform-gpu items-center gap-1 overflow-hidden rounded-full border border-white/15 bg-zinc-950/55 p-1 ring-1 ring-white/10 will-change-transform [backface-visibility:hidden] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-violet-500/5">
         <Button
           type="button"
-          size="icon"
-          variant="ghost"
+          variant={meetingActive ? 'destructive' : 'secondary'}
           className={cn(
-            'h-8 w-8 shrink-0 rounded-md p-0 text-white hover:bg-white/20 hover:text-white',
-            micMuted ? 'bg-red-500/20' : 'bg-white/20',
+            'relative h-8 rounded-full border px-3 text-xs font-semibold shadow-none',
+            meetingActive
+              ? 'border-red-400/20 bg-red-500/20 text-red-50 hover:bg-red-500/25'
+              : 'border-white/15 bg-zinc-900/55 text-zinc-50 hover:bg-zinc-800/65',
           )}
-          title={micMuted ? 'Mic muted' : 'Mic unmuted'}
-          aria-label="Toggle mic mute"
-          onClick={onToggleMicMuted}
+          onClick={onToggleMeeting}
+          title={meetingActive ? 'Stop meeting' : 'Start meeting'}
         >
-          {micMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          {meetingActive ? 'Stop meeting' : 'Start meeting'}
         </Button>
 
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className={cn(
-            'h-8 w-8 shrink-0 rounded-md p-0 text-white hover:bg-white/20 hover:text-white',
-            speakerMuted ? 'bg-red-500/20' : 'bg-white/20',
-          )}
-          title={speakerMuted ? 'Speaker muted' : 'Speaker unmuted'}
-          aria-label="Toggle speaker mute"
-          onClick={onToggleSpeakerMuted}
-        >
-          {speakerMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-        </Button>
+        <div className="flex-1" />
 
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8 shrink-0 rounded-md bg-white/20 p-0 text-white hover:bg-white/20 hover:text-white"
-          title="Open dashboard"
-          aria-label="Open dashboard"
-          onClick={onOpenDashboard}
-        >
-          <Grid3X3 className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={cn(
+              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+              micMuted
+                ? 'border-red-400/20 bg-red-500/20 hover:bg-red-500/25'
+                : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+            )}
+            title={micMuted ? 'Mic muted' : 'Mic unmuted'}
+            aria-label="Toggle mic mute"
+            onClick={onToggleMicMuted}
+          >
+            {micMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
 
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-8 w-8 shrink-0 rounded-md bg-white/20 p-0 text-white hover:bg-white/20 hover:text-white"
-          title={settingsOpen ? 'Back' : 'Settings'}
-          aria-label={settingsOpen ? 'Back' : 'Settings'}
-          onClick={onToggleSettings}
-        >
-          {settingsOpen ? <CornerDownLeft className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
-        </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className={cn(
+              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+              speakerMuted
+                ? 'border-red-400/20 bg-red-500/20 hover:bg-red-500/25'
+                : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+            )}
+            title={speakerMuted ? 'Speaker muted' : 'Speaker unmuted'}
+            aria-label="Toggle speaker mute"
+            onClick={onToggleSpeakerMuted}
+          >
+            {speakerMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="relative h-8 w-8 shrink-0 rounded-full border border-white/15 bg-zinc-900/55 p-0 text-zinc-100 hover:bg-zinc-800/65 hover:text-white"
+            title="Open dashboard"
+            aria-label="Open dashboard"
+            onClick={onOpenDashboard}
+          >
+            <Grid3X3 className="h-4 w-4" />
+          </Button>
+
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="relative h-8 w-8 shrink-0 rounded-full border border-white/15 bg-zinc-900/55 p-0 text-zinc-100 hover:bg-zinc-800/65 hover:text-white"
+            title={settingsOpen ? 'Back' : 'Settings'}
+            aria-label={settingsOpen ? 'Back' : 'Settings'}
+            onClick={onToggleSettings}
+          >
+            {settingsOpen ? <CornerDownLeft className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+          </Button>
+        </div>
       </div>
     </div>
   )

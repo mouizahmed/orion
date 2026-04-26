@@ -8,6 +8,7 @@ import SettingsPanel from '@/components/SettingsPanel'
 import Welcome from '@/components/Welcome'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import './App.css'
 import { createNote } from '@/lib/notes-client'
 import { auth } from '@/config/firebase'
@@ -20,9 +21,9 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080
 
 const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting', number> = {
   welcome: 640,
-  settings: 760,
-  compact: 620,
-  compactMeeting: 760,
+  settings: 640,
+  compact: 640,
+  compactMeeting: 640,
 }
 
 function AppContent() {
@@ -38,14 +39,14 @@ function AppContent() {
   const [meetingActive, setMeetingActive] = useState(false)
   const [meetingNoteId, setMeetingNoteId] = useState<string | null>(null)
   const [meetingSessionId, setMeetingSessionId] = useState<string | null>(null)
-  const [meetingStartedAt, setMeetingStartedAt] = useState<number | null>(null)
-  const [meetingElapsedSeconds, setMeetingElapsedSeconds] = useState(0)
   const [micMuted, setMicMuted] = useState(false)
   const [speakerMuted, setSpeakerMuted] = useState(false)
   const [transcriptionEnabled, setTranscriptionEnabled] = useState(false)
   const [transcriptionMode, setTranscriptionMode] = useState<'live' | 'notes_only'>('live')
   const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null)
   const [showDashboardConfirm, setShowDashboardConfirm] = useState(false)
+  const [settingsPanelMounted, setSettingsPanelMounted] = useState(false)
+  const [settingsPanelClosing, setSettingsPanelClosing] = useState(false)
 
   const isQuotaError = (error: Error) => {
     const text = `${error.message}`.toLowerCase()
@@ -109,9 +110,29 @@ function AppContent() {
 
   const layoutKey: 'welcome' | 'settings' | 'compact' | 'compactMeeting' = useMemo(() => {
     if (!user) return 'welcome'
-    if (activePanel === 'settings') return 'settings'
+    if (activePanel === 'settings' || settingsPanelMounted) return 'settings'
     return meetingActive ? 'compactMeeting' : 'compact'
-  }, [activePanel, meetingActive, user])
+  }, [activePanel, meetingActive, settingsPanelMounted, user])
+
+  const shouldRenderSettingsPanel = activePanel === 'settings' || settingsPanelMounted
+
+  useEffect(() => {
+    if (activePanel === 'settings') {
+      setSettingsPanelMounted(true)
+      setSettingsPanelClosing(false)
+      return
+    }
+
+    if (!settingsPanelMounted) return
+
+    setSettingsPanelClosing(true)
+    const timer = window.setTimeout(() => {
+      setSettingsPanelMounted(false)
+      setSettingsPanelClosing(false)
+    }, 160)
+
+    return () => window.clearTimeout(timer)
+  }, [activePanel, settingsPanelMounted])
 
   useLayoutEffect(() => {
     if (!contentEl) return
@@ -143,22 +164,6 @@ function AppContent() {
       observer.disconnect()
     }
   }, [contentEl, layoutKey])
-
-  useEffect(() => {
-    if (!meetingActive || meetingStartedAt === null) {
-      setMeetingElapsedSeconds(0)
-      return
-    }
-
-    const tick = () => {
-      const elapsed = Math.max(0, Math.floor((Date.now() - meetingStartedAt) / 1000))
-      setMeetingElapsedSeconds(elapsed)
-    }
-
-    tick()
-    const timer = window.setInterval(tick, 1000)
-    return () => window.clearInterval(timer)
-  }, [meetingActive, meetingStartedAt])
 
   // Show nothing while loading auth state
   if (isLoading) {
@@ -232,7 +237,6 @@ function AppContent() {
       }
     }
     setMeetingActive(false)
-    setMeetingStartedAt(null)
     setMeetingSessionId(null)
     setMeetingNoteId(null)
     setTranscriptionEnabled(false)
@@ -255,7 +259,6 @@ function AppContent() {
         const created = await createNote(user?.id, { title, folderId: null })
         setMeetingNoteId(created.id)
         setMeetingActive(true)
-        setMeetingStartedAt(Date.now())
         setTranscriptionEnabled(true)
         setTranscriptionMode('live')
         setTranscriptionNotice(null)
@@ -348,7 +351,6 @@ function AppContent() {
             <CompactOverlayBar
               onMouseDown={handleMouseDown}
               meetingActive={meetingActive}
-              meetingElapsedSeconds={meetingElapsedSeconds}
               onToggleMeeting={() => void handleToggleMeeting()}
               micMuted={micMuted}
               onToggleMicMuted={() => setMicMuted((v) => !v)}
@@ -361,11 +363,20 @@ function AppContent() {
               }
             />
 
-            {activePanel === 'settings' ? (
-              <SettingsPanel
-                onLogout={logout}
-                onLogoutEverywhere={logoutEverywhere}
-              />
+            {shouldRenderSettingsPanel ? (
+              <div
+                className={cn(
+                  'origin-top transition-all duration-150 ease-out',
+                  settingsPanelClosing
+                    ? 'translate-y-[-4px] scale-[0.985] opacity-0'
+                    : 'translate-y-0 scale-100 opacity-100',
+                )}
+              >
+                <SettingsPanel
+                  onLogout={logout}
+                  onLogoutEverywhere={logoutEverywhere}
+                />
+              </div>
             ) : meetingActive && meetingNoteId ? (
               <CompactMeetingPanel
                 noteId={meetingNoteId}
