@@ -4,6 +4,9 @@ import { useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import Image from "next/image";
+import { pageBackground } from "@/lib/styles";
+
+const authShellClass = `flex min-h-screen items-center justify-center ${pageBackground} px-6 text-center`;
 
 function AuthCallbackContent() {
   const searchParams = useSearchParams();
@@ -60,14 +63,14 @@ function AuthCallbackContent() {
   // Show error state
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-zinc-950 via-zinc-950 to-rose-950/40 flex items-center justify-center px-6 py-10 text-center">
+      <div className={`${authShellClass} py-10`}>
         <div className="flex w-full max-w-xl flex-col items-center gap-6">
           <Image
-            src="/logo2.png"
+            src="/sunless-logo.svg"
             alt="Sunless Logo"
             width={80}
             height={80}
-            className="rounded-2xl"
+            className="rounded-md"
           />
 
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-950 text-rose-300 shadow-sm">
@@ -87,7 +90,7 @@ function AuthCallbackContent() {
           </div>
 
           <div className="space-y-3">
-            <h1 className="font-serif text-3xl text-rose-100 sm:text-4xl">
+            <h1 className="text-3xl font-semibold text-rose-100 sm:text-4xl">
               Authentication Failed
             </h1>
             <p className="text-sm text-rose-200/80 sm:text-base">
@@ -98,7 +101,7 @@ function AuthCallbackContent() {
 
           <button
             onClick={() => router.push("/")}
-            className="rounded-full bg-purple-600 px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-purple-950/40 transition hover:bg-purple-700"
+            className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-black/30 transition hover:bg-brand-light"
           >
             Go Home
           </button>
@@ -109,31 +112,31 @@ function AuthCallbackContent() {
 
   // Show success state
   return (
-    <div className="min-h-screen bg-gradient-to-b from-zinc-950 via-purple-950/30 to-zinc-950 flex items-center justify-center px-6 py-12 text-center">
+    <div className={`${authShellClass} py-12`}>
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <Image
-          src="/logo2.png"
+          src="/sunless-logo.svg"
           alt="Sunless Logo"
           width={88}
           height={88}
-          className="rounded-2xl"
+          className="rounded-md"
         />
 
         <div className="space-y-3">
-          <h1 className="font-serif text-4xl text-purple-100 sm:text-5xl">
+          <h1 className="text-4xl font-semibold text-zinc-50 sm:text-5xl">
             Opening Sunless...
           </h1>
-          <p className="text-sm text-purple-200/80 sm:text-base">
+          <p className="text-sm text-zinc-400 sm:text-base">
             Your browser should prompt you to open the app automatically.
           </p>
         </div>
 
         {code && (
-          <div className="space-y-2 text-sm text-purple-200/80">
+          <div className="space-y-2 text-sm text-zinc-400">
             <span className="block">Nothing happened?</span>
             <button
               onClick={handleManualOpen}
-              className="inline-flex items-center gap-2 text-purple-200 underline decoration-purple-400 underline-offset-4 transition hover:text-white"
+              className="inline-flex items-center gap-2 text-brand underline decoration-brand-dark underline-offset-4 transition hover:text-brand-light"
             >
               <ExternalLink className="h-4 w-4" />
               Click here to open Sunless.
@@ -149,10 +152,10 @@ export default function AuthCallback() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-gradient-to-b from-zinc-950 via-purple-950/30 to-zinc-950 flex items-center justify-center px-6 py-12 text-center">
+        <div className={`${authShellClass} py-12`}>
           <div className="flex flex-col items-center gap-4">
-            <div className="h-12 w-12 animate-spin rounded-full border-2 border-purple-900 border-t-purple-300"></div>
-            <p className="text-sm text-purple-200/80">Loading...</p>
+            <div className="h-12 w-12 animate-spin rounded-full border-2 border-zinc-800 border-t-brand"></div>
+            <p className="text-sm text-zinc-400">Loading...</p>
           </div>
         </div>
       }

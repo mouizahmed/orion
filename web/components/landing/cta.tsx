@@ -1,9 +1,10 @@
 import DownloadButton from "./download-button";
+import { pageNarrow } from "@/lib/styles";
 
 export default function CTA() {
   return (
     <section id="cta" className="relative py-24">
-      <div className="container mx-auto max-w-4xl px-6 text-center">
+      <div className={`${pageNarrow} text-center`}>
         <h3 className="text-balance text-3xl font-semibold md:text-4xl text-zinc-50">
           Ready to bring your meetings into the light?
         </h3>

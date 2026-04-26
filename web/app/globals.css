@@ -37,9 +37,9 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
-  --color-brand: #cbc3e3;
-  --color-brand-light: #b8aed6;
-  --color-brand-dark: #a69bc9;
+  --color-brand: #8a6ae7;
+  --color-brand-light: #b59ae9;
+  --color-brand-dark: #5d42a7;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -121,6 +121,14 @@
   }
   body {
     @apply bg-background font-sans text-foreground;
+  }
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: default;
   }
 }
 

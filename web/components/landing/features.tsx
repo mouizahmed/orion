@@ -1,211 +1,190 @@
-import { Users, Key, FileText, Ban, Share2, Upload } from "lucide-react";
-import Image from "next/image";
+import { pageContainer } from "@/lib/styles";
+
+const featureSections = [
+  {
+    eyebrow: "[01] DURING THE MEETING / LIVE HELP",
+    headline:
+      "Get useful context while the conversation is still happening.",
+    layout: "stacked",
+    features: [
+      {
+        title: "Answers without breaking flow",
+        description:
+          "Ask about the call, your notes, or past context without leaving the meeting.",
+      },
+      {
+        title: "Context from past conversations",
+        description:
+          "Bring decisions, objections, and customer history back when they matter.",
+      },
+      {
+        title: "Write notes in the overlay",
+        description:
+          "Capture thoughts, decisions, and follow-ups in the private overlay while the meeting continues.",
+      },
+      {
+        title: "Ask better follow-up questions",
+        description:
+          "Surface the next question to ask when the conversation needs more clarity.",
+      },
+    ],
+  },
+  {
+    eyebrow: "[02] BEFORE THE CALL / PREPARE",
+    headline:
+      "Walk into meetings with the right memory already in front of you.",
+    layout: "split",
+    features: [
+      {
+        title: "Know who you are talking to",
+        description:
+          "Pull together relevant people, topics, and recent history before the call starts.",
+      },
+      {
+        title: "Bring workspace memory",
+        description:
+          "Use transcripts, recordings, and notes as a private knowledge base for each meeting.",
+      },
+      {
+        title: "Works where calls happen",
+        description:
+          "Use Sunless with Zoom, Google Meet, Teams, or recordings you already have.",
+      },
+      {
+        title: "Import existing recordings",
+        description:
+          "Drop in audio or video files when the meeting already happened somewhere else.",
+      },
+    ],
+  },
+  {
+    eyebrow: "[03] AFTER THE CALL / MEMORY",
+    headline:
+      "Turn every call into notes, follow-ups, and searchable team memory.",
+    layout: "stacked",
+    features: [
+      {
+        title: "Gets smarter over time",
+        description:
+          "Sunless learns from every meeting, so each transcript, note, and decision makes future answers more useful.",
+      },
+      {
+        title: "Enhance notes with AI",
+        description:
+          "Turn rough notes into clear summaries, action items, and cleaner meeting records.",
+      },
+      {
+        title: "Search across past meetings",
+        description:
+          "Find the exact moment, topic, or answer from previous calls in seconds.",
+      },
+      {
+        title: "Export to your workflow",
+        description:
+          "Send notes into Markdown, PDF, or the tools your team already uses.",
+      },
+    ],
+  },
+];
+
+function PlaceholderVisual() {
+  return (
+    <div className="-mx-7 -mb-7 mt-8 aspect-[16/10] border-t border-dashed border-zinc-800 bg-zinc-950/45" />
+  );
+}
+
+function StackedFeatureGrid({
+  features,
+}: {
+  features: { title: string; description: string }[];
+}) {
+  return (
+    <div className="grid md:grid-cols-2">
+      {features.map((feature, index) => (
+        <article
+          key={feature.title}
+          className={`flex min-h-[390px] flex-col overflow-hidden border-zinc-800 p-7 ${
+            index % 2 === 0 ? "md:border-r" : ""
+          } ${index < features.length - 2 ? "border-b" : ""}`}
+        >
+          <div className="min-h-[118px]">
+            <h3 className="text-xl font-semibold text-white">
+              {feature.title}
+            </h3>
+            <p className="mt-2 max-w-xl text-base font-medium leading-7 text-zinc-500">
+              {feature.description}
+            </p>
+          </div>
+          <div className="flex-1" />
+          <PlaceholderVisual />
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SplitFeatureList({
+  features,
+}: {
+  features: { title: string; description: string }[];
+}) {
+  return (
+    <div>
+      {features.map((feature, index) => (
+        <article
+          key={feature.title}
+          className={`grid border-zinc-800 md:grid-cols-2 ${
+            index < features.length - 1 ? "border-b" : ""
+          }`}
+        >
+          <div
+            className={`flex aspect-square flex-col justify-center p-7 md:p-9 ${
+              index % 2 === 1 ? "md:order-2" : ""
+            }`}
+          >
+            <h3 className="text-2xl font-semibold text-white">
+              {feature.title}
+            </h3>
+            <p className="mt-3 max-w-xl text-base font-medium leading-7 text-zinc-500">
+              {feature.description}
+            </p>
+          </div>
+          <div
+            className={`aspect-square border-t border-dashed border-zinc-800 bg-zinc-950/45 md:border-t-0 ${
+              index % 2 === 1 ? "md:border-r" : "md:border-l"
+            }`}
+          />
+        </article>
+      ))}
+    </div>
+  );
+}
 
 export default function Features() {
   return (
-    <section id="features" className="relative py-20 bg-zinc-950">
-      <div className="container mx-auto max-w-7xl px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-3 gap-6 lg:gap-8">
-          {/* First Column, Row 1 - Speaker Identification */}
-          <div className="bg-zinc-900 rounded-xl p-6 shadow-sm border border-zinc-800 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-4">
-                <Users className="w-8 h-8 text-zinc-300 mx-auto" />
+    <section id="features" className="relative py-20">
+      <div className={`${pageContainer} space-y-16`}>
+        {featureSections.map((section) => (
+          <div
+            key={section.eyebrow}
+            className="overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/40"
+          >
+            <div className="border-b border-zinc-800 p-8 md:p-11">
+              <div className="text-xs font-semibold uppercase tracking-[0.22em] text-brand/70">
+                {section.eyebrow}
               </div>
-              <h3 className="text-lg font-semibold text-zinc-50 mb-2">
-                Speaker Identification
-              </h3>
-              <p className="text-zinc-400 text-sm">
-                Identify and separate speakers completely on your device for
-                better context and summaries. Fully private and local.
-              </p>
+              <h2 className="mt-5 max-w-4xl text-balance text-3xl font-semibold leading-tight text-white md:text-5xl">
+                {section.headline}
+              </h2>
             </div>
-          </div>
 
-          {/* Second Column - No meeting bot spanning all 3 rows */}
-          <div className="lg:row-span-3 bg-zinc-900 rounded-xl p-8 shadow-sm border border-zinc-800 flex flex-col justify-center text-center">
-            <div className="grid grid-cols-4 gap-4 mb-8">
-              {/* Platform icons grid */}
-              <div className="aspect-square bg-blue-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/zoom.svg"
-                  alt="Zoom"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-green-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/facetime.svg"
-                  alt="FaceTime"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-orange-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/slack-icon.svg"
-                  alt="Slack"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-green-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/whatsapp-icon.svg"
-                  alt="WhatsApp"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-green-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/signal.svg"
-                  alt="Signal"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-blue-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/google.svg"
-                  alt="Google Meet"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-blue-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/telegram.svg"
-                  alt="Telegram"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-purple-950/50 rounded-xl flex items-center justify-center p-2 col-start-2">
-                <Image
-                  src="/discord-icon.svg"
-                  alt="Discord"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-              <div className="aspect-square bg-orange-950/50 rounded-xl flex items-center justify-center p-2">
-                <Image
-                  src="/webex.svg"
-                  alt="Webex"
-                  width={32}
-                  height={32}
-                  className="w-8 h-8"
-                />
-              </div>
-            </div>
-            <div className="flex justify-center mb-6">
-              <Ban className="w-12 h-12 text-zinc-400" />
-            </div>
-            <h3 className="text-2xl font-semibold text-zinc-50 mb-4">
-              No meeting bot
-            </h3>
-            <p className="text-zinc-400">
-              Sunless works with all meeting platforms. No need to worry about
-              meeting bots joining your meetings.
-            </p>
+            {section.layout === "split" ? (
+              <SplitFeatureList features={section.features} />
+            ) : (
+              <StackedFeatureGrid features={section.features} />
+            )}
           </div>
-
-          {/* Third Column, Row 1 - Share notes spanning 2 rows */}
-          <div className="lg:row-span-2 bg-zinc-900 rounded-xl p-8 shadow-sm border border-zinc-800 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-6">
-                <Share2 className="w-12 h-12 text-zinc-300 mx-auto" />
-              </div>
-              <h3 className="text-xl font-semibold text-zinc-50 mb-4">
-                Share your notes with one click
-              </h3>
-              <p className="text-zinc-400 mb-6">
-                Makes it easy to share notes on the platforms you already use.
-                Export to Slack, email, or your favorite collaboration tools
-                instantly.
-              </p>
-              <div className="bg-zinc-950 rounded-lg p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">
-                      Slack Integration
-                    </span>
-                    <div className="w-4 h-4 bg-green-500 rounded"></div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Email Export</span>
-                    <div className="w-4 h-4 bg-blue-500 rounded"></div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-zinc-400">Team Sharing</span>
-                    <div className="w-4 h-4 bg-purple-500 rounded"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* First Column, Row 2 - Bring Your Own LLM Key */}
-          <div className="bg-zinc-900 rounded-xl p-6 shadow-sm border border-zinc-800 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-4">
-                <Key className="w-8 h-8 text-zinc-300 mx-auto" />
-              </div>
-              <h3 className="text-lg font-semibold text-zinc-50 mb-2">
-                Bring Your Own LLM Key
-              </h3>
-              <p className="text-zinc-400 text-sm">
-                Use any OpenAI compatible endpoint and API key. You can connect
-                it to local models through Ollama or use your OpenAI API key.
-                Your data stays within your firewall.
-              </p>
-            </div>
-          </div>
-
-          {/* Third Column, Row 3 - Import Any Audio/Video */}
-          <div className="bg-zinc-900 rounded-xl p-6 shadow-sm border border-zinc-800 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-4">
-                <Upload className="w-8 h-8 text-zinc-300 mx-auto" />
-              </div>
-              <h3 className="text-lg font-semibold text-zinc-50 mb-2">
-                Import Any Audio/Video
-              </h3>
-              <p className="text-zinc-400 text-sm">
-                Have existing recordings? Drag and drop any audio or video file
-                (MP4, MOV, MP3, WAV) for unlimited transcription and AI
-                analysis.
-              </p>
-            </div>
-          </div>
-
-          {/* First Column, Row 3 - Auto Export & Obsidian Integration */}
-          <div className="bg-zinc-900 rounded-xl p-6 shadow-sm border border-zinc-800 flex items-center justify-center">
-            <div className="text-center">
-              <div className="mb-4">
-                <FileText className="w-8 h-8 text-zinc-300 mx-auto" />
-              </div>
-              <h3 className="text-lg font-semibold text-zinc-50 mb-2">
-                Auto Export & Obsidian Integration
-              </h3>
-              <p className="text-zinc-400 text-sm">
-                Automatically export meetings and transcripts to PDF or Markdown
-                with images. Direct integration with Obsidian for seamless
-                knowledge management.
-              </p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
     </section>
   );
