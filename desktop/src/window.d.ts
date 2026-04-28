@@ -40,8 +40,12 @@ interface WindowControl {
   toggleVisibility: () => void
   setWindowHeight: (height: number) => void
   setWindowSize: (width: number, height: number) => void
+  setVisibleOverlayBounds: (bounds: { offsetX: number; offsetY: number; width: number; height: number }) => void
   onDragOffset: (callback: (offset: { x: number; y: number }) => void) => void
   onFocusInput: (callback: () => void) => void
+  onToggleNotepadFocus: (callback: () => void) => () => void
+  onToggleOverlayPanel: (callback: (panel: MeetingPanel) => void) => () => void
+  blurOverlay: () => void
 }
 
 interface DashboardControl {
@@ -55,6 +59,13 @@ type ShortcutAction =
   | 'moveLeft'
   | 'moveRight'
   | 'toggleVisibility'
+  | 'focusNotepad'
+  | 'toggleNotepad'
+  | 'toggleTranscript'
+  | 'toggleAsk'
+  | 'toggleInsights'
+
+type MeetingPanel = 'notepad' | 'transcript' | 'ask' | 'insights'
 
 type ShortcutState = {
   current: Record<ShortcutAction, string>

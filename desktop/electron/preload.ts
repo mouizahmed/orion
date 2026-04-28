@@ -7,6 +7,11 @@ type ShortcutAction =
   | 'moveLeft'
   | 'moveRight'
   | 'toggleVisibility'
+  | 'focusNotepad'
+  | 'toggleNotepad'
+  | 'toggleTranscript'
+  | 'toggleAsk'
+  | 'toggleInsights'
 
 type ShortcutState = {
   current: Record<ShortcutAction, string>
@@ -62,12 +67,36 @@ contextBridge.exposeInMainWorld('windowControl', {
     ipcRenderer.send('set-window-size', { width, height })
   },
 
+  setVisibleOverlayBounds: (bounds: { offsetX: number; offsetY: number; width: number; height: number }) => {
+    ipcRenderer.send('set-visible-overlay-bounds', bounds)
+  },
+
   onDragOffset: (callback: (offset: { x: number; y: number }) => void) => {
     ipcRenderer.on('drag-offset', (_event, offset) => callback(offset))
   },
 
   onFocusInput: (callback: () => void) => {
     ipcRenderer.on('focus-input', () => callback())
+  },
+
+  onToggleNotepadFocus: (callback: () => void) => {
+    const listener = () => callback()
+    ipcRenderer.on('toggle-notepad-focus', listener)
+    return () => {
+      ipcRenderer.off('toggle-notepad-focus', listener)
+    }
+  },
+
+  onToggleOverlayPanel: (callback: (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => void) => {
+    const listener = (_event: IpcRendererEvent, panel: 'notepad' | 'transcript' | 'ask' | 'insights') => callback(panel)
+    ipcRenderer.on('toggle-overlay-panel', listener)
+    return () => {
+      ipcRenderer.off('toggle-overlay-panel', listener)
+    }
+  },
+
+  blurOverlay: () => {
+    ipcRenderer.send('blur-overlay')
   }
 })
 

@@ -1,4 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
+import {
+  forwardRef,
+  memo,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type ForwardedRef,
+} from 'react'
 import { Camera, Loader2 } from 'lucide-react'
 import AISelectionPopover from './AISelectionPopover'
 import {
@@ -36,6 +47,12 @@ type MarkdownEditorProps = {
   showToolbar?: boolean
   className?: string
   noteId?: string
+}
+
+export type MarkdownEditorHandle = {
+  focus: () => void
+  blur: () => void
+  isFocused: () => boolean
 }
 
 function ToolbarContents() {
@@ -85,7 +102,10 @@ function getImageFiles(dataTransfer: DataTransfer): File[] {
   return Array.from(dataTransfer.files).filter((f) => IMAGE_MIME_TYPES.has(f.type))
 }
 
-function MarkdownEditorInner({ markdown, onChange, placeholder, theme = 'auto', showToolbar = false, className, noteId }: MarkdownEditorProps) {
+function MarkdownEditorInner(
+  { markdown, onChange, placeholder, theme = 'auto', showToolbar = false, className, noteId }: MarkdownEditorProps,
+  ref: ForwardedRef<MarkdownEditorHandle>,
+) {
   const editorRef = useRef<MDXEditorMethods>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const isInternalChangeRef = useRef(false)
@@ -208,6 +228,25 @@ function MarkdownEditorInner({ markdown, onChange, placeholder, theme = 'auto', 
     editorRef.current.setMarkdown(md)
   }, [])
 
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      editorRef.current?.focus(undefined, {
+        defaultSelection: 'rootEnd',
+        preventScroll: true,
+      })
+    },
+    blur: () => {
+      const activeElement = document.activeElement
+      if (activeElement instanceof HTMLElement && containerRef.current?.contains(activeElement)) {
+        activeElement.blur()
+      }
+    },
+    isFocused: () => {
+      const activeElement = document.activeElement
+      return Boolean(activeElement && containerRef.current?.contains(activeElement))
+    },
+  }), [])
+
   return (
     <div
       ref={containerRef}
@@ -266,5 +305,5 @@ function MarkdownEditorInner({ markdown, onChange, placeholder, theme = 'auto', 
   )
 }
 
-const MarkdownEditor = memo(MarkdownEditorInner)
+const MarkdownEditor = memo(forwardRef(MarkdownEditorInner))
 export default MarkdownEditor

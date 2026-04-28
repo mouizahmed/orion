@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import CompactOverlayBar from '@/components/CompactOverlayBar'
-import CompactMeetingPanel from '@/components/CompactMeetingPanel'
+import CompactMeetingPanel, { type CompactMeetingPanelHandle } from '@/components/CompactMeetingPanel'
 import SettingsPanel from '@/components/SettingsPanel'
+import TranscriptPanel from '@/components/TranscriptPanel'
 import Welcome from '@/components/Welcome'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -18,12 +19,19 @@ const WINDOW_VERTICAL_PADDING = 0
 const MAX_APP_HEIGHT = 900
 const WINDOW_HORIZONTAL_PADDING = 0
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+const TEMP_BYPASS_MEETING_BACKEND = true
+const OVERLAY_COMPACT_WIDTH = 356
+const OVERLAY_MEETING_COMPACT_WIDTH = 464
+const OVERLAY_EXPANDED_WIDTH = 520
+const PANEL_UNDER_PILL_CLASSNAME = 'w-full'
+type MeetingPanel = 'notepad' | 'transcript' | 'insights' | 'ask'
 
-const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting', number> = {
-  welcome: 640,
-  settings: 640,
-  compact: 640,
-  compactMeeting: 640,
+const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting', number> = {
+  welcome: OVERLAY_EXPANDED_WIDTH,
+  settings: OVERLAY_EXPANDED_WIDTH,
+  compact: OVERLAY_COMPACT_WIDTH,
+  compactMeeting: OVERLAY_EXPANDED_WIDTH,
+  expandedMeeting: OVERLAY_MEETING_COMPACT_WIDTH,
 }
 
 function AppContent() {
@@ -31,12 +39,14 @@ function AppContent() {
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [activePanel, setActivePanel] = useState<'main' | 'settings'>('main')
+  const [meetingPanel, setMeetingPanel] = useState<MeetingPanel | null>(null)
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null)
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     setContentEl(node)
   }, [])
 
   const [meetingActive, setMeetingActive] = useState(false)
+  const [meetingPaused, setMeetingPaused] = useState(false)
   const [meetingNoteId, setMeetingNoteId] = useState<string | null>(null)
   const [meetingSessionId, setMeetingSessionId] = useState<string | null>(null)
   const [micMuted, setMicMuted] = useState(false)
@@ -47,6 +57,10 @@ function AppContent() {
   const [showDashboardConfirm, setShowDashboardConfirm] = useState(false)
   const [settingsPanelMounted, setSettingsPanelMounted] = useState(false)
   const [settingsPanelClosing, setSettingsPanelClosing] = useState(false)
+  const [notepadFocusRequest, setNotepadFocusRequest] = useState(0)
+  const meetingPanelRef = useRef<CompactMeetingPanelHandle>(null)
+  const pendingNotepadFocusRef = useRef(false)
+  const notepadFocusTimerRef = useRef<number | null>(null)
 
   const isQuotaError = (error: Error) => {
     const text = `${error.message}`.toLowerCase()
@@ -83,6 +97,88 @@ function AppContent() {
   }, [user])
 
   useEffect(() => {
+    const unsubscribe = window.windowControl?.onToggleNotepadFocus?.(() => {
+      if (!meetingActive || !meetingNoteId) return
+
+      if (meetingPanel === 'notepad' && meetingPanelRef.current?.isEditorFocused()) {
+        meetingPanelRef.current.blurEditor()
+        window.windowControl?.blurOverlay?.()
+        return
+      }
+
+      pendingNotepadFocusRef.current = true
+      setActivePanel('main')
+      setMeetingPanel('notepad')
+      setNotepadFocusRequest((request) => request + 1)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [meetingActive, meetingNoteId, meetingPanel])
+
+  const toggleMeetingPanel = useCallback((panel: MeetingPanel) => {
+    if (!meetingActive) return
+    setActivePanel('main')
+    setMeetingPanel((current) => {
+      const next = current === panel ? null : panel
+      if (next === 'notepad') {
+        pendingNotepadFocusRef.current = true
+        setNotepadFocusRequest((request) => request + 1)
+      }
+      return next
+    })
+  }, [meetingActive])
+
+  useEffect(() => {
+    const unsubscribe = window.windowControl?.onToggleOverlayPanel?.((panel) => {
+      toggleMeetingPanel(panel)
+    })
+
+    return () => {
+      unsubscribe?.()
+    }
+  }, [toggleMeetingPanel])
+
+  const focusNotepadEditorWithRetry = useCallback((attempt = 0) => {
+    if (notepadFocusTimerRef.current) {
+      window.clearTimeout(notepadFocusTimerRef.current)
+      notepadFocusTimerRef.current = null
+    }
+
+    meetingPanelRef.current?.focusEditor()
+
+    if (meetingPanelRef.current?.isEditorFocused()) {
+      pendingNotepadFocusRef.current = false
+      return
+    }
+
+    if (attempt >= 20) {
+      pendingNotepadFocusRef.current = false
+      return
+    }
+
+    notepadFocusTimerRef.current = window.setTimeout(() => {
+      focusNotepadEditorWithRetry(attempt + 1)
+    }, 50)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingNotepadFocusRef.current || activePanel !== 'main' || meetingPanel !== 'notepad') {
+      return
+    }
+
+    focusNotepadEditorWithRetry()
+
+    return () => {
+      if (notepadFocusTimerRef.current) {
+        window.clearTimeout(notepadFocusTimerRef.current)
+        notepadFocusTimerRef.current = null
+      }
+    }
+  }, [activePanel, focusNotepadEditorWithRetry, meetingPanel, notepadFocusRequest])
+
+  useEffect(() => {
     const handleGlobalMouseMove = (event: MouseEvent) => {
       if (!isDragging) return
       window.windowControl?.moveDrag(event.screenX, event.screenY, dragOffset.x, dragOffset.y)
@@ -108,13 +204,29 @@ function AppContent() {
     window.windowControl?.startDrag(event.screenX, event.screenY)
   }
 
-  const layoutKey: 'welcome' | 'settings' | 'compact' | 'compactMeeting' = useMemo(() => {
+  const layoutKey: 'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting' = useMemo(() => {
     if (!user) return 'welcome'
     if (activePanel === 'settings' || settingsPanelMounted) return 'settings'
-    return meetingActive ? 'compactMeeting' : 'compact'
-  }, [activePanel, meetingActive, settingsPanelMounted, user])
+    if (meetingActive) return meetingPanel ? 'compactMeeting' : 'expandedMeeting'
+    return 'compact'
+  }, [activePanel, meetingActive, meetingPanel, settingsPanelMounted, user])
+  const [windowLayoutKey, setWindowLayoutKey] = useState(layoutKey)
+  const isContentSizedLayout = layoutKey === 'compact' || layoutKey === 'expandedMeeting'
 
   const shouldRenderSettingsPanel = activePanel === 'settings' || settingsPanelMounted
+
+  useEffect(() => {
+    if (layoutKey !== 'compact' && layoutKey !== 'expandedMeeting') {
+      setWindowLayoutKey(layoutKey)
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      setWindowLayoutKey(layoutKey)
+    }, 220)
+
+    return () => window.clearTimeout(timer)
+  }, [layoutKey])
 
   useEffect(() => {
     if (activePanel === 'settings') {
@@ -138,9 +250,23 @@ function AppContent() {
     if (!contentEl) return
 
     const updateHeight = () => {
-      const contentHeight = Math.min(contentEl.scrollHeight, MAX_APP_HEIGHT)
+      const contentHeight = Math.min(Math.ceil(contentEl.getBoundingClientRect().height), MAX_APP_HEIGHT)
       const height = contentHeight + WINDOW_VERTICAL_PADDING
-      const width = LAYOUT_WIDTH[layoutKey] + WINDOW_HORIZONTAL_PADDING
+      const contentWidth = windowLayoutKey === 'compact' || windowLayoutKey === 'expandedMeeting'
+        ? Math.ceil(contentEl.getBoundingClientRect().width)
+        : LAYOUT_WIDTH[windowLayoutKey]
+      const width = contentWidth + WINDOW_HORIZONTAL_PADDING
+      const visibleEl = contentEl.querySelector<HTMLElement>('[data-overlay-visible]')
+      if (visibleEl) {
+        const contentRect = contentEl.getBoundingClientRect()
+        const visibleRect = visibleEl.getBoundingClientRect()
+        window.windowControl?.setVisibleOverlayBounds?.({
+          offsetX: Math.round(visibleRect.left - contentRect.left),
+          offsetY: 0,
+          width: Math.ceil(visibleRect.width),
+          height: Math.max(1, height),
+        })
+      }
       if (typeof window.windowControl?.setWindowSize === 'function') {
         window.windowControl.setWindowSize(width, height)
       } else {
@@ -163,7 +289,7 @@ function AppContent() {
     return () => {
       observer.disconnect()
     }
-  }, [contentEl, layoutKey])
+  }, [contentEl, windowLayoutKey])
 
   // Show nothing while loading auth state
   if (isLoading) {
@@ -237,28 +363,40 @@ function AppContent() {
       }
     }
     setMeetingActive(false)
+    setMeetingPaused(false)
     setMeetingSessionId(null)
     setMeetingNoteId(null)
+    setMeetingPanel(null)
     setTranscriptionEnabled(false)
     setTranscriptionMode('live')
     setTranscriptionNotice(null)
-  }
-
-  const resumeTranscription = () => {
-    if (!meetingActive) return
-    setTranscriptionMode('live')
-    setTranscriptionNotice(null)
-    setTranscriptionEnabled(true)
   }
 
   const handleToggleMeeting = async () => {
     if (!meetingActive) {
       const now = new Date()
       const title = `Meeting - ${now.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`
+
+      if (TEMP_BYPASS_MEETING_BACKEND) {
+        setMeetingNoteId(`local-meeting-${now.getTime()}`)
+        setMeetingActive(true)
+        setMeetingPaused(false)
+        setActivePanel('main')
+        setMeetingPanel('notepad')
+        setMeetingSessionId(null)
+        setTranscriptionEnabled(false)
+        setTranscriptionMode('notes_only')
+        setTranscriptionNotice(null)
+        return
+      }
+
       try {
         const created = await createNote(user?.id, { title, folderId: null })
         setMeetingNoteId(created.id)
         setMeetingActive(true)
+        setMeetingPaused(false)
+        setActivePanel('main')
+        setMeetingPanel('notepad')
         setTranscriptionEnabled(true)
         setTranscriptionMode('live')
         setTranscriptionNotice(null)
@@ -290,6 +428,29 @@ function AppContent() {
     }
   }
 
+  const handleToggleMeetingPaused = () => {
+    if (!meetingActive) return
+
+    setMeetingPaused((current) => {
+      const nextPaused = !current
+      if (nextPaused) {
+        setTranscriptionEnabled(false)
+        setTranscriptionMode('notes_only')
+        setTranscriptionNotice('Meeting paused. Notes continue.')
+      } else {
+        setTranscriptionNotice(null)
+        if (TEMP_BYPASS_MEETING_BACKEND) {
+          setTranscriptionMode('notes_only')
+          setTranscriptionEnabled(false)
+        } else {
+          setTranscriptionMode('live')
+          setTranscriptionEnabled(true)
+        }
+      }
+      return nextPaused
+    })
+  }
+
   const handleOpenDashboard = () => {
     if (meetingActive) {
       setShowDashboardConfirm(true)
@@ -306,11 +467,15 @@ function AppContent() {
   }
 
   return (
-    <div className="flex w-full flex-col items-center justify-center">
+    <div className="flex w-full flex-col items-start justify-start">
       <div
         ref={contentRef}
-        style={{ maxHeight: MAX_APP_HEIGHT, width: LAYOUT_WIDTH[layoutKey] }}
-        className="flex flex-col gap-2 p-2"
+        style={{ maxHeight: MAX_APP_HEIGHT, width: isContentSizedLayout ? undefined : LAYOUT_WIDTH[layoutKey] }}
+        className={cn(
+          'flex flex-col gap-2 transition-[width] duration-200 ease-out',
+          'p-0',
+          isContentSizedLayout ? 'w-max' : '',
+        )}
       >
         <Dialog
           open={showDashboardConfirm}
@@ -351,13 +516,28 @@ function AppContent() {
             <CompactOverlayBar
               onMouseDown={handleMouseDown}
               meetingActive={meetingActive}
+              meetingPaused={meetingPaused}
               onToggleMeeting={() => void handleToggleMeeting()}
+              onToggleMeetingPaused={handleToggleMeetingPaused}
               micMuted={micMuted}
               onToggleMicMuted={() => setMicMuted((v) => !v)}
               speakerMuted={speakerMuted}
               onToggleSpeakerMuted={() => setSpeakerMuted((v) => !v)}
               onOpenDashboard={handleOpenDashboard}
               settingsOpen={activePanel === 'settings'}
+              compact={activePanel !== 'settings' && (!meetingActive || meetingPanel === null)}
+              notepadOpen={meetingPanel === 'notepad' && activePanel !== 'settings'}
+              activeMeetingTool={
+                activePanel === 'settings'
+                  ? null
+                  : meetingPanel === 'transcript' || meetingPanel === 'insights' || meetingPanel === 'ask'
+                    ? meetingPanel
+                    : null
+              }
+              onToggleNotepad={() => toggleMeetingPanel('notepad')}
+              onOpenTranscript={() => toggleMeetingPanel('transcript')}
+              onOpenInsights={() => toggleMeetingPanel('insights')}
+              onOpenAsk={() => toggleMeetingPanel('ask')}
               onToggleSettings={() =>
                 setActivePanel((current) => (current === 'settings' ? 'main' : 'settings'))
               }
@@ -366,6 +546,7 @@ function AppContent() {
             {shouldRenderSettingsPanel ? (
               <div
                 className={cn(
+                  PANEL_UNDER_PILL_CLASSNAME,
                   'origin-top transition-all duration-150 ease-out',
                   settingsPanelClosing
                     ? 'translate-y-[-4px] scale-[0.985] opacity-0'
@@ -377,16 +558,62 @@ function AppContent() {
                   onLogoutEverywhere={logoutEverywhere}
                 />
               </div>
-            ) : meetingActive && meetingNoteId ? (
-              <CompactMeetingPanel
-                noteId={meetingNoteId}
-                userId={user.id}
-                transcriptSegments={transcriptSegments}
-                transcriptStatus={transcriptStatus}
-                transcriptionMode={transcriptionMode}
-                transcriptionNotice={transcriptionNotice}
-                onResumeTranscription={resumeTranscription}
-              />
+            ) : meetingActive && meetingNoteId && meetingPanel === 'notepad' ? (
+              <div className={PANEL_UNDER_PILL_CLASSNAME}>
+                <CompactMeetingPanel
+                  ref={meetingPanelRef}
+                  noteId={meetingNoteId}
+                  userId={user.id}
+                  transcriptSegments={transcriptSegments}
+                  transcriptStatus={transcriptStatus}
+                  transcriptionMode={transcriptionMode}
+                  transcriptionNotice={transcriptionNotice}
+                />
+              </div>
+            ) : meetingActive && meetingPanel === 'transcript' ? (
+              <div className={PANEL_UNDER_PILL_CLASSNAME}>
+                <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-[#171417]/80 p-1 text-sm text-white/80 ring-1 ring-white/8 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.02]">
+                  <div className="relative p-1">
+                    <TranscriptPanel
+                      segments={transcriptSegments}
+                      status={
+                        transcriptionMode === 'notes_only'
+                          ? 'disabled'
+                          : transcriptStatus === 'connected'
+                            ? 'live'
+                            : transcriptStatus === 'connecting'
+                              ? 'paused'
+                              : 'disabled'
+                      }
+                      isProcessing={transcriptionMode !== 'notes_only' && transcriptStatus === 'connecting'}
+                      appearance="embedded"
+                      className="min-h-[160px]"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : meetingActive && meetingPanel === 'insights' ? (
+              <div className={PANEL_UNDER_PILL_CLASSNAME}>
+                <div className="rounded-lg border border-white/12 bg-[#171417]/80 px-2.5 py-2 text-sm text-white/80 backdrop-blur-md">
+                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-4">
+                    <div className="text-sm font-semibold text-white">Insights</div>
+                    <p className="text-xs leading-relaxed text-white/55">
+                      Live meeting insights will appear here as questions, decisions, and follow-ups are detected.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : meetingActive && meetingPanel === 'ask' ? (
+              <div className={PANEL_UNDER_PILL_CLASSNAME}>
+                <div className="rounded-lg border border-white/12 bg-[#171417]/80 px-2.5 py-2 text-sm text-white/80 backdrop-blur-md">
+                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-4">
+                    <div className="text-sm font-semibold text-white">Ask</div>
+                    <p className="text-xs leading-relaxed text-white/55">
+                      Ask questions about the live meeting transcript and your notes.
+                    </p>
+                  </div>
+                </div>
+              </div>
             ) : null}
           </>
         ) : (
@@ -406,5 +633,6 @@ function App() {
 }
 
 export default App
+
 
 

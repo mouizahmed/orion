@@ -13,6 +13,11 @@ type SettingsPanelProps = {
 
 type ShortcutAction =
   | 'toggleVisibility'
+  | 'focusNotepad'
+  | 'toggleNotepad'
+  | 'toggleTranscript'
+  | 'toggleAsk'
+  | 'toggleInsights'
   | 'moveUp'
   | 'moveDown'
   | 'moveLeft'
@@ -41,6 +46,31 @@ const shortcutGroups: ShortcutGroup[] = [
         key: 'toggleVisibility',
         label: 'Toggle Notepad',
         description: 'Show or hide the notepad from anywhere.',
+      },
+      {
+        key: 'focusNotepad',
+        label: 'Focus Notepad',
+        description: 'Jump into the meeting notepad, or unfocus it when already typing.',
+      },
+      {
+        key: 'toggleNotepad',
+        label: 'Toggle Notepad Panel',
+        description: 'Show or hide the meeting notepad panel.',
+      },
+      {
+        key: 'toggleTranscript',
+        label: 'Toggle Transcript',
+        description: 'Show or hide the live transcript panel.',
+      },
+      {
+        key: 'toggleAsk',
+        label: 'Toggle Ask',
+        description: 'Show or hide the meeting ask panel.',
+      },
+      {
+        key: 'toggleInsights',
+        label: 'Toggle Insights',
+        description: 'Show or hide the meeting insights panel.',
       },
     ],
   },
@@ -270,7 +300,7 @@ export default function SettingsPanel({
 
   return (
     <div className="flex w-full select-none flex-col gap-2">
-      <div className="relative max-h-[520px] overflow-hidden rounded-2xl border border-white/15 bg-zinc-950/55 p-1 text-sm text-white/80 ring-1 ring-white/10 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-violet-500/5">
+      <div className="relative max-h-[520px] overflow-hidden rounded-2xl border border-white/12 bg-[#171417]/80 p-1 text-sm text-white/80 ring-1 ring-white/8 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.02]">
         <div className="attachments-scrollbar relative flex max-h-[512px] flex-col gap-2 overflow-y-auto p-1">
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-zinc-900/55 text-zinc-100">
@@ -448,4 +478,5 @@ export default function SettingsPanel({
     </div>
   )
 }
+
 

@@ -85,7 +85,26 @@ if (!gotTheLock) {
 
     // Register keyboard shortcuts after window is ready
     win.webContents.on('did-finish-load', () => {
-      registerKeyboardShortcuts(() => {
+      const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
+        const dashboard = getDashboardWindow()
+        if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
+          closeDashboardWindow()
+        }
+
+        const overlay = getWindow()
+        if (!overlay || overlay.isDestroyed()) return
+        if (!overlay.isVisible()) {
+          overlay.show()
+        }
+        overlay.focus()
+        setTimeout(() => {
+          if (!overlay.isDestroyed() && overlay.isVisible()) {
+            overlay.webContents.send('toggle-overlay-panel', panel)
+          }
+        }, 16)
+      }
+
+      const toggleVisibilityHandler = () => {
         const dashboard = getDashboardWindow()
         if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
           closeDashboardWindow()
@@ -114,6 +133,32 @@ if (!gotTheLock) {
             }
           }, 16)
         }
+      }
+
+      const focusNotepadHandler = () => {
+        const dashboard = getDashboardWindow()
+        if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
+          closeDashboardWindow()
+        }
+
+        const overlay = getWindow()
+        if (!overlay || overlay.isDestroyed()) return
+        if (!overlay.isVisible()) {
+          overlay.show()
+        }
+        overlay.focus()
+        setTimeout(() => {
+          if (!overlay.isDestroyed() && overlay.isVisible()) {
+            overlay.webContents.send('toggle-notepad-focus')
+          }
+        }, 16)
+      }
+
+      registerKeyboardShortcuts(toggleVisibilityHandler, focusNotepadHandler, {
+        toggleNotepad: () => toggleOverlayPanel('notepad'),
+        toggleTranscript: () => toggleOverlayPanel('transcript'),
+        toggleAsk: () => toggleOverlayPanel('ask'),
+        toggleInsights: () => toggleOverlayPanel('insights'),
       })
     })
 

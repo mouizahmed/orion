@@ -1,11 +1,12 @@
 import { ipcMain, desktopCapturer } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
-import { createDashboardWindow, getDashboardWindow, getWindow } from './window'
+import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow } from './window'
 import {
   registerKeyboardShortcuts,
   unregisterMovementShortcuts,
   getShortcutState,
+  setVisibleOverlayBounds,
   updateShortcut,
 } from './shortcuts'
 
@@ -71,6 +72,13 @@ export function setupIpcHandlers() {
     win.setBounds({ x, y, width, height }, false)
   })
 
+  ipcMain.on(
+    'set-visible-overlay-bounds',
+    (_event, bounds: { offsetX: number; offsetY: number; width: number; height: number } | null) => {
+      setVisibleOverlayBounds(bounds)
+    },
+  )
+
   ipcMain.on('toggle-visibility', () => {
     const win = getWindow()
     if (!win) return
@@ -84,6 +92,12 @@ export function setupIpcHandlers() {
       }
       win.show()
     }
+  })
+
+  ipcMain.on('blur-overlay', () => {
+    const win = getWindow()
+    if (!win || win.isDestroyed()) return
+    win.blur()
   })
 
   ipcMain.on('dashboard:open', (_event, payload?: { noteId?: string }) => {
@@ -147,6 +161,43 @@ export function setupIpcHandlers() {
       } else {
         win.show()
       }
+    }, () => {
+      const win = getWindow()
+      if (!win || win.isDestroyed()) return
+      if (!win.isVisible()) {
+        win.show()
+      }
+      win.focus()
+      win.webContents.send('toggle-notepad-focus')
+    }, {
+      toggleNotepad: () => {
+        const win = getWindow()
+        if (!win || win.isDestroyed()) return
+        if (!win.isVisible()) win.show()
+        win.focus()
+        win.webContents.send('toggle-overlay-panel', 'notepad')
+      },
+      toggleTranscript: () => {
+        const win = getWindow()
+        if (!win || win.isDestroyed()) return
+        if (!win.isVisible()) win.show()
+        win.focus()
+        win.webContents.send('toggle-overlay-panel', 'transcript')
+      },
+      toggleAsk: () => {
+        const win = getWindow()
+        if (!win || win.isDestroyed()) return
+        if (!win.isVisible()) win.show()
+        win.focus()
+        win.webContents.send('toggle-overlay-panel', 'ask')
+      },
+      toggleInsights: () => {
+        const win = getWindow()
+        if (!win || win.isDestroyed()) return
+        if (!win.isVisible()) win.show()
+        win.focus()
+        win.webContents.send('toggle-overlay-panel', 'insights')
+      },
     })
 
     if (win && !windowVisible) {

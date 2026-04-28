@@ -5,13 +5,28 @@ import { app } from 'electron'
 import { getWindow } from './window'
 
 const isMac = process.platform === 'darwin'
+const EDGE_INSET = 8
 
 type MovementAction = 'moveUp' | 'moveDown' | 'moveLeft' | 'moveRight'
-type ShortcutAction = MovementAction | 'toggleVisibility'
+type OverlayPanelAction = 'toggleNotepad' | 'toggleTranscript' | 'toggleAsk' | 'toggleInsights'
+type ShortcutAction = MovementAction | 'toggleVisibility' | 'focusNotepad' | OverlayPanelAction
 type ShortcutUpdatePayload = {
   action: ShortcutAction
   shortcut: string | null
 }
+
+const shortcutActions: ShortcutAction[] = [
+  'moveUp',
+  'moveDown',
+  'moveLeft',
+  'moveRight',
+  'toggleVisibility',
+  'focusNotepad',
+  'toggleNotepad',
+  'toggleTranscript',
+  'toggleAsk',
+  'toggleInsights',
+]
 
 const defaultShortcuts: Record<ShortcutAction, string> = {
   moveUp: isMac ? 'Cmd+Up' : 'Ctrl+Up',
@@ -19,6 +34,11 @@ const defaultShortcuts: Record<ShortcutAction, string> = {
   moveLeft: isMac ? 'Cmd+Left' : 'Ctrl+Left',
   moveRight: isMac ? 'Cmd+Right' : 'Ctrl+Right',
   toggleVisibility: isMac ? 'Cmd+Space' : 'Ctrl+Space',
+  focusNotepad: isMac ? 'Cmd+Alt+N' : 'Ctrl+Alt+N',
+  toggleNotepad: isMac ? 'Cmd+Alt+1' : 'Ctrl+Alt+1',
+  toggleTranscript: isMac ? 'Cmd+Alt+2' : 'Ctrl+Alt+2',
+  toggleAsk: isMac ? 'Cmd+Alt+3' : 'Ctrl+Alt+3',
+  toggleInsights: isMac ? 'Cmd+Alt+4' : 'Ctrl+Alt+4',
 }
 
 function storageFilePath(fileName: string) {
@@ -63,9 +83,51 @@ let shortcuts: Record<ShortcutAction, string> = {
   ...Object.fromEntries(
     Object.entries(persistedShortcuts).filter(
       (entry): entry is [ShortcutAction, string] =>
-        ['moveUp', 'moveDown', 'moveLeft', 'moveRight', 'toggleVisibility'].includes(entry[0]),
+        shortcutActions.includes(entry[0] as ShortcutAction),
     ),
   ),
+}
+
+type VisibleOverlayBounds = {
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+}
+
+let visibleOverlayBounds: VisibleOverlayBounds | null = null
+
+export function setVisibleOverlayBounds(bounds: VisibleOverlayBounds | null) {
+  visibleOverlayBounds =
+    bounds &&
+    Number.isFinite(bounds.offsetX) &&
+    Number.isFinite(bounds.offsetY) &&
+    Number.isFinite(bounds.width) &&
+    Number.isFinite(bounds.height)
+      ? {
+          offsetX: Math.round(bounds.offsetX),
+          offsetY: Math.round(bounds.offsetY),
+          width: Math.max(1, Math.round(bounds.width)),
+          height: Math.max(1, Math.round(bounds.height)),
+        }
+      : null
+}
+
+function getHorizontalClampBounds(winWidth: number) {
+  const offsetX = visibleOverlayBounds?.offsetX ?? 0
+  const width = Math.min(winWidth, visibleOverlayBounds?.width ?? winWidth)
+  return { offsetX, width }
+}
+
+function getVerticalClampBounds(winHeight: number) {
+  const offsetY = visibleOverlayBounds?.offsetY ?? 0
+  const height = Math.min(winHeight, visibleOverlayBounds?.height ?? winHeight)
+  return { offsetY, height }
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (max < min) return min
+  return Math.min(max, Math.max(min, value))
 }
 
 export function getShortcutState() {
@@ -84,8 +146,11 @@ const movementActions = {
     const moveIncrement = Math.floor(
       Math.min(currentDisplay.workAreaSize.width, currentDisplay.workAreaSize.height) * 0.1,
     )
-    const minY = currentDisplay.workArea.y
-    win.setPosition(currentX, Math.max(minY, currentY - moveIncrement))
+    const [, winHeight] = win.getSize()
+    const { offsetY, height } = getVerticalClampBounds(winHeight)
+    const minY = currentDisplay.workArea.y + EDGE_INSET - offsetY
+    const maxY = currentDisplay.workArea.y + currentDisplay.workArea.height - offsetY - height - EDGE_INSET
+    win.setPosition(currentX, clamp(currentY - moveIncrement, minY, maxY))
   },
   moveDown: () => {
     const win = getWindow()
@@ -95,8 +160,11 @@ const movementActions = {
     const moveIncrement = Math.floor(
       Math.min(currentDisplay.workAreaSize.width, currentDisplay.workAreaSize.height) * 0.1,
     )
-    const maxY = currentDisplay.workArea.y + currentDisplay.workArea.height - win.getSize()[1]
-    win.setPosition(currentX, Math.min(maxY, currentY + moveIncrement))
+    const [, winHeight] = win.getSize()
+    const { offsetY, height } = getVerticalClampBounds(winHeight)
+    const minY = currentDisplay.workArea.y + EDGE_INSET - offsetY
+    const maxY = currentDisplay.workArea.y + currentDisplay.workArea.height - offsetY - height - EDGE_INSET
+    win.setPosition(currentX, clamp(currentY + moveIncrement, minY, maxY))
   },
   moveLeft: () => {
     const win = getWindow()
@@ -106,8 +174,11 @@ const movementActions = {
     const moveIncrement = Math.floor(
       Math.min(currentDisplay.workAreaSize.width, currentDisplay.workAreaSize.height) * 0.1,
     )
-    const minX = currentDisplay.workArea.x
-    win.setPosition(Math.max(minX, currentX - moveIncrement), currentY)
+    const [winWidth] = win.getSize()
+    const { offsetX, width } = getHorizontalClampBounds(winWidth)
+    const minX = currentDisplay.workArea.x + EDGE_INSET - offsetX
+    const maxX = currentDisplay.workArea.x + currentDisplay.workArea.width - offsetX - width - EDGE_INSET
+    win.setPosition(clamp(currentX - moveIncrement, minX, maxX), currentY)
   },
   moveRight: () => {
     const win = getWindow()
@@ -117,8 +188,11 @@ const movementActions = {
     const moveIncrement = Math.floor(
       Math.min(currentDisplay.workAreaSize.width, currentDisplay.workAreaSize.height) * 0.1,
     )
-    const maxX = currentDisplay.workArea.x + currentDisplay.workArea.width - win.getSize()[0]
-    win.setPosition(Math.min(maxX, currentX + moveIncrement), currentY)
+    const [winWidth] = win.getSize()
+    const { offsetX, width } = getHorizontalClampBounds(winWidth)
+    const minX = currentDisplay.workArea.x + EDGE_INSET - offsetX
+    const maxX = currentDisplay.workArea.x + currentDisplay.workArea.width - offsetX - width - EDGE_INSET
+    win.setPosition(clamp(currentX + moveIncrement, minX, maxX), currentY)
   },
 }
 
@@ -146,7 +220,11 @@ export function unregisterMovementShortcuts() {
   })
 }
 
-export function registerKeyboardShortcuts(toggleVisibilityHandler: () => void) {
+export function registerKeyboardShortcuts(
+  toggleVisibilityHandler: () => void,
+  focusNotepadHandler?: () => void,
+  overlayPanelHandlers?: Partial<Record<OverlayPanelAction, () => void>>,
+) {
   const win = getWindow()
   if (!win) return
 
@@ -165,6 +243,29 @@ export function registerKeyboardShortcuts(toggleVisibilityHandler: () => void) {
       console.error(`Failed to register toggleVisibility (${shortcuts.toggleVisibility}):`, error)
     }
   }
+
+  if (shortcuts.focusNotepad && focusNotepadHandler) {
+    try {
+      globalShortcut.register(shortcuts.focusNotepad, focusNotepadHandler)
+      console.log(`Registered focusNotepad: ${shortcuts.focusNotepad}`)
+    } catch (error) {
+      console.error(`Failed to register focusNotepad (${shortcuts.focusNotepad}):`, error)
+    }
+  }
+
+  const overlayPanelActions: OverlayPanelAction[] = ['toggleNotepad', 'toggleTranscript', 'toggleAsk', 'toggleInsights']
+  overlayPanelActions.forEach((action) => {
+    const keybind = shortcuts[action]
+    const handler = overlayPanelHandlers?.[action]
+    if (!keybind || !handler) return
+
+    try {
+      globalShortcut.register(keybind, handler)
+      console.log(`Registered ${action}: ${keybind}`)
+    } catch (error) {
+      console.error(`Failed to register ${action} (${keybind}):`, error)
+    }
+  })
 }
 
 export function updateShortcut(payload: ShortcutUpdatePayload) {
@@ -198,7 +299,14 @@ export function updateShortcut(payload: ShortcutUpdatePayload) {
 
   const win = getWindow()
   const windowVisible = Boolean(win?.isVisible())
-  const shouldValidate = action === 'toggleVisibility' || windowVisible
+  const shouldValidate =
+    action === 'toggleVisibility' ||
+    action === 'focusNotepad' ||
+    action === 'toggleNotepad' ||
+    action === 'toggleTranscript' ||
+    action === 'toggleAsk' ||
+    action === 'toggleInsights' ||
+    windowVisible
 
   if (shouldValidate) {
     const isRegistered = globalShortcut.isRegistered(nextShortcut)
