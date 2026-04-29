@@ -246,9 +246,9 @@ export function NotesTree({
     if (search.trim() && !hasChildren) return null
 
     return (
-      <div key={f.id} className="relative group/row min-w-0">
+      <div key={f.id} className="relative min-w-0">
         <div className={cn(
-          'flex items-center rounded-full min-w-0',
+          'group/row flex items-center rounded-full min-w-0',
           isExpanded || isFolderActive ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
         )}>
           <SidebarRowButton
