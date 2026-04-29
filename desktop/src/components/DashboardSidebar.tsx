@@ -5,7 +5,6 @@ import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
 import { NotesTree } from '@/components/NotesTree'
 import { CreateFolderDialog } from '@/components/dialog/CreateFolderDialog'
-import { CreateNoteDialog } from '@/components/dialog/CreateNoteDialog'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
@@ -25,15 +24,14 @@ export default function DashboardSidebar() {
     filteredNotes,
     selectedId,
     selectNote,
+    openCreateNoteDialog,
     search,
-    createNewNote,
     deleteById,
     renameNote,
     moveNote,
   } = useDashboardNotes()
 
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false)
-  const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
   const [profileImageFailed, setProfileImageFailed] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
@@ -167,7 +165,7 @@ export default function DashboardSidebar() {
         <NotesTree
           folders={folders}
           onCreateFolder={() => setShowCreateFolderDialog(true)}
-          onCreateNote={() => setShowCreateNoteDialog(true)}
+          onCreateNote={openCreateNoteDialog}
           notes={filteredNotes}
           isLoading={isLoading}
           error={loadError}
@@ -264,16 +262,6 @@ export default function DashboardSidebar() {
         onCreate={handleCreateFolder}
       />
 
-      <CreateNoteDialog
-        isOpen={showCreateNoteDialog}
-        folders={folders}
-        defaultFolderId={selectedFolderId}
-        onClose={() => setShowCreateNoteDialog(false)}
-        onCreate={async ({ title, folderId }) => {
-          const created = await createNewNote({ title, folderId })
-          return Boolean(created)
-        }}
-      />
     </SidebarContainer>
   )
 }

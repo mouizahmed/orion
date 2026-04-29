@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import type { NoteRecord } from '@/types/note'
 import type { FolderRecord } from '@/types/folder'
+import { CreateNoteDialog } from '@/components/dialog/CreateNoteDialog'
 import { createFolder as createFolderApi, deleteFolder as deleteFolderApi, listFolders, renameFolder as renameFolderApi } from '@/lib/folders-client'
 import { createNote, deleteNote, listNotesPage, updateNote } from '@/lib/notes-client'
 
@@ -27,6 +28,7 @@ type DashboardNotesContextType = {
   search: string
   setSearch: (value: string) => void
   selectNote: (id: string | null) => void
+  openCreateNoteDialog: () => void
   refresh: () => Promise<void>
   createNewNote: (payload?: { title?: string; folderId?: string | null }) => Promise<NoteRecord | null>
   deleteById: (noteId: string) => Promise<boolean>
@@ -39,6 +41,7 @@ const UNFILED_ID = '__unfiled__'
 const PAGE_SIZE = 20
 const LS_SELECTED_NOTE = 'dashboard:selectedNoteId'
 const LS_SELECTED_FOLDER = 'dashboard:selectedFolderId'
+const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
 
 export function excerpt(markdown: string) {
   const text = markdown.replace(/[#*_`>[\]()-]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -60,6 +63,7 @@ export function DashboardNotesProvider({
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
   const [folderPagination, setFolderPagination] = useState<Record<string, { hasMore: boolean; isLoading: boolean; cursor?: string }>>({})
   const createInFlightRef = useRef(false)
 
@@ -152,6 +156,10 @@ export function DashboardNotesProvider({
     setSelectedFolderId(id)
     if (id) localStorage.setItem(LS_SELECTED_FOLDER, id)
     else localStorage.removeItem(LS_SELECTED_FOLDER)
+  }, [])
+
+  const openCreateNoteDialog = useCallback(() => {
+    setShowCreateNoteDialog(true)
   }, [])
 
   const loadMoreForFolder = useCallback(
@@ -284,6 +292,7 @@ export function DashboardNotesProvider({
         return [created, ...prev]
       })
       setSelectedId(created.id)
+      window.dispatchEvent(new Event(ACTIVITY_REFRESH_EVENT))
       return created
     } catch {
       return null
@@ -359,6 +368,7 @@ export function DashboardNotesProvider({
       search,
       setSearch,
       selectNote,
+      openCreateNoteDialog,
       refresh,
       createNewNote,
       deleteById,
@@ -385,6 +395,7 @@ export function DashboardNotesProvider({
       search,
       setSearch,
       selectNote,
+      openCreateNoteDialog,
       refresh,
       createNewNote,
       deleteById,
@@ -393,7 +404,21 @@ export function DashboardNotesProvider({
     ],
   )
 
-  return <DashboardNotesContext.Provider value={value}>{children}</DashboardNotesContext.Provider>
+  return (
+    <DashboardNotesContext.Provider value={value}>
+      {children}
+      <CreateNoteDialog
+        isOpen={showCreateNoteDialog}
+        folders={folders}
+        defaultFolderId={selectedFolderId}
+        onClose={() => setShowCreateNoteDialog(false)}
+        onCreate={async ({ title, folderId }) => {
+          const created = await createNewNote({ title, folderId })
+          return Boolean(created)
+        }}
+      />
+    </DashboardNotesContext.Provider>
+  )
 }
 
 export function useDashboardNotes() {

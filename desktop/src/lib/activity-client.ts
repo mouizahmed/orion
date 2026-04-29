@@ -1,5 +1,5 @@
 import { auth } from '@/config/firebase'
-import type { ActivityRecord } from '@/types/activity'
+import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/types/activity'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -49,10 +49,16 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
 export async function listActivityPage(params: {
   limit?: number
   cursor?: string | null
+  sort?: ActivitySort
+  direction?: ActivitySortDirection
+  scope?: ActivityScope
 } = {}): Promise<{ activity: ActivityRecord[]; nextCursor?: string; hasMore: boolean }> {
   const idToken = await getIdToken()
   const url = new URL(`${API_BASE_URL}/dashboard/activity`)
   url.searchParams.set('limit', String(params.limit ?? 20))
+  url.searchParams.set('sort', params.sort ?? 'updated')
+  url.searchParams.set('direction', params.direction ?? 'desc')
+  url.searchParams.set('scope', params.scope ?? 'owned')
   if (params.cursor) url.searchParams.set('cursor', params.cursor)
 
   const payload = await fetchJson<{

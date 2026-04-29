@@ -47,18 +47,45 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 		return
 	}
 
-	cursorTime, cursorID, err := parseActivityCursor(strings.TrimSpace(c.Query("cursor")))
+	sortBy, err := parseActivitySort(c.DefaultQuery("sort", "updated"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sort parameter"})
+		return
+	}
+
+	direction, err := parseActivityDirection(c.DefaultQuery("direction", "desc"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid direction parameter"})
+		return
+	}
+
+	scope, err := parseActivityScope(c.DefaultQuery("scope", "owned"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope parameter"})
+		return
+	}
+
+	cursorSortValue, cursorID, err := parseActivityCursor(strings.TrimSpace(c.Query("cursor")))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
 		return
 	}
 
 	fetchLimit := limit + 1
-	notes, err := h.noteRepo.ListNotesByUserCursor(userID, nil, false, fetchLimit, cursorTime, cursorID)
-	if err != nil {
-		log.Printf("dashboard: failed to list activity for user %s: %v", userID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load activity"})
-		return
+	notes := []models.Note{}
+	if scope != "shared" {
+		notes, err = h.noteRepo.ListActivityNotesByUser(userID, repository.NoteActivityQuery{
+			Sort:            sortBy,
+			Direction:       direction,
+			Limit:           fetchLimit,
+			CursorSortValue: cursorSortValue,
+			CursorID:        cursorID,
+		})
+		if err != nil {
+			log.Printf("dashboard: failed to list activity for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load activity"})
+			return
+		}
 	}
 
 	hasMore := false
@@ -69,7 +96,7 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 	}
 	if hasMore && len(notes) > 0 {
 		last := notes[len(notes)-1]
-		rawCursor := fmt.Sprintf("%s|%s", last.UpdatedAt.UTC().Format(time.RFC3339Nano), last.ID)
+		rawCursor := fmt.Sprintf("%s|%s", activityCursorValue(last, sortBy), last.ID)
 		encoded := base64.RawURLEncoding.EncodeToString([]byte(rawCursor))
 		nextCursor = &encoded
 	}
@@ -85,6 +112,9 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 			"limit":       limit,
 			"has_more":    hasMore,
 			"next_cursor": nextCursor,
+			"sort":        sortBy,
+			"direction":   direction,
+			"scope":       scope,
 		},
 	})
 }
@@ -103,7 +133,44 @@ func parseActivityLimit(raw string) (int, error) {
 	return limit, nil
 }
 
-func parseActivityCursor(cursor string) (*time.Time, *string, error) {
+func parseActivitySort(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "updated":
+		return "updated", nil
+	case "created":
+		return "created", nil
+	case "title":
+		return "title", nil
+	default:
+		return "", fmt.Errorf("unsupported sort")
+	}
+}
+
+func parseActivityDirection(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "desc":
+		return "desc", nil
+	case "asc":
+		return "asc", nil
+	default:
+		return "", fmt.Errorf("unsupported direction")
+	}
+}
+
+func parseActivityScope(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "owned":
+		return "owned", nil
+	case "all":
+		return "all", nil
+	case "shared":
+		return "shared", nil
+	default:
+		return "", fmt.Errorf("unsupported scope")
+	}
+}
+
+func parseActivityCursor(cursor string) (*string, *string, error) {
 	if cursor == "" {
 		return nil, nil, nil
 	}
@@ -115,11 +182,18 @@ func parseActivityCursor(cursor string) (*time.Time, *string, error) {
 	if len(parts) != 2 {
 		return nil, nil, fmt.Errorf("invalid cursor")
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, parts[0])
-	if err != nil {
-		return nil, nil, err
+	return &parts[0], &parts[1], nil
+}
+
+func activityCursorValue(note models.Note, sortBy string) string {
+	switch sortBy {
+	case "created":
+		return note.CreatedAt.UTC().Format(time.RFC3339Nano)
+	case "title":
+		return strings.ToLower(note.Title)
+	default:
+		return note.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	return &parsed, &parts[1], nil
 }
 
 func noteToActivityItem(note models.Note) DashboardActivityItem {

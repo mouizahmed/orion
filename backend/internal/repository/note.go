@@ -14,6 +14,14 @@ type NoteRepository struct {
 	db *database.DB
 }
 
+type NoteActivityQuery struct {
+	Sort            string
+	Direction       string
+	Limit           int
+	CursorSortValue *string
+	CursorID        *string
+}
+
 func NewNoteRepository(db *database.DB) *NoteRepository {
 	return &NoteRepository{db: db}
 }
@@ -111,6 +119,86 @@ func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, 
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to list notes: %w", err)
+	}
+
+	return notes, nil
+}
+
+func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivityQuery) ([]models.Note, error) {
+	sortColumn := "updated_at"
+	sortExpression := "updated_at"
+	switch query.Sort {
+	case "created":
+		sortColumn = "created_at"
+		sortExpression = "created_at"
+	case "title":
+		sortColumn = "LOWER(title)"
+		sortExpression = "LOWER(title)"
+	}
+
+	direction := "DESC"
+	comparison := "<"
+	if query.Direction == "asc" {
+		direction = "ASC"
+		comparison = ">"
+	}
+
+	sqlQuery := `
+		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at
+		FROM notes
+		WHERE user_id = $1 AND deleted_at IS NULL
+	`
+	args := []interface{}{userID}
+	argPos := 2
+
+	if query.CursorSortValue != nil && query.CursorID != nil && *query.CursorID != "" {
+		if query.Sort == "title" {
+			sqlQuery += fmt.Sprintf(" AND (%s, id) %s ($%d, $%d)", sortColumn, comparison, argPos, argPos+1)
+			args = append(args, strings.ToLower(*query.CursorSortValue), *query.CursorID)
+		} else {
+			cursorTime, err := time.Parse(time.RFC3339Nano, *query.CursorSortValue)
+			if err != nil {
+				return nil, fmt.Errorf("invalid activity cursor time: %w", err)
+			}
+			sqlQuery += fmt.Sprintf(" AND (%s, id) %s ($%d, $%d)", sortColumn, comparison, argPos, argPos+1)
+			args = append(args, cursorTime, *query.CursorID)
+		}
+		argPos += 2
+	}
+
+	sqlQuery += fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", sortExpression, direction, direction, argPos)
+	args = append(args, query.Limit)
+
+	rows, err := r.db.Query(sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list activity notes: %w", err)
+	}
+	defer rows.Close()
+
+	notes := []models.Note{}
+	for rows.Next() {
+		var note models.Note
+		var folder sql.NullString
+		var deleted sql.NullTime
+		if err := rows.Scan(
+			&note.ID,
+			&note.UserID,
+			&folder,
+			&note.Title,
+			&note.NoteMarkdown,
+			&note.CreatedAt,
+			&note.UpdatedAt,
+			&deleted,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan activity note: %w", err)
+		}
+		note.FolderID = fromNullString(folder)
+		note.DeletedAt = fromNullTime(deleted)
+		notes = append(notes, note)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to list activity notes: %w", err)
 	}
 
 	return notes, nil
@@ -418,4 +506,3 @@ func fromNullTime(value sql.NullTime) *time.Time {
 	val := value.Time
 	return &val
 }
-

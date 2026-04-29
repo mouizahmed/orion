@@ -21,7 +21,7 @@ import { UpcomingMeetings } from '@/components/UpcomingMeetings'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { listActivityPage } from '@/lib/activity-client'
-import type { ActivityRecord } from '@/types/activity'
+import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/types/activity'
 
 const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
 const CALENDAR_FOCUS_EVENT = 'dashboard-calendar-focus'
@@ -72,29 +72,41 @@ function groupActivityByDate(activity: ActivityRecord[]) {
 
 export default function DashboardHome() {
   const { user } = useAuth()
-  const { selectNote, createNewNote } = useDashboardNotes()
+  const { selectNote, openCreateNoteDialog } = useDashboardNotes()
   const calendarPanelRef = useRef<HTMLDivElement | null>(null)
+  const activityRequestRef = useRef(0)
   const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
-  const [activitySort, setActivitySort] = useState('updated')
-  const [activitySortDirection, setActivitySortDirection] = useState<'asc' | 'desc'>('desc')
-  const [activityScope, setActivityScope] = useState('owned')
+  const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
+  const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
+  const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
   const [activity, setActivity] = useState<ActivityRecord[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
   const [activityError, setActivityError] = useState<string | null>(null)
 
   const loadActivity = useCallback(async () => {
+    const requestId = activityRequestRef.current + 1
+    activityRequestRef.current = requestId
     setActivityLoading(true)
     setActivityError(null)
     try {
-      const page = await listActivityPage({ limit: 20 })
+      const page = await listActivityPage({
+        limit: 20,
+        sort: activitySort,
+        direction: activitySortDirection,
+        scope: activityScope,
+      })
+      if (activityRequestRef.current !== requestId) return
       setActivity(page.activity)
     } catch (error) {
+      if (activityRequestRef.current !== requestId) return
       setActivity([])
       setActivityError(error instanceof Error ? error.message : 'Failed to load activity')
     } finally {
-      setActivityLoading(false)
+      if (activityRequestRef.current === requestId) {
+        setActivityLoading(false)
+      }
     }
-  }, [])
+  }, [activityScope, activitySort, activitySortDirection])
 
   useEffect(() => {
     if (!user) return
@@ -118,13 +130,6 @@ export default function DashboardHome() {
   }, [])
 
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
-
-  const handleCreateNewNote = async () => {
-    const created = await createNewNote()
-    if (created) {
-      void loadActivity()
-    }
-  }
 
   if (!user) return null
 
@@ -187,7 +192,7 @@ export default function DashboardHome() {
                 <ArrowDownUp className="h-3.5 w-3.5" />
               )}
             </Button>
-            <Select value={activitySort} onValueChange={setActivitySort}>
+            <Select value={activitySort} onValueChange={(value) => setActivitySort(value as ActivitySort)}>
               <SelectTrigger
                 size="sm"
                 aria-label="Sort recent activity"
@@ -201,7 +206,7 @@ export default function DashboardHome() {
                 <SelectItem value="title">Title</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={activityScope} onValueChange={setActivityScope}>
+            <Select value={activityScope} onValueChange={(value) => setActivityScope(value as ActivityScope)}>
               <SelectTrigger
                 size="sm"
                 aria-label="Filter recent activity"
@@ -216,10 +221,11 @@ export default function DashboardHome() {
               </SelectContent>
             </Select>
             <Button
-              onClick={() => void handleCreateNewNote()}
+              onClick={openCreateNoteDialog}
               variant="secondary"
               size="sm"
               className="shrink-0"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
             >
               <Plus className="h-3.5 w-3.5" />
               New note
