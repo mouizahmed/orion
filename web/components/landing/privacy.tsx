@@ -91,7 +91,7 @@ const asciiClass =
 const privacyItems = [
   {
     title: "Hidden during screen share",
-    description: "Only you can see Sunless.",
+    description: "Only you can see Orionly.",
     ascii: hiddenAscii,
   },
   {

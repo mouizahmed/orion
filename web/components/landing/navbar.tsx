@@ -30,44 +30,44 @@ export default function Navbar() {
               >
                 <Image
                   src="/Document.svg"
-                  alt="Sunless Logo"
+                  alt="Orionly Logo"
                   width={32}
                   height={32}
                   draggable={false}
                   className="pointer-events-none h-8 w-8 select-none"
                 />
                 <span className="pointer-events-none text-sm font-semibold text-white">
-                  Sunless
+                  Orionly
                 </span>
               </Link>
 
-              <a
+              <Link
                 href="/"
                 className="text-sm font-medium text-zinc-300 transition-colors hover:text-white"
               >
                 Home
-              </a>
+              </Link>
 
-              <a
+              <Link
                 href="/pricing"
                 className="text-sm font-medium text-zinc-300 transition-colors hover:text-white"
               >
                 Pricing
-              </a>
+              </Link>
 
-              <a
+              <Link
                 href="/changelog"
                 className="text-sm font-medium text-zinc-300 transition-colors hover:text-white"
               >
                 Changelog
-              </a>
+              </Link>
 
-              <a
+              <Link
                 href="/support"
                 className="text-sm font-medium text-zinc-300 transition-colors hover:text-white"
               >
                 Support
-              </a>
+              </Link>
 
               <DownloadButton
                 variant={isScrolled ? "default" : "outline"}

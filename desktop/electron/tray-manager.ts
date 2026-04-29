@@ -4,7 +4,7 @@ import { showWindow, restartApp, setQuitting } from "./window-manager";
 
 let tray: Tray | null;
 
-const getAppName = () => app.getName() || "Sunless";
+const getAppName = () => app.getName() || "Orionly";
 const getAppVersion = () => `v${app.getVersion()}`;
 
 export function createTray() {

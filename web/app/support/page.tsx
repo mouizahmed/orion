@@ -10,7 +10,7 @@ export default function SupportPage() {
             Support
           </h1>
           <p className="mt-5 text-lg font-medium leading-8 text-zinc-400 md:text-xl">
-            Need help with Sunless? Email us and we&apos;ll get back to you.
+            Need help with Orionly? Email us and we&apos;ll get back to you.
           </p>
         </div>
 
@@ -30,10 +30,10 @@ export default function SupportPage() {
                 Send questions, bug reports, or account requests.
               </p>
               <a
-                href="mailto:support@sunless.app"
+                href="mailto:support@orionly.app"
                 className="mt-8 block h-[52px] rounded-md bg-zinc-100 px-6 text-center text-sm font-semibold leading-[52px] text-zinc-950 transition hover:bg-white"
               >
-                support@sunless.app
+                support@orionly.app
               </a>
             </div>
           </div>

@@ -32,7 +32,7 @@ function AuthCallbackContent() {
 
     // Try to open desktop app
     try {
-      const protocolUrl = `sunless://auth-complete?code=${code}&state=${state}`;
+      const protocolUrl = `orionly://auth-complete?code=${code}&state=${state}`;
       console.log("🔗 Opening app with:", protocolUrl);
 
       // Set location to trigger protocol
@@ -53,7 +53,7 @@ function AuthCallbackContent() {
     const code = searchParams.get("code");
     const state = searchParams.get("state");
     if (code) {
-      window.location.href = `sunless://auth-complete?code=${code}&state=${state}`;
+      window.location.href = `orionly://auth-complete?code=${code}&state=${state}`;
     }
   };
 
@@ -67,7 +67,7 @@ function AuthCallbackContent() {
         <div className="flex w-full max-w-xl flex-col items-center gap-6">
           <Image
             src="/Document.svg"
-            alt="Sunless Logo"
+            alt="Orionly Logo"
             width={80}
             height={80}
             className="rounded-md"
@@ -116,7 +116,7 @@ function AuthCallbackContent() {
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <Image
           src="/Document.svg"
-          alt="Sunless Logo"
+          alt="Orionly Logo"
           width={88}
           height={88}
           className="rounded-md"
@@ -124,7 +124,7 @@ function AuthCallbackContent() {
 
         <div className="space-y-3">
           <h1 className="text-4xl font-semibold text-zinc-50 sm:text-5xl">
-            Opening Sunless...
+            Opening Orionly...
           </h1>
           <p className="text-sm text-zinc-400 sm:text-base">
             Your browser should prompt you to open the app automatically.
@@ -139,7 +139,7 @@ function AuthCallbackContent() {
               className="inline-flex items-center gap-2 text-brand underline decoration-brand-dark underline-offset-4 transition hover:text-brand-light"
             >
               <ExternalLink className="h-4 w-4" />
-              Click here to open Sunless.
+              Click here to open Orionly.
             </button>
           </div>
         )}

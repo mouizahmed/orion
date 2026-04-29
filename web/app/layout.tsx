@@ -10,7 +10,7 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Sunless",
+  title: "Orionly",
   description: "AI meeting assistant that makes you smarter.",
   icons: {
     icon: "/Document.svg",

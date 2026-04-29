@@ -24,7 +24,7 @@ process.env.APP_ROOT = path.join(__dirname, '..')
 setupProtocolHandler()
 
 // Single instance lock - ensure only one instance of the app runs
-// This is critical for protocol handling (sunless:// URLs)
+// This is critical for protocol handling (orionly:// URLs)
 const gotTheLock = app.requestSingleInstanceLock()
 let isQuitting = false
 
@@ -32,7 +32,7 @@ if (!gotTheLock) {
   // Another instance is already running, quit this one
   app.quit()
 } else {
-  // Setup protocol event listeners (for handling sunless:// URLs from second instance)
+  // Setup protocol event listeners (for handling orionly:// URLs from second instance)
   setupProtocolEvents()
 
   app.whenReady().then(() => {

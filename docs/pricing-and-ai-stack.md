@@ -126,8 +126,8 @@ For users exceeding tier limits:
 | Fathom | Unlimited recording | $19/mo | AI features gated |
 | tl;dv | Basic | $18/mo | Recording + summaries |
 | Read.ai | Basic | $19.75/mo | Meeting analytics |
-| **Sunless** | 120 min/mo | **$14/mo** | Agentic AI differentiator |
+| **Orionly** | 120 min/mo | **$14/mo** | Agentic AI differentiator |
 
 ### Competitive advantage
 
-Competitors do transcription + basic summarization. Sunless differentiates with **agentic AI workflows**: multi-step agents that research across your entire note history, auto-generate follow-ups, prepare meeting briefs, and organize notes autonomously. This justifies premium pricing and creates switching costs.
+Competitors do transcription + basic summarization. Orionly differentiates with **agentic AI workflows**: multi-step agents that research across your entire note history, auto-generate follow-ups, prepare meeting briefs, and organize notes autonomously. This justifies premium pricing and creates switching costs.

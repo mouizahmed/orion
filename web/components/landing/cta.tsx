@@ -9,7 +9,7 @@ export default function CTA() {
           Ready to bring your meetings into the light?
         </h3>
         <p className="mx-auto mt-3 max-w-xl text-zinc-400">
-          Try Sunless for a few meetings today. It&apos;s free to get started.
+          Try Orionly for a few meetings today. It&apos;s free to get started.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
           <DownloadButton variant="default" size="lg" />

@@ -1,4 +1,4 @@
-# Sunless v2 Data Model (2025 Refresh)
+# Orionly v2 Data Model (2025 Refresh)
 
 This document describes the streamlined PostgreSQL schema that supports the current desktop application and the upcoming Gemini-powered assistant. It focuses on the essentials we need today while leaving space for live “insights” mode and future automation.
 
@@ -117,7 +117,7 @@ CREATE TABLE conversation_message_attachments (
     original_name     text,
     content_type      text NOT NULL,
     size_bytes        bigint NOT NULL CHECK (size_bytes >= 0),
-    b2_bucket         text NOT NULL,                   -- e.g. 'sunless-production-attachments'
+    b2_bucket         text NOT NULL,                   -- e.g. 'orionly-production-attachments'
     b2_object_key     text NOT NULL,                   -- full path within the bucket
     b2_file_id        text,                            -- optional: Backblaze fileId for delete/version ops
     preview_url       text,                            -- signed URL or CDN link for quick rendering
@@ -261,5 +261,5 @@ These layers build on top of the core schema presented here, so there’s no nee
 ---
 
 *Last updated:* 2025-11-14  
-*Owner:* Backend Team (Sunless v2)
+*Owner:* Backend Team (Orionly v2)
 

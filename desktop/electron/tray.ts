@@ -30,7 +30,7 @@ export function setupTray(options: { onQuit: () => void }) {
   const trayImage = image.isEmpty() ? image : image.resize({ width: 16, height: 16 })
 
   tray = new Tray(trayImage)
-  tray.setToolTip('Sunless')
+  tray.setToolTip('Orionly')
 
   const buildMenu = () =>
     Menu.buildFromTemplate([

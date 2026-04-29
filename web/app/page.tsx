@@ -14,7 +14,7 @@ export default function Home() {
             AI meeting assistant that makes you smarter
           </h1>
           <p className="mt-7 max-w-2xl text-balance text-lg font-medium leading-8 text-zinc-400 md:text-xl">
-            Sunless turns calls, recordings, and videos into transcripts you can
+            Orionly turns calls, recordings, and videos into transcripts you can
             search, summarize, and chat with in seconds.
           </p>
 
@@ -27,7 +27,7 @@ export default function Home() {
           <div className="relative h-[340px] overflow-hidden rounded-md border border-zinc-800 bg-zinc-900 shadow-2xl shadow-black/50 md:h-[440px]">
             <div className="flex h-12 items-center justify-between border-b border-zinc-800 bg-zinc-950/95 px-5 text-sm text-zinc-400">
               <div className="flex items-center gap-5">
-                <span className="font-semibold text-zinc-100">Sunless</span>
+                <span className="font-semibold text-zinc-100">Orionly</span>
                 <span>File</span>
                 <span>Edit</span>
                 <span>View</span>

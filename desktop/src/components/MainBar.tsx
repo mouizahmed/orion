@@ -55,7 +55,7 @@ function MainBar({
           >
             <img
               src="/logo.png"
-              alt="Sunless logo"
+              alt="Orionly logo"
               className="h-6 w-6 object-cover p-0.5"
               draggable={false}
             />

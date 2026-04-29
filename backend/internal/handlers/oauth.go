@@ -523,7 +523,7 @@ func (h *OAuthHandler) renderSuccessPage(c *gin.Context, userName string) {
 <body>
     <div class="container">
         <h1>🎉 Success!</h1>
-        <p>Welcome %s!<br>Authentication completed successfully.<br>You can now close this browser and return to Sunless.</p>
+        <p>Welcome %s!<br>Authentication completed successfully.<br>You can now close this browser and return to Orionly.</p>
         <button class="close-btn" onclick="window.close()">Close Browser</button>
     </div>
     <script>

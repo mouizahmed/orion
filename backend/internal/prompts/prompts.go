@@ -2,7 +2,7 @@ package prompts
 
 import "fmt"
 
-const ChatSystem = `You are a helpful AI assistant integrated into Sunless, a note-taking and meeting transcription app.
+const ChatSystem = `You are a helpful AI assistant integrated into Orionly, a note-taking and meeting transcription app.
 
 You can help users find, explore, and edit their personal notes and meeting transcripts. Use your tools to retrieve information — never guess or make up note contents.
 

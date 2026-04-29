@@ -36,7 +36,7 @@ const Welcome = forwardRef<HTMLDivElement, WelcomeProps>(function Welcome({ onMo
             </div>
             <div className="flex flex-col">
               <span className="text-[11px] font-semibold uppercase tracking-[0.28em] text-neutral-500 dark:text-white/40">
-                Sunless
+                Orionly
               </span>
               <span className="text-sm text-neutral-600 dark:text-white/70">
                 Sign in to keep your notepad ready.
@@ -45,7 +45,7 @@ const Welcome = forwardRef<HTMLDivElement, WelcomeProps>(function Welcome({ onMo
           </div>
           <img
             src="/logo.png"
-            alt="Sunless logo"
+            alt="Orionly logo"
             className="h-6 w-6 rounded-md border border-neutral-200 bg-neutral-100 object-cover p-0.5 dark:border-white/10 dark:bg-white/15"
             draggable={false}
           />
@@ -67,7 +67,7 @@ const Welcome = forwardRef<HTMLDivElement, WelcomeProps>(function Welcome({ onMo
           <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-2 text-sm text-neutral-600 dark:border-white/15 dark:bg-white/20 dark:text-white/70">
             <Loader2 className="h-4 w-4 animate-spin text-neutral-500 dark:text-white/60" />
             <span className="flex-1">
-              Complete authentication in your browser, then return to Sunless.
+              Complete authentication in your browser, then return to Orionly.
             </span>
           </div>
         )}

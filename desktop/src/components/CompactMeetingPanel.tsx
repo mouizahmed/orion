@@ -8,7 +8,7 @@ import type { LiveTranscriptSegment } from '@/types/live-insight'
 
 type TranscriptionStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected'
 const LOCAL_MEETING_NOTE_PREFIX = 'local-meeting-'
-const LOCAL_MEETING_NOTE_STORAGE_PREFIX = 'sunless:'
+const LOCAL_MEETING_NOTE_STORAGE_PREFIX = 'orionly:'
 
 function getLocalMeetingNoteStorageKey(noteId: string) {
   return `${LOCAL_MEETING_NOTE_STORAGE_PREFIX}${noteId}`

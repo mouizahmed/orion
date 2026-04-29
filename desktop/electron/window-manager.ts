@@ -52,7 +52,7 @@ export function createWindow() {
       "build",
       "icon.png",
     ),
-    title: "sunless",
+    title: "orionly",
     titleBarStyle: "hidden",
     titleBarOverlay: {
       color: titleBarColors.backgroundColor,

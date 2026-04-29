@@ -82,7 +82,7 @@ export default function CompactOverlayBar({
         >
           <img
             src="/Document.svg"
-            alt="Sunless logo"
+            alt="Orionly logo"
             className={cn(
               'h-7 w-7 select-none object-contain',
               meetingActive && !meetingPaused ? 'animate-[spin_4s_linear_infinite]' : null,

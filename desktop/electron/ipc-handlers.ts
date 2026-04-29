@@ -200,10 +200,10 @@ export function setupIpcHandlers() {
       process.env.APP_ROOT || '',
       'native',
       'macos',
-      'SunlessAudioCapture',
+      'OrionlyAudioCapture',
       '.build',
       'release',
-      'SunlessAudioCapture',
+      'OrionlyAudioCapture',
     )
 
     try {

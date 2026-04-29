@@ -30,7 +30,7 @@ export function setupProtocolHandler() {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       const success = app.setAsDefaultProtocolClient(
-        'sunless',
+        'orionly',
         process.execPath,
         [path.resolve(process.argv[1])],
       )
@@ -39,7 +39,7 @@ export function setupProtocolHandler() {
       }
     }
   } else {
-    const success = app.setAsDefaultProtocolClient('sunless')
+    const success = app.setAsDefaultProtocolClient('orionly')
     if (!success) {
       console.log('Protocol registration failed in production mode')
     }
@@ -54,7 +54,7 @@ export function setupProtocolEvents() {
       mainWindow.show()
     }
 
-    const url = commandLine.find((arg) => arg.startsWith('sunless://'))
+    const url = commandLine.find((arg) => arg.startsWith('orionly://'))
     if (url) {
       handleProtocolUrl(url)
     }
@@ -67,7 +67,7 @@ export function setupProtocolEvents() {
 
   app.on('ready', () => {
     const protocolUrl = process.argv.find((arg) =>
-      arg.startsWith('sunless://'),
+      arg.startsWith('orionly://'),
     )
     if (protocolUrl) {
       handleProtocolUrl(protocolUrl)
@@ -76,7 +76,7 @@ export function setupProtocolEvents() {
 }
 
 async function handleProtocolUrl(url: string) {
-  if (!url || typeof url !== 'string' || !url.startsWith('sunless://')) {
+  if (!url || typeof url !== 'string' || !url.startsWith('orionly://')) {
     return
   }
 
@@ -183,7 +183,7 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
 
 export function checkInitialProtocolUrl() {
   const initialProtocolUrl = process.argv.find((arg) =>
-    arg.startsWith('sunless://'),
+    arg.startsWith('orionly://'),
   )
   if (initialProtocolUrl) {
     setTimeout(() => handleProtocolUrl(initialProtocolUrl), 1000)
