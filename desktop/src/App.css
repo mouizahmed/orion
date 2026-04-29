@@ -1,5 +1,10 @@
 /* Custom styles for overlay */
 
+.overlay-root :is(input, textarea, select, [contenteditable="true"], .mdx-content-editable) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .attachments-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.25) transparent;

@@ -108,6 +108,7 @@ func main() {
 	}
 
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, aiClient, indexQueue)
+	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
@@ -154,6 +155,9 @@ func main() {
 
 		// User routes
 		authenticated.GET("/user/me", userHandler.GetCurrentUser)
+
+		// Dashboard routes
+		authenticated.GET("/dashboard/activity", dashboardHandler.ListActivity)
 
 		// Notes routes
 		authenticated.GET("/search", notesHandler.Search)

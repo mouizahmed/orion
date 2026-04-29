@@ -356,6 +356,8 @@ export default function DashboardTopBar({
           className="h-8 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs leading-none text-neutral-200 hover:bg-white/10 hover:text-white"
           onClick={() => {
             void refresh()
+            window.dispatchEvent(new Event('dashboard-calendar-refresh'))
+            window.dispatchEvent(new Event('dashboard-activity-refresh'))
           }}
           disabled={isLoading}
           aria-label="Refresh dashboard"

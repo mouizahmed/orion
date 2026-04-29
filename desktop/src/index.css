@@ -78,6 +78,17 @@ body {
   place-items: flex-start;
 }
 
+.dashboard-root,
+.dashboard-root * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.dashboard-root :is(input, textarea, select, [contenteditable="true"], .mdx-content-editable) {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 @keyframes logo-size-pulse {
   0%,
   100% {

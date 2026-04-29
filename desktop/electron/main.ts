@@ -4,9 +4,7 @@ import path from 'node:path'
 import { setupAuthHandlers } from './auth-handlers'
 import { setupProtocolHandler, setupProtocolEvents, setMainWindow } from './protocol-handler'
 import {
-  closeDashboardWindow,
   createWindow,
-  getDashboardWindow,
   getWindow,
   setAppQuitting,
   setWindow,
@@ -86,11 +84,6 @@ if (!gotTheLock) {
     // Register keyboard shortcuts after window is ready
     win.webContents.on('did-finish-load', () => {
       const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
-        const dashboard = getDashboardWindow()
-        if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
-          closeDashboardWindow()
-        }
-
         const overlay = getWindow()
         if (!overlay || overlay.isDestroyed()) return
         if (!overlay.isVisible()) {
@@ -105,22 +98,6 @@ if (!gotTheLock) {
       }
 
       const toggleVisibilityHandler = () => {
-        const dashboard = getDashboardWindow()
-        if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
-          closeDashboardWindow()
-
-          const overlay = getWindow()
-          if (overlay && !overlay.isDestroyed()) {
-            overlay.show()
-            setTimeout(() => {
-              if (!overlay.isDestroyed() && overlay.isVisible()) {
-                overlay.focus()
-              }
-            }, 16)
-          }
-          return
-        }
-
         const overlay = getWindow()
         if (!overlay || overlay.isDestroyed()) return
         if (overlay.isVisible()) {
@@ -136,11 +113,6 @@ if (!gotTheLock) {
       }
 
       const focusNotepadHandler = () => {
-        const dashboard = getDashboardWindow()
-        if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) {
-          closeDashboardWindow()
-        }
-
         const overlay = getWindow()
         if (!overlay || overlay.isDestroyed()) return
         if (!overlay.isVisible()) {

@@ -1,0 +1,75 @@
+import { auth } from '@/config/firebase'
+import type { ActivityRecord, ActivityType } from '@/types/activity'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+
+type ApiActivity = {
+  id: string
+  type: ActivityType
+  title: string
+  actor_label?: string
+  timestamp: string
+  note_id?: string | null
+  folder_id?: string | null
+  visibility?: 'private' | 'shared'
+  created_at: string
+  updated_at: string
+}
+
+function toActivityRecord(activity: ApiActivity): ActivityRecord {
+  return {
+    id: activity.id,
+    type: activity.type,
+    title: activity.title,
+    actorLabel: activity.actor_label,
+    timestamp: Date.parse(activity.timestamp),
+    noteId: activity.note_id ?? undefined,
+    folderId: activity.folder_id ?? undefined,
+    visibility: activity.visibility,
+    createdAt: Date.parse(activity.created_at),
+    updatedAt: Date.parse(activity.updated_at),
+  }
+}
+
+async function getIdToken() {
+  const currentUser = auth.currentUser
+  if (!currentUser) {
+    throw new Error('Not authenticated')
+  }
+  return await currentUser.getIdToken()
+}
+
+async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const response = await fetch(input, init)
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string }
+    throw new Error(payload.error || 'Request failed')
+  }
+  return (await response.json()) as T
+}
+
+export async function listActivityPage(params: {
+  limit?: number
+  cursor?: string | null
+} = {}): Promise<{ activity: ActivityRecord[]; nextCursor?: string; hasMore: boolean }> {
+  const idToken = await getIdToken()
+  const url = new URL(`${API_BASE_URL}/dashboard/activity`)
+  url.searchParams.set('limit', String(params.limit ?? 20))
+  if (params.cursor) url.searchParams.set('cursor', params.cursor)
+
+  const payload = await fetchJson<{
+    activity: ApiActivity[]
+    pagination?: { has_more?: boolean; next_cursor?: string | null }
+  }>(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+  })
+
+  return {
+    activity: (payload.activity ?? []).map(toActivityRecord),
+    hasMore: Boolean(payload.pagination?.has_more),
+    nextCursor: payload.pagination?.next_cursor ?? undefined,
+  }
+}

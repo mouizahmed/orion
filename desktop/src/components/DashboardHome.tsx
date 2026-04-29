@@ -1,117 +1,218 @@
-import { type CSSProperties, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { FileText, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  DashboardPanel,
+  DashboardPanelBody,
+  DashboardPanelHeader,
+  DashboardPanelTitle,
+} from '@/components/ui/dashboard-panel'
+import { DashboardIconTile, DashboardRow } from '@/components/ui/dashboard-row'
 import { UpcomingMeetings } from '@/components/UpcomingMeetings'
 import { useAuth } from '@/contexts/AuthContext'
-import { useDashboardNotes, excerpt } from '@/contexts/DashboardNotesContext'
+import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import { listActivityPage } from '@/lib/activity-client'
+import type { ActivityRecord } from '@/types/activity'
 
-function relativeTime(timestamp: number) {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
+
+function formatActivityDate(timestamp: number) {
+  const date = new Date(timestamp)
+  const now = new Date()
+  const sameYear = date.getFullYear() === now.getFullYear()
+
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+
+function formatActivityTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  })
+}
+
+function activityDateKey(timestamp: number) {
+  const date = new Date(timestamp)
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function groupActivityByDate(activity: ActivityRecord[]) {
+  return activity.reduce<Array<{ key: string; label: string; items: ActivityRecord[] }>>((groups, item) => {
+    const key = activityDateKey(item.timestamp)
+    const existing = groups.find((group) => group.key === key)
+    if (existing) {
+      existing.items.push(item)
+    } else {
+      groups.push({ key, label: formatActivityDate(item.timestamp), items: [item] })
+    }
+    return groups
+  }, [])
 }
 
 export default function DashboardHome() {
   const { user } = useAuth()
-  const { notes, isLoading, selectNote, createNewNote } = useDashboardNotes()
+  const { selectNote, createNewNote } = useDashboardNotes()
   const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
+  const [activity, setActivity] = useState<ActivityRecord[]>([])
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState<string | null>(null)
+
+  const loadActivity = useCallback(async () => {
+    setActivityLoading(true)
+    setActivityError(null)
+    try {
+      const page = await listActivityPage({ limit: 20 })
+      setActivity(page.activity)
+    } catch (error) {
+      setActivity([])
+      setActivityError(error instanceof Error ? error.message : 'Failed to load activity')
+    } finally {
+      setActivityLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    void loadActivity()
+
+    window.addEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
+    return () => {
+      window.removeEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
+    }
+  }, [loadActivity, user])
+
+  const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
+
+  const handleCreateNewNote = async () => {
+    const created = await createNewNote()
+    if (created) {
+      void loadActivity()
+    }
+  }
 
   if (!user) return null
-
-  const recentNotes = [...notes].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 5)
 
   return (
     <div className="flex h-full flex-col gap-2">
       {/* Coming Up */}
-      <div className="rounded-lg border border-white/10 bg-[#171417]/80 px-2.5 py-2 backdrop-blur-md">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
-            Coming up
-          </h2>
+      <DashboardPanel>
+        <DashboardPanelHeader>
+          <DashboardPanelTitle>Coming up</DashboardPanelTitle>
           <Button
             onClick={() => setShowOnlyMeetings(!showOnlyMeetings)}
-            variant="ghost"
+            variant="secondary"
             size="sm"
-            className="h-8 rounded-full border border-white/12 bg-white/5 px-3 text-xs text-neutral-300 hover:bg-white/10 hover:text-white"
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
             {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
           </Button>
-        </div>
-        <UpcomingMeetings showOnlyMeetings={showOnlyMeetings} />
-      </div>
+        </DashboardPanelHeader>
+        <DashboardPanelBody>
+          <UpcomingMeetings showOnlyMeetings={showOnlyMeetings} />
+        </DashboardPanelBody>
+      </DashboardPanel>
 
       {/* Recent Activity */}
-      <div className="flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md">
-        <div className="flex items-center justify-between border-b border-white/10 px-2.5 py-2">
-          <h2 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
-            Recent Activity
-          </h2>
+      <DashboardPanel className="flex-1">
+        <DashboardPanelHeader>
+          <div className="min-w-0">
+            <DashboardPanelTitle>Recent Activity</DashboardPanelTitle>
+          </div>
           <Button
-            onClick={() => void createNewNote()}
+            onClick={() => void handleCreateNewNote()}
+            variant="secondary"
             size="sm"
-            className="h-8 gap-1.5 rounded-full bg-violet-600 px-3 text-xs text-white hover:bg-violet-700"
+            className="shrink-0"
           >
             <Plus className="h-3.5 w-3.5" />
             New note
           </Button>
-        </div>
+        </DashboardPanelHeader>
 
-        <div className="overflow-y-auto p-1 sidebar-scrollbar">
-          {isLoading ? (
-            <div className="space-y-1 px-1 py-1">
+        <DashboardPanelBody>
+          {activityLoading ? (
+            <div className="space-y-0.5">
               {[70, 50, 85, 60, 75].map((w, i) => (
-                <div key={i} className="flex items-start gap-2.5 px-2.5 py-2">
-                  <div className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-2">
+                  <div className="h-8 w-8 shrink-0 animate-pulse rounded-lg border border-white/10 bg-white/8" />
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" style={{ width: `${w}%` }} />
-                      <div className="h-2.5 w-8 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+                      <div className="h-3 animate-pulse rounded bg-white/15" style={{ width: `${w}%` }} />
+                      <div className="h-2.5 w-8 shrink-0 animate-pulse rounded bg-white/10" />
                     </div>
-                    <div className="h-2.5 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+                    <div className="h-2.5 w-full animate-pulse rounded bg-white/8" />
                   </div>
                 </div>
               ))}
             </div>
-          ) : recentNotes.length > 0 ? (
-            <div className="space-y-0.5">
-              {recentNotes.map((note) => (
-                <div
-                  key={note.id}
-                  onClick={() => selectNote(note.id)}
-                  className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 hover:bg-white/8"
-                >
-                  <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                        {note.title || 'Untitled'}
-                      </span>
-                      <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
-                        {relativeTime(note.updatedAt)}
-                      </span>
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                      {excerpt(note.noteMarkdown)}
-                    </p>
+          ) : activityError ? (
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
+              <p className="text-xs text-neutral-400">Failed to load activity</p>
+            </div>
+          ) : groupedActivity.length > 0 ? (
+            <div className="space-y-3">
+              {groupedActivity.map((group) => (
+                <div key={group.key}>
+                  <div className="px-2.5 pb-1 text-xs font-semibold text-neutral-400">
+                    {group.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => (
+                      <DashboardRow
+                        key={item.id}
+                        onClick={() => item.noteId ? selectNote(item.noteId) : undefined}
+                        interactive={Boolean(item.noteId)}
+                        className="items-center"
+                      >
+                        <DashboardIconTile className="h-8 w-8">
+                          <FileText className="h-4 w-4" />
+                        </DashboardIconTile>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <span className="block truncate text-sm font-medium leading-5 text-neutral-900 dark:text-neutral-100">
+                                {item.title || 'Untitled'}
+                              </span>
+                              {item.actorLabel ? (
+                                <span className="block truncate text-xs leading-4 text-neutral-500 dark:text-neutral-400">
+                                  {item.actorLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="shrink-0 text-xs leading-4 text-neutral-400 dark:text-neutral-500">
+                              {formatActivityTime(item.timestamp)}
+                            </span>
+                          </div>
+                        </div>
+                      </DashboardRow>
+                    ))}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="px-2.5 py-2 text-xs text-neutral-500 dark:text-neutral-400">
-              No recent activity
-            </p>
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3 py-5 text-center">
+              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-neutral-400">
+                <FileText className="h-4 w-4" />
+              </div>
+              <p className="text-xs font-medium text-neutral-300">No recent activity</p>
+              <p className="mt-1 text-xs text-neutral-500">New notes will appear here</p>
+            </div>
           )}
-        </div>
-      </div>
+        </DashboardPanelBody>
+      </DashboardPanel>
     </div>
   )
 }

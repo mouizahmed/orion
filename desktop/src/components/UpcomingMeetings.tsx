@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MapPin, Users } from 'lucide-react'
 
+import { DashboardRow } from '@/components/ui/dashboard-row'
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -34,20 +35,34 @@ interface CalendarEvent {
 
 function formatMeetingDate(startTime: string) {
   const date = new Date(startTime)
-  const month = date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  const month = date.toLocaleDateString('en-US', { month: 'short' })
   const day = date.getDate()
   return { month, day: day.toString() }
 }
 
-function formatMeetingTime(startTime: string) {
+function formatTime(startTime: string) {
   const date = new Date(startTime)
-  const dayName = date.toLocaleDateString('en-US', { weekday: 'long' })
-  const time = date.toLocaleTimeString('en-US', {
+  return date.toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
   })
-  return `${dayName} ${time}`
+}
+
+function formatMeetingTime(startTime: string, endTime: string) {
+  return `${formatTime(startTime)}-${formatTime(endTime)}`
+}
+
+function dateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
+function isSameDay(first: Date, second: Date) {
+  return dateKey(first) === dateKey(second)
 }
 
 interface UpcomingMeetingsProps {
@@ -55,6 +70,7 @@ interface UpcomingMeetingsProps {
 }
 
 const POLL_INTERVAL = 2 * 60 * 1000 // 2 minutes
+const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
 
 export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
   const { user } = useAuth()
@@ -65,7 +81,7 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
 
   const cacheKey = user ? `calendar_events_${user.id}` : null
 
-  const fetchUpcomingMeetings = useCallback(async (silent: boolean) => {
+  const fetchUpcomingMeetings = useCallback(async (silent: boolean, force = false) => {
     if (!user) return
 
     try {
@@ -74,7 +90,7 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
         setError(null)
       }
 
-      if (cacheKey) {
+      if (cacheKey && !force) {
         const cached = localStorage.getItem(cacheKey)
         if (cached) {
           const { data, timestamp } = JSON.parse(cached)
@@ -152,23 +168,57 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     const interval = window.setInterval(() => {
       void fetchUpcomingMeetings(true)
     }, POLL_INTERVAL)
+    const handleCalendarRefresh = () => {
+      void fetchUpcomingMeetings(false, true)
+    }
+
+    window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
 
     return () => {
       cancelledRef.current = true
       window.clearInterval(interval)
+      window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     }
   }, [user, fetchUpcomingMeetings])
 
   const filteredMeetings = showOnlyMeetings
     ? meetings.filter((m) => m.is_meeting)
     : meetings
+  const today = new Date()
+  const todayKey = dateKey(today)
+  const groupedMeetings = filteredMeetings.reduce<Array<{ key: string; date: Date; meetings: Meeting[] }>>(
+    (groups, meeting) => {
+      const date = new Date(meeting.start)
+      const key = dateKey(date)
+      const existing = groups.find((group) => group.key === key)
+
+      if (existing) {
+        existing.meetings.push(meeting)
+      } else {
+        groups.push({ key, date, meetings: [meeting] })
+      }
+
+      return groups
+    },
+    [],
+  )
+
+  if (!groupedMeetings.some((group) => group.key === todayKey)) {
+    groupedMeetings.unshift({ key: todayKey, date: today, meetings: [] })
+  }
+
+  groupedMeetings.sort((a, b) => {
+    if (a.key === todayKey) return -1
+    if (b.key === todayKey) return 1
+    return a.date.getTime() - b.date.getTime()
+  })
 
   if (loading) {
     return (
       <div className="space-y-0.5">
         {[70, 55, 80].map((w, i) => (
-          <div key={i} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
-            <div className="flex min-w-[38px] flex-col items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1.5 py-1">
+          <div key={i} className="flex items-start gap-2 rounded-lg px-2 py-1.5">
+            <div className="flex h-9 w-9 shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1">
               <div className="h-2 w-6 animate-pulse rounded bg-white/15" />
               <div className="h-3 w-4 animate-pulse rounded bg-white/15" />
             </div>
@@ -192,60 +242,63 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     )
   }
 
-  if (filteredMeetings.length === 0) {
-    return (
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
-        <p className="text-xs text-neutral-400">No upcoming events</p>
-      </div>
-    )
-  }
-
   return (
     <div>
       <div className="space-y-0.5">
-        {filteredMeetings.map((meeting) => {
-          const { month, day } = formatMeetingDate(meeting.start)
-          const timeString = formatMeetingTime(meeting.start)
+        {groupedMeetings.map((group) => {
+          const { month, day } = formatMeetingDate(group.date.toISOString())
+          const isToday = isSameDay(group.date, today)
 
           return (
-            <div
-              key={meeting.id}
-              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-white/10 hover:bg-white/8"
+            <DashboardRow
+              key={group.key}
             >
-              <div className="flex min-w-[38px] flex-col items-center overflow-hidden rounded-md border border-white/10 bg-white/5 text-center">
+              <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-white/10 bg-white/5 text-center">
                 <div className="w-full border-b border-white/10 bg-white/8 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-300">
                   {month}
                 </div>
-                <div className="px-1.5 py-1 text-sm font-semibold leading-none text-neutral-100">{day}</div>
+                <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-100">{day}</div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-xs font-medium text-neutral-100">
-                    {meeting.title}
-                  </span>
-                  {meeting.is_meeting && (
-                    <span className="shrink-0 rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-300">
-                      Meeting
-                    </span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-xs text-neutral-400">{timeString}</p>
-                {meeting.location && (
-                  <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    <span className="truncate">{meeting.location}</span>
-                  </p>
-                )}
-                {meeting.attendees && meeting.attendees.length > 0 && (
-                  <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                    <Users className="h-3 w-3 shrink-0" />
-                    <span>
-                      {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
-                    </span>
-                  </p>
+              <div className="min-w-0 flex-1 space-y-2 py-0.5">
+                {group.meetings.length === 0 ? (
+                  <div className="flex min-h-9 items-center border-l-2 border-white/15 pl-3 text-xs font-medium text-neutral-400">
+                    {isToday ? 'No events today' : 'No events'}
+                  </div>
+                ) : (
+                  group.meetings.map((meeting) => (
+                    <div key={meeting.id} className="min-w-0 border-l-2 border-[#9f73f2]/55 pl-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-xs font-medium text-neutral-100">
+                          {meeting.title}
+                        </span>
+                        {meeting.is_meeting && (
+                          <span className="shrink-0 rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-300">
+                            Meeting
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        {formatMeetingTime(meeting.start, meeting.end)}
+                      </p>
+                      {meeting.location && (
+                        <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{meeting.location}</span>
+                        </p>
+                      )}
+                      {meeting.attendees && meeting.attendees.length > 0 && (
+                        <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+                          <Users className="h-3 w-3 shrink-0" />
+                          <span>
+                            {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  ))
                 )}
               </div>
-            </div>
+            </DashboardRow>
           )
         })}
       </div>

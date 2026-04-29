@@ -3,7 +3,8 @@ import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
 import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow } from './window'
 import {
-  registerKeyboardShortcuts,
+  restoreKeyboardShortcuts,
+  unregisterKeyboardShortcuts,
   unregisterMovementShortcuts,
   getShortcutState,
   setVisibleOverlayBounds,
@@ -101,6 +102,8 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.on('dashboard:open', (_event, payload?: { noteId?: string }) => {
+    unregisterKeyboardShortcuts()
+
     const overlay = getWindow()
     if (overlay && !overlay.isDestroyed()) {
       overlay.setIgnoreMouseEvents(true, { forward: true })
@@ -139,6 +142,8 @@ export function setupIpcHandlers() {
     if (dashboard && !dashboard.isDestroyed()) {
       dashboard.hide()
     }
+
+    restoreKeyboardShortcuts()
   })
 
   // Shortcuts IPC handlers
@@ -152,53 +157,13 @@ export function setupIpcHandlers() {
 
     const result = updateShortcut(payload)
 
-    // Re-register shortcuts after update
-    registerKeyboardShortcuts(() => {
-      const win = getWindow()
-      if (!win) return
-      if (win.isVisible()) {
-        win.hide()
-      } else {
-        win.show()
-      }
-    }, () => {
-      const win = getWindow()
-      if (!win || win.isDestroyed()) return
-      if (!win.isVisible()) {
-        win.show()
-      }
-      win.focus()
-      win.webContents.send('toggle-notepad-focus')
-    }, {
-      toggleNotepad: () => {
-        const win = getWindow()
-        if (!win || win.isDestroyed()) return
-        if (!win.isVisible()) win.show()
-        win.focus()
-        win.webContents.send('toggle-overlay-panel', 'notepad')
-      },
-      toggleTranscript: () => {
-        const win = getWindow()
-        if (!win || win.isDestroyed()) return
-        if (!win.isVisible()) win.show()
-        win.focus()
-        win.webContents.send('toggle-overlay-panel', 'transcript')
-      },
-      toggleAsk: () => {
-        const win = getWindow()
-        if (!win || win.isDestroyed()) return
-        if (!win.isVisible()) win.show()
-        win.focus()
-        win.webContents.send('toggle-overlay-panel', 'ask')
-      },
-      toggleInsights: () => {
-        const win = getWindow()
-        if (!win || win.isDestroyed()) return
-        if (!win.isVisible()) win.show()
-        win.focus()
-        win.webContents.send('toggle-overlay-panel', 'insights')
-      },
-    })
+    const dashboard = getDashboardWindow()
+    const dashboardVisible = Boolean(dashboard && !dashboard.isDestroyed() && dashboard.isVisible())
+    if (dashboardVisible) {
+      unregisterKeyboardShortcuts()
+    } else {
+      restoreKeyboardShortcuts()
+    }
 
     if (win && !windowVisible) {
       unregisterMovementShortcuts()

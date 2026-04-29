@@ -1,13 +1,14 @@
 import { Menu, Tray, nativeImage } from 'electron'
 import path from 'node:path'
 import { getWindow, createDashboardWindow, getDashboardWindow } from './window'
+import { restoreKeyboardShortcuts, unregisterKeyboardShortcuts } from './shortcuts'
 
 let tray: Tray | null = null
 
 function getTrayIconPath() {
   const publicDir = process.env.VITE_PUBLIC
   if (!publicDir) return null
-  return path.join(publicDir, 'logo.png')
+  return path.join(publicDir, 'Document.png')
 }
 
 export function destroyTray() {
@@ -41,6 +42,7 @@ export function setupTray(options: { onQuit: () => void }) {
           if (dashboard && !dashboard.isDestroyed()) {
             dashboard.close()
           }
+          restoreKeyboardShortcuts()
           overlay?.show()
           overlay?.focus()
         },
@@ -52,6 +54,7 @@ export function setupTray(options: { onQuit: () => void }) {
           if (overlay && !overlay.isDestroyed()) {
             overlay.hide()
           }
+          unregisterKeyboardShortcuts()
           const dash = createDashboardWindow()
           dash.show()
           dash.focus()
@@ -75,10 +78,12 @@ export function setupTray(options: { onQuit: () => void }) {
     }
     const dashboard = getDashboardWindow()
     if (dashboard && !dashboard.isDestroyed()) {
+      unregisterKeyboardShortcuts()
       dashboard.show()
       dashboard.focus()
       return
     }
+    restoreKeyboardShortcuts()
     overlay.show()
     overlay.focus()
   })

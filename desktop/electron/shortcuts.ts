@@ -196,6 +196,12 @@ const movementActions = {
   },
 }
 
+let activeShortcutRegistration: {
+  toggleVisibilityHandler: () => void
+  focusNotepadHandler?: () => void
+  overlayPanelHandlers?: Partial<Record<OverlayPanelAction, () => void>>
+} | null = null
+
 export function registerMovementShortcuts() {
   Object.keys(movementActions).forEach((action) => {
     const keybind = shortcuts[action as keyof typeof shortcuts]
@@ -227,6 +233,12 @@ export function registerKeyboardShortcuts(
 ) {
   const win = getWindow()
   if (!win) return
+
+  activeShortcutRegistration = {
+    toggleVisibilityHandler,
+    focusNotepadHandler,
+    overlayPanelHandlers,
+  }
 
   // Unregister all existing shortcuts first
   globalShortcut.unregisterAll()
@@ -266,6 +278,19 @@ export function registerKeyboardShortcuts(
       console.error(`Failed to register ${action} (${keybind}):`, error)
     }
   })
+}
+
+export function unregisterKeyboardShortcuts() {
+  globalShortcut.unregisterAll()
+}
+
+export function restoreKeyboardShortcuts() {
+  if (!activeShortcutRegistration) return
+  registerKeyboardShortcuts(
+    activeShortcutRegistration.toggleVisibilityHandler,
+    activeShortcutRegistration.focusNotepadHandler,
+    activeShortcutRegistration.overlayPanelHandlers,
+  )
 }
 
 export function updateShortcut(payload: ShortcutUpdatePayload) {

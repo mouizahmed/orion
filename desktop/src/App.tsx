@@ -467,7 +467,7 @@ function AppContent() {
   }
 
   return (
-    <div className="flex w-full flex-col items-start justify-start">
+    <div className="overlay-root flex w-full select-none flex-col items-start justify-start">
       <div
         ref={contentRef}
         style={{ maxHeight: MAX_APP_HEIGHT, width: isContentSizedLayout ? undefined : LAYOUT_WIDTH[layoutKey] }}
