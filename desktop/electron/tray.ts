@@ -8,7 +8,7 @@ let tray: Tray | null = null
 function getTrayIconPath() {
   const publicDir = process.env.VITE_PUBLIC
   if (!publicDir) return null
-  return path.join(publicDir, 'Document.png')
+  return path.join(publicDir, 'orionly-app-icon.png')
 }
 
 export function destroyTray() {

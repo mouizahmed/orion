@@ -29,7 +29,7 @@ export default function Navbar() {
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <Image
-                  src="/Document.svg"
+                  src="/orionly-mark.svg"
                   alt="Orionly Logo"
                   width={32}
                   height={32}

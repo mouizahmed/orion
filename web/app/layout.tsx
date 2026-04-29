@@ -13,9 +13,9 @@ export const metadata: Metadata = {
   title: "Orionly",
   description: "AI meeting assistant that makes you smarter.",
   icons: {
-    icon: "/Document.svg",
-    shortcut: "/Document.svg",
-    apple: "/Document.svg",
+    icon: "/orionly-mark.svg",
+    shortcut: "/orionly-mark.svg",
+    apple: "/orionly-mark.svg",
   },
 };
 

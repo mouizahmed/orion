@@ -44,7 +44,7 @@ const Welcome = forwardRef<HTMLDivElement, WelcomeProps>(function Welcome({ onMo
             </div>
           </div>
           <img
-            src="/logo.png"
+            src="/orionly-mark.png"
             alt="Orionly logo"
             className="h-6 w-6 rounded-md border border-neutral-200 bg-neutral-100 object-cover p-0.5 dark:border-white/10 dark:bg-white/15"
             draggable={false}

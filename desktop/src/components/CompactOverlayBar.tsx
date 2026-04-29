@@ -81,7 +81,7 @@ export default function CompactOverlayBar({
           )}
         >
           <img
-            src="/Document.svg"
+            src="/orionly-mark.svg"
             alt="Orionly logo"
             className={cn(
               'h-7 w-7 select-none object-contain',

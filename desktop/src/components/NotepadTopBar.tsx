@@ -18,7 +18,7 @@ export default function NotepadTopBar({ onMouseDown, onCreateNote, onOpenSetting
 
       <div className="flex items-center gap-2">
         <img
-          src="/logo.png"
+          src="/orionly-mark.png"
           alt="Orionly logo"
           className="h-6 w-6 rounded-md border border-white/10 bg-white/15 object-cover p-0.5"
           draggable={false}

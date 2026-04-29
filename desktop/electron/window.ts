@@ -67,7 +67,7 @@ export function createWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
-    icon: path.join(process.env.VITE_PUBLIC!, 'Document.png'),
+    icon: path.join(process.env.VITE_PUBLIC!, 'orionly-app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
@@ -124,7 +124,7 @@ export function createDashboardWindow(noteId?: string) {
     resizable: true,
     alwaysOnTop: false,
     skipTaskbar: false,
-    icon: path.join(process.env.VITE_PUBLIC!, 'Document.png'),
+    icon: path.join(process.env.VITE_PUBLIC!, 'orionly-app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
