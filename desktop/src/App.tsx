@@ -570,7 +570,7 @@ function AppContent() {
               </div>
             ) : meetingActive && meetingPanel === 'transcript' ? (
               <div className={PANEL_UNDER_PILL_CLASSNAME}>
-                <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-[#171417]/80 p-1 text-sm text-white/80 ring-1 ring-white/8 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.02]">
+                <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white/80 p-1 text-sm text-neutral-700 shadow-sm ring-1 ring-neutral-900/5 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.35] dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/80 dark:shadow-none dark:ring-white/8 dark:before:bg-white/[0.02]">
                   <div className="relative p-1">
                     <TranscriptPanel
                       segments={transcriptSegments}
@@ -592,10 +592,10 @@ function AppContent() {
               </div>
             ) : meetingActive && meetingPanel === 'insights' ? (
               <div className={PANEL_UNDER_PILL_CLASSNAME}>
-                <div className="rounded-lg border border-white/12 bg-[#171417]/80 px-2.5 py-2 text-sm text-white/80 backdrop-blur-md">
-                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-4">
-                    <div className="text-sm font-semibold text-white">Insights</div>
-                    <p className="text-xs leading-relaxed text-white/55">
+                <div className="rounded-lg border border-neutral-200 bg-white/80 px-2.5 py-2 text-sm text-neutral-700 shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/80 dark:shadow-none">
+                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 dark:border-white/10 dark:bg-white/5">
+                    <div className="text-sm font-semibold text-neutral-900 dark:text-white">Insights</div>
+                    <p className="text-xs leading-relaxed text-neutral-500 dark:text-white/55">
                       Live meeting insights will appear here as questions, decisions, and follow-ups are detected.
                     </p>
                   </div>
@@ -603,10 +603,10 @@ function AppContent() {
               </div>
             ) : meetingActive && meetingPanel === 'ask' ? (
               <div className={PANEL_UNDER_PILL_CLASSNAME}>
-                <div className="rounded-lg border border-white/12 bg-[#171417]/80 px-2.5 py-2 text-sm text-white/80 backdrop-blur-md">
-                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-4">
-                    <div className="text-sm font-semibold text-white">Ask</div>
-                    <p className="text-xs leading-relaxed text-white/55">
+                <div className="rounded-lg border border-neutral-200 bg-white/80 px-2.5 py-2 text-sm text-neutral-700 shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/80 dark:shadow-none">
+                  <div className="flex min-h-[120px] flex-col justify-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-4 dark:border-white/10 dark:bg-white/5">
+                    <div className="text-sm font-semibold text-neutral-900 dark:text-white">Ask</div>
+                    <p className="text-xs leading-relaxed text-neutral-500 dark:text-white/55">
                       Ask questions about the live meeting transcript and your notes.
                     </p>
                   </div>

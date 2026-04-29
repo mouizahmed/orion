@@ -66,12 +66,12 @@ export default function CompactOverlayBar({
     <div
       data-overlay-visible
       className={cn(
-        'flex transform-gpu select-none items-center gap-2 overflow-hidden transition-[width] duration-200 ease-out will-change-transform [backface-visibility:hidden]',
+        'flex transform-gpu select-none items-center gap-1.5 overflow-hidden transition-[width] duration-200 ease-out will-change-transform [backface-visibility:hidden]',
         compact ? 'w-max' : 'w-full',
       )}
     >
       <div
-        className="flex h-10 w-10 shrink-0 transform-gpu cursor-grab items-center justify-center rounded-full border border-white/12 bg-[#171417]/80 ring-1 ring-white/8 backdrop-blur-md will-change-transform [backface-visibility:hidden] active:cursor-grabbing"
+        className="flex h-10 w-10 shrink-0 transform-gpu cursor-grab items-center justify-center rounded-full border border-neutral-300/55 bg-white/78 shadow-[0_10px_28px_-22px_rgba(0,0,0,0.38)] ring-1 ring-neutral-900/5 backdrop-blur-md will-change-transform [backface-visibility:hidden] active:cursor-grabbing dark:border-white/12 dark:bg-[#171417]/80 dark:shadow-none dark:ring-white/8"
         onMouseDown={onMouseDown}
       >
         <span
@@ -95,7 +95,7 @@ export default function CompactOverlayBar({
 
       <div
         className={cn(
-          'relative flex min-w-0 transform-gpu items-center gap-1 overflow-hidden rounded-full border border-white/12 bg-[#171417]/80 p-1 ring-1 ring-white/8 backdrop-blur-md will-change-transform [backface-visibility:hidden] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-white/[0.02]',
+          'relative flex min-w-0 transform-gpu items-center gap-1 overflow-hidden rounded-full border border-neutral-300/55 bg-white/78 p-1 shadow-[0_12px_32px_-24px_rgba(0,0,0,0.42)] ring-1 ring-neutral-900/5 backdrop-blur-md will-change-transform [backface-visibility:hidden] before:pointer-events-none before:absolute before:inset-0 before:rounded-full before:bg-white/[0.16] dark:border-white/12 dark:bg-[#171417]/80 dark:shadow-none dark:ring-white/8 dark:before:bg-white/[0.02]',
           compact ? 'flex-none' : 'flex-1 transition-[flex-basis,width] duration-200 ease-out',
         )}
       >
@@ -107,7 +107,7 @@ export default function CompactOverlayBar({
             'relative h-8 rounded-full border shadow-none',
             meetingActive
               ? 'w-8 shrink-0 border-red-400/20 bg-red-500/20 p-0 text-red-50 hover:bg-red-500/25 hover:text-red-50'
-              : 'border-white/15 bg-zinc-900/55 px-3 text-xs font-semibold text-zinc-50 hover:bg-zinc-800/65',
+              : 'border-neutral-300/55 bg-white/45 px-3 text-xs font-semibold text-neutral-800 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:text-zinc-50 dark:hover:bg-zinc-800/65',
           )}
           onClick={onToggleMeeting}
           title={meetingActive ? 'Stop meeting' : 'Start meeting'}
@@ -123,10 +123,10 @@ export default function CompactOverlayBar({
               size="icon"
               variant="ghost"
               className={cn(
-                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
                 meetingPaused
-                  ? 'border-white/25 bg-white/15 hover:bg-white/20'
-                  : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                  ? 'border-neutral-300/70 bg-white/70 hover:bg-white/75 dark:border-white/25 dark:bg-white/15 dark:hover:bg-white/20'
+                  : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
               )}
               title={meetingPaused ? 'Resume meeting' : 'Pause meeting'}
               aria-label={meetingPaused ? 'Resume meeting' : 'Pause meeting'}
@@ -139,17 +139,17 @@ export default function CompactOverlayBar({
               )}
             </Button>
 
-            <div className="mx-1 h-5 w-px bg-white/10" />
+            <div className="mx-1 h-5 w-px bg-neutral-300/80 dark:bg-white/10" />
 
             <Button
               type="button"
               size="icon"
               variant="ghost"
               className={cn(
-                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
                 notepadOpen
-                  ? 'border-white/25 bg-white/15 hover:bg-white/20'
-                  : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                  ? 'border-neutral-300/70 bg-white/70 hover:bg-white/75 dark:border-white/25 dark:bg-white/15 dark:hover:bg-white/20'
+                  : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
               )}
               title={notepadOpen ? 'Hide notepad' : 'Show notepad'}
               aria-label={notepadOpen ? 'Hide notepad' : 'Show notepad'}
@@ -163,10 +163,10 @@ export default function CompactOverlayBar({
               size="icon"
               variant="ghost"
               className={cn(
-                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
                 activeMeetingTool === 'transcript'
-                  ? 'border-white/25 bg-white/15 hover:bg-white/20'
-                  : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                  ? 'border-neutral-300/70 bg-white/70 hover:bg-white/75 dark:border-white/25 dark:bg-white/15 dark:hover:bg-white/20'
+                  : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
               )}
               title="Transcript"
               aria-label="Transcript"
@@ -180,10 +180,10 @@ export default function CompactOverlayBar({
               size="icon"
               variant="ghost"
               className={cn(
-                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
                 activeMeetingTool === 'ask'
-                  ? 'border-white/25 bg-white/15 hover:bg-white/20'
-                  : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                  ? 'border-neutral-300/70 bg-white/70 hover:bg-white/75 dark:border-white/25 dark:bg-white/15 dark:hover:bg-white/20'
+                  : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
               )}
               title="Ask"
               aria-label="Ask"
@@ -197,10 +197,10 @@ export default function CompactOverlayBar({
               size="icon"
               variant="ghost"
               className={cn(
-                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+                'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
                 activeMeetingTool === 'insights'
-                  ? 'border-white/25 bg-white/15 hover:bg-white/20'
-                  : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                  ? 'border-neutral-300/70 bg-white/70 hover:bg-white/75 dark:border-white/25 dark:bg-white/15 dark:hover:bg-white/20'
+                  : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
               )}
               title="Insights"
               aria-label="Insights"
@@ -209,7 +209,7 @@ export default function CompactOverlayBar({
               <Sparkles className="h-4 w-4" />
             </Button>
 
-            <div className="mx-1 h-5 w-px bg-white/10" />
+            <div className="mx-1 h-5 w-px bg-neutral-300/80 dark:bg-white/10" />
           </>
         ) : null}
 
@@ -221,10 +221,10 @@ export default function CompactOverlayBar({
             size="icon"
             variant="ghost"
             className={cn(
-              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
               micMuted
                 ? 'border-red-400/20 bg-red-500/20 hover:bg-red-500/25'
-                : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
             )}
             title={micMuted ? 'Mic muted' : 'Mic unmuted'}
             aria-label="Toggle mic mute"
@@ -238,10 +238,10 @@ export default function CompactOverlayBar({
             size="icon"
             variant="ghost"
             className={cn(
-              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-zinc-100 hover:text-white',
+              'relative h-8 w-8 shrink-0 rounded-full border p-0 text-neutral-700 hover:text-neutral-950 dark:text-zinc-100 dark:hover:text-white',
               speakerMuted
                 ? 'border-red-400/20 bg-red-500/20 hover:bg-red-500/25'
-                : 'border-white/15 bg-zinc-900/55 hover:bg-zinc-800/65',
+                : 'border-neutral-300/55 bg-white/45 hover:bg-white/65 dark:border-white/15 dark:bg-zinc-900/55 dark:hover:bg-zinc-800/65',
             )}
             title={speakerMuted ? 'Speaker muted' : 'Speaker unmuted'}
             aria-label="Toggle speaker mute"
@@ -254,7 +254,7 @@ export default function CompactOverlayBar({
             type="button"
             size="icon"
             variant="ghost"
-            className="relative h-8 w-8 shrink-0 rounded-full border border-white/15 bg-zinc-900/55 p-0 text-zinc-100 hover:bg-zinc-800/65 hover:text-white"
+            className="relative h-8 w-8 shrink-0 rounded-full border border-neutral-300/55 bg-white/45 p-0 text-neutral-700 hover:bg-white/65 hover:text-neutral-950 dark:border-white/15 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/65 dark:hover:text-white"
             title="Open dashboard"
             aria-label="Open dashboard"
             onClick={onOpenDashboard}
@@ -266,7 +266,7 @@ export default function CompactOverlayBar({
             type="button"
             size="icon"
             variant="ghost"
-            className="relative h-8 w-8 shrink-0 rounded-full border border-white/15 bg-zinc-900/55 p-0 text-zinc-100 hover:bg-zinc-800/65 hover:text-white"
+            className="relative h-8 w-8 shrink-0 rounded-full border border-neutral-300/55 bg-white/45 p-0 text-neutral-700 hover:bg-white/65 hover:text-neutral-950 dark:border-white/15 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/65 dark:hover:text-white"
             title={settingsOpen ? 'Back' : 'Settings'}
             aria-label={settingsOpen ? 'Back' : 'Settings'}
             onClick={onToggleSettings}

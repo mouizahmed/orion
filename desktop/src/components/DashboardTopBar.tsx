@@ -243,7 +243,7 @@ export default function DashboardTopBar({
           className="relative"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <div className="flex items-center gap-2 rounded-full border border-white/12 bg-[#171417]/80 px-3 py-1 text-xs text-neutral-200 ring-1 ring-white/8 backdrop-blur-md">
+          <div className="flex items-center gap-2 rounded-full border border-neutral-200/80 bg-white/72 px-3 py-1 text-xs text-neutral-700 ring-1 ring-neutral-900/5 backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-neutral-200 dark:ring-white/8">
             <Search size={12} className="text-neutral-500 dark:text-neutral-400" />
             <Input
               variant="ghost"
@@ -254,17 +254,17 @@ export default function DashboardTopBar({
               }}
               onFocus={() => setIsSearchOpen(true)}
               placeholder="Search people, folders, companies, or meetings"
-              className="h-6 w-[420px] p-0 text-xs text-neutral-100 placeholder:text-neutral-400"
+              className="h-6 w-[420px] p-0 text-xs text-neutral-900 placeholder:text-neutral-500 dark:text-neutral-100 dark:placeholder:text-neutral-400"
             />
           </div>
 
           {isSearchOpen ? (
-            <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-white/10 bg-[#171417]/95 text-neutral-100 shadow-2xl backdrop-blur-md">
-              <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-                <span className="text-xs text-neutral-300">
+            <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-neutral-200/80 bg-white/88 text-neutral-900 shadow-[0_20px_48px_-32px_rgba(15,23,42,0.52)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100 dark:shadow-2xl">
+              <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+                <span className="text-xs text-neutral-600 dark:text-neutral-300">
                   Search people, folders, companies, or meetings
                 </span>
-                <span className="rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                <span className="rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
                   ESC
                 </span>
               </div>
@@ -276,27 +276,27 @@ export default function DashboardTopBar({
                 {searchError ? (
                   <div className="px-2 py-2 text-xs text-red-400">{searchError}</div>
                 ) : null}
-                <div className="mb-1 px-1 text-xs font-semibold text-neutral-400">Folders</div>
+                <div className="mb-1 px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Folders</div>
                 {filteredFolders.length > 0 ? (
                   <div className="space-y-1">
                     {filteredFolders.map((folder) => (
                       <button
                         key={folder.id}
                         type="button"
-                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-100 hover:bg-white/10"
+                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-white/10"
                         onClick={() => {
                           selectFolder(folder.id)
                           setIsSearchOpen(false)
                         }}
                       >
-                        <Folder size={14} className="text-neutral-300" />
+                        <Folder size={14} className="text-neutral-500 dark:text-neutral-300" />
                         <span className="truncate">{folder.name}</span>
                       </button>
                     ))}
                     {showRemote && searchPagination.folders.hasMore ? (
                       <button
                         type="button"
-                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
+                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#7c3aed] hover:bg-neutral-100 dark:text-[#9f73f2] dark:hover:bg-white/10"
                         onClick={() => {
                           void loadMoreFolders()
                         }}
@@ -309,14 +309,14 @@ export default function DashboardTopBar({
                   <div className="px-2 py-2 text-xs text-neutral-500">No folders</div>
                 )}
 
-                <div className="mb-1 mt-3 px-1 text-xs font-semibold text-neutral-400">Meetings</div>
+                <div className="mb-1 mt-3 px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Meetings</div>
                 {filteredMeetings.length > 0 ? (
                   <div className="space-y-1">
                     {filteredMeetings.map((note) => (
                       <button
                         key={note.id}
                         type="button"
-                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-100 hover:bg-white/10"
+                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-white/10"
                         onClick={() => {
                           selectNote(note.id)
                           selectFolder(note.folderId ?? null)
@@ -330,7 +330,7 @@ export default function DashboardTopBar({
                     {showRemote && searchPagination.notes.hasMore ? (
                       <button
                         type="button"
-                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
+                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#7c3aed] hover:bg-neutral-100 dark:text-[#9f73f2] dark:hover:bg-white/10"
                         onClick={() => {
                           void loadMoreMeetings()
                         }}
@@ -351,9 +351,9 @@ export default function DashboardTopBar({
       <div className="relative z-10 flex items-center gap-1">
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
           size="sm"
-          className="h-8 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs leading-none text-neutral-200 hover:bg-white/10 hover:text-white"
+          className="h-8 rounded-full"
           onClick={() => {
             void refresh()
             window.dispatchEvent(new Event('dashboard-calendar-refresh'))
@@ -369,9 +369,9 @@ export default function DashboardTopBar({
         </Button>
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
           size="sm"
-          className="h-8 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs leading-none text-neutral-200 hover:bg-white/10 hover:text-white"
+          className="h-8 rounded-full"
           onClick={onBackToOverlay}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >

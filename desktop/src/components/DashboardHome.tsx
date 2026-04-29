@@ -105,7 +105,7 @@ export default function DashboardHome() {
   if (!user) return null
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       {/* Coming Up */}
       <DashboardPanel>
         <DashboardPanelHeader>
@@ -125,7 +125,7 @@ export default function DashboardHome() {
       </DashboardPanel>
 
       {/* Recent Activity */}
-      <DashboardPanel className="flex-1">
+      <DashboardPanel className="flex min-h-0 flex-1 flex-col">
         <DashboardPanelHeader>
           <div className="min-w-0">
             <DashboardPanelTitle>Recent Activity</DashboardPanelTitle>
@@ -141,25 +141,25 @@ export default function DashboardHome() {
           </Button>
         </DashboardPanelHeader>
 
-        <DashboardPanelBody>
+        <DashboardPanelBody className="min-h-0 flex-1">
           {activityLoading ? (
             <div className="space-y-0.5">
               {[70, 50, 85, 60, 75].map((w, i) => (
-                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-2">
-                  <div className="h-8 w-8 shrink-0 animate-pulse rounded-lg border border-white/10 bg-white/8" />
+                <div key={i} className="flex items-start gap-2.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 dark:border-white/8 dark:bg-white/[0.03]">
+                  <div className="h-8 w-8 shrink-0 animate-pulse rounded-lg border border-neutral-200 bg-neutral-200/70 dark:border-white/10 dark:bg-white/8" />
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-baseline justify-between gap-2">
-                      <div className="h-3 animate-pulse rounded bg-white/15" style={{ width: `${w}%` }} />
-                      <div className="h-2.5 w-8 shrink-0 animate-pulse rounded bg-white/10" />
+                      <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-white/15" style={{ width: `${w}%` }} />
+                      <div className="h-2.5 w-8 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-white/10" />
                     </div>
-                    <div className="h-2.5 w-full animate-pulse rounded bg-white/8" />
+                    <div className="h-2.5 w-full animate-pulse rounded bg-neutral-100 dark:bg-white/8" />
                   </div>
                 </div>
               ))}
             </div>
           ) : activityError ? (
-            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
-              <p className="text-xs text-neutral-400">Failed to load activity</p>
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 text-center dark:border-white/10 dark:bg-white/[0.03]">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Failed to load activity</p>
             </div>
           ) : groupedActivity.length > 0 ? (
             <div className="space-y-3">
@@ -182,7 +182,7 @@ export default function DashboardHome() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <span className="block truncate text-sm font-medium leading-5 text-neutral-900 dark:text-neutral-100">
+                              <span className="block truncate text-xs font-medium leading-4 text-neutral-800 dark:text-neutral-200">
                                 {item.title || 'Untitled'}
                               </span>
                               {item.actorLabel ? (
@@ -203,11 +203,11 @@ export default function DashboardHome() {
               ))}
             </div>
           ) : (
-            <div className="flex min-h-24 flex-col items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] px-3 py-5 text-center">
-              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-neutral-400">
+            <div className="flex min-h-24 flex-col items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-5 text-center dark:border-white/10 dark:bg-white/[0.03]">
+              <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-100 text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
                 <FileText className="h-4 w-4" />
               </div>
-              <p className="text-xs font-medium text-neutral-300">No recent activity</p>
+              <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No recent activity</p>
               <p className="mt-1 text-xs text-neutral-500">New notes will appear here</p>
             </div>
           )}

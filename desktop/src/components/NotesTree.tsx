@@ -125,15 +125,22 @@ export function NotesTree({
       <div key={n.id} className="relative group/row min-w-0" style={indented ? { paddingLeft: '8px' } : {}}>
         <div className={cn(
           'flex items-center rounded-full min-w-0',
-          active ? 'border border-white/12 bg-white/10 text-white' : 'text-neutral-300 hover:bg-white/8 hover:text-white',
+          active ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
         )}>
           <SidebarRowButton
+            embedded
             className="min-w-0 flex-1 rounded-none text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => onSelectNote(n.id)}
             title={n.title || 'Untitled'}
           >
-            <FileText size={14} className="flex-shrink-0 text-neutral-500 dark:text-neutral-400" />
+            <FileText
+              size={14}
+              className={cn(
+                'flex-shrink-0 text-neutral-500 transition-colors group-hover/row:text-neutral-950 dark:text-neutral-400 dark:group-hover/row:text-white',
+                active && 'text-neutral-950 dark:text-white',
+              )}
+            />
             {renamingId === n.id ? (
               <input
                 autoFocus
@@ -154,6 +161,7 @@ export function NotesTree({
           {renamingId !== n.id && (
             <SidebarIconButton
               revealOnRowHover
+              suppressHoverBackground={active}
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -169,7 +177,7 @@ export function NotesTree({
         {isMenuOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-8 z-50 min-w-[160px] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
+            className="absolute right-0 top-8 z-50 min-w-[160px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
           >
             {!showMove ? (
               <>
@@ -185,7 +193,7 @@ export function NotesTree({
                   Move to folder
                   <ChevronRight size={14} />
                 </SidebarMenuItemButton>
-                <div className="my-1 border-t border-white/10" />
+                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
                 <SidebarMenuItemButton
                   destructive
                   onClick={() => { void onDeleteNote(n.id); setOpenMenu(null) }}
@@ -196,13 +204,13 @@ export function NotesTree({
             ) : (
               <>
                 <SidebarMenuItemButton
-                  className="text-neutral-400 hover:text-white"
+                  className="text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
                   onClick={() => setOpenMenu({ kind: 'note', id: n.id, showMove: false })}
                 >
                   <ChevronLeft size={14} />
                   Back
                 </SidebarMenuItemButton>
-                <div className="my-1 border-t border-white/10" />
+                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
                 <SidebarMenuItemButton
                   active={!n.folderId}
                   onClick={() => { void onMoveNote(n.id, null); setOpenMenu(null) }}
@@ -241,9 +249,10 @@ export function NotesTree({
       <div key={f.id} className="relative group/row min-w-0">
         <div className={cn(
           'flex items-center rounded-full min-w-0',
-          isExpanded || isFolderActive ? 'border border-white/12 bg-white/10 text-white' : 'text-neutral-300 hover:bg-white/8 hover:text-white',
+          isExpanded || isFolderActive ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
         )}>
           <SidebarRowButton
+            embedded
             className="min-w-0 flex-1 rounded-none pr-2 pl-0 text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => {
@@ -255,7 +264,7 @@ export function NotesTree({
               <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center">
                 <span
                   onClick={(e) => { e.stopPropagation(); toggleFolder(f.id) }}
-                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full hover:bg-white/8"
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full hover:bg-neutral-100 dark:hover:bg-white/8"
                 >
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 </span>
@@ -264,9 +273,9 @@ export function NotesTree({
               <span className="h-8 w-8 flex-shrink-0" />
             )}
             {isExpanded && hasChildren ? (
-              <FolderOpen size={14} className="flex-shrink-0 text-violet-600 dark:text-violet-400" />
+              <FolderOpen size={14} className="flex-shrink-0 text-violet-600 transition-colors group-hover/row:text-violet-700 dark:text-violet-400 dark:group-hover/row:text-violet-300" />
             ) : (
-              <Folder size={14} className="flex-shrink-0 text-violet-600 dark:text-violet-400" />
+              <Folder size={14} className="flex-shrink-0 text-violet-600 transition-colors group-hover/row:text-violet-700 dark:text-violet-400 dark:group-hover/row:text-violet-300" />
             )}
             {renamingId === f.id ? (
               <input
@@ -282,12 +291,13 @@ export function NotesTree({
                 className="flex-1 min-w-0 bg-transparent outline-none border-b border-violet-400 text-xs"
               />
             ) : (
-              <span className="truncate text-neutral-700 dark:text-neutral-200">{f.name}</span>
+              <span className="truncate">{f.name}</span>
             )}
           </SidebarRowButton>
           {renamingId !== f.id && (
             <SidebarIconButton
               revealOnRowHover
+              suppressHoverBackground={isExpanded || isFolderActive}
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -303,14 +313,14 @@ export function NotesTree({
         {isMenuOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-8 z-50 min-w-[140px] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
+            className="absolute right-0 top-8 z-50 min-w-[140px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
           >
             <SidebarMenuItemButton
               onClick={() => startRename(f.id, f.name)}
             >
               Rename
             </SidebarMenuItemButton>
-            <div className="my-1 border-t border-white/10" />
+            <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
             <SidebarMenuItemButton
               destructive
               onClick={() => { void onDeleteFolder(f.id); setOpenMenu(null) }}
@@ -326,7 +336,7 @@ export function NotesTree({
             {showLoadMore ? (
               <div style={{ paddingLeft: '8px' }}>
                 <SidebarRowButton
-                  className="text-neutral-400 hover:bg-white/10"
+                  className="text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/10"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                   onClick={() => onLoadMore(f.id)}
                   disabled={pagination?.isLoading}
@@ -353,7 +363,7 @@ export function NotesTree({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="group flex h-8 items-center justify-between rounded-full hover:bg-white/8">
+      <div className="group flex h-8 items-center justify-between rounded-full hover:bg-neutral-100 dark:hover:bg-white/8">
         <div className="flex items-center gap-2">
           <SidebarIconButton
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -406,7 +416,7 @@ export function NotesTree({
                 {!search.trim() && folderPagination['__unfiled__']?.hasMore ? (
                   <div>
                     <SidebarRowButton
-                      className="text-neutral-400 hover:bg-white/10"
+                      className="text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/10"
                       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                       onClick={() => onLoadMore(null)}
                       disabled={folderPagination['__unfiled__']?.isLoading}

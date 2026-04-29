@@ -12,7 +12,7 @@ function DashboardRow({
   return (
     <div
       className={cn(
-        'group flex items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-white/10 hover:bg-white/8',
+        'group flex items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-neutral-200/70 hover:bg-neutral-100/60 dark:hover:border-white/8 dark:hover:bg-white/[0.055]',
         interactive && 'cursor-pointer',
         className,
       )}
@@ -28,7 +28,7 @@ function DashboardIconTile({
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-neutral-300 transition-colors group-hover:border-white/15 group-hover:bg-white/10 group-hover:text-neutral-100',
+        'flex shrink-0 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-100 text-neutral-500 transition-colors group-hover:border-neutral-300/70 group-hover:bg-neutral-100 group-hover:text-neutral-600 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300 dark:group-hover:border-white/12 dark:group-hover:bg-white/[0.07] dark:group-hover:text-neutral-200',
         className,
       )}
       {...props}

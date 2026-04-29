@@ -218,13 +218,13 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
       <div className="space-y-0.5">
         {[70, 55, 80].map((w, i) => (
           <div key={i} className="flex items-start gap-2 rounded-lg px-2 py-1.5">
-            <div className="flex h-9 w-9 shrink-0 flex-col items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-1.5 py-1">
-              <div className="h-2 w-6 animate-pulse rounded bg-white/15" />
-              <div className="h-3 w-4 animate-pulse rounded bg-white/15" />
+            <div className="flex h-9 w-9 shrink-0 flex-col items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-100 px-1.5 py-1 dark:border-white/10 dark:bg-white/5">
+              <div className="h-2 w-6 animate-pulse rounded bg-neutral-200 dark:bg-white/15" />
+              <div className="h-3 w-4 animate-pulse rounded bg-neutral-200 dark:bg-white/15" />
             </div>
             <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
-              <div className="h-3 animate-pulse rounded bg-white/15" style={{ width: `${w}%` }} />
-              <div className="h-2.5 w-32 animate-pulse rounded bg-white/8" />
+              <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-white/15" style={{ width: `${w}%` }} />
+              <div className="h-2.5 w-32 animate-pulse rounded bg-neutral-100 dark:bg-white/8" />
             </div>
           </div>
         ))}
@@ -234,8 +234,8 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
-        <p className="text-xs text-neutral-400">
+      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 text-center dark:border-white/10 dark:bg-white/[0.03]">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
           Calendar integration coming soon
         </p>
       </div>
@@ -253,31 +253,31 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
             <DashboardRow
               key={group.key}
             >
-              <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-white/10 bg-white/5 text-center">
-                <div className="w-full border-b border-white/10 bg-white/8 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-300">
+              <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 text-center dark:border-white/10 dark:bg-white/5">
+                <div className="w-full border-b border-neutral-200 bg-neutral-200/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-500 dark:border-white/10 dark:bg-white/8 dark:text-neutral-300">
                   {month}
                 </div>
-                <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-100">{day}</div>
+                <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-800 dark:text-neutral-200">{day}</div>
               </div>
               <div className="min-w-0 flex-1 space-y-2 py-0.5">
                 {group.meetings.length === 0 ? (
-                  <div className="flex min-h-9 items-center border-l-2 border-white/15 pl-3 text-xs font-medium text-neutral-400">
+                  <div className="flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
                     {isToday ? 'No events today' : 'No events'}
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
                     <div key={meeting.id} className="min-w-0 border-l-2 border-[#9f73f2]/55 pl-3">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-medium text-neutral-100">
+                        <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
                           {meeting.title}
                         </span>
                         {meeting.is_meeting && (
-                          <span className="shrink-0 rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-300">
+                          <span className="shrink-0 rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] leading-none text-neutral-600 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
                             Meeting
                           </span>
                         )}
                       </div>
-                      <p className="mt-0.5 text-xs text-neutral-400">
+                      <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                         {formatMeetingTime(meeting.start, meeting.end)}
                       </p>
                       {meeting.location && (

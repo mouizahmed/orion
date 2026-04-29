@@ -169,7 +169,7 @@ function CompactMeetingPanel({
   const content = useMemo(() => {
     if (isLoading) {
       return (
-        <div className="flex h-10 items-center gap-2 rounded-full border border-white/12 bg-[#171417]/80 px-4 text-sm text-white/70 backdrop-blur-md">
+        <div className="flex h-10 items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-4 text-sm text-neutral-600 shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/70 dark:shadow-none">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading...
         </div>
@@ -186,26 +186,26 @@ function CompactMeetingPanel({
 
     return (
       <div className="flex flex-col gap-2">
-        <div className="h-[220px] overflow-hidden rounded-xl border border-white/12 bg-[#0f0d10]/72 p-1 backdrop-blur-md">
+        <div className="h-[220px] overflow-hidden rounded-xl border border-neutral-200 bg-white/80 p-1 shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-[#0f0d10]/72 dark:shadow-none">
           <MarkdownEditor
             ref={editorRef}
             markdown={draftNote}
             onChange={setDraftNote}
             placeholder="Write notes in Markdown..."
-            theme="dark"
+            theme="auto"
             className="overlay-editor h-full min-h-0"
             noteId={noteId}
           />
         </div>
 
         {showCaption ? (
-          <div className="flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs text-white/70 backdrop-blur-md">
+          <div className="flex min-h-8 items-center gap-2 rounded-full border border-neutral-200 bg-white/80 px-3 text-xs text-neutral-600 shadow-sm backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/70 dark:shadow-none">
             <span
               className={[
                 'h-1.5 w-1.5 shrink-0 rounded-full',
                 transcriptStatus === 'connected' && transcriptionMode === 'live'
                   ? 'bg-emerald-300'
-                  : 'bg-white/35',
+                  : 'bg-neutral-400 dark:bg-white/35',
               ].join(' ')}
             />
             <span className="truncate">{captionText}</span>
@@ -226,7 +226,7 @@ function CompactMeetingPanel({
 
   return (
     <div className="flex w-full flex-col gap-2">
-      <div className="relative overflow-hidden rounded-2xl border border-white/12 bg-[#171417]/80 p-1 text-white/80 ring-1 ring-white/8 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.02]">
+      <div className="relative overflow-hidden rounded-2xl border border-neutral-200 bg-white/80 p-1 text-neutral-700 shadow-sm ring-1 ring-neutral-900/5 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.35] dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/80 dark:shadow-none dark:ring-white/8 dark:before:bg-white/[0.02]">
         <div className="relative">
           {content}
         </div>

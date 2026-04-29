@@ -41,7 +41,7 @@ export default function TranscriptPanel({
   const containerClassName =
     appearance === 'embedded'
       ? 'flex w-full flex-col gap-3'
-      : 'flex w-full flex-col gap-3 rounded-2xl border border-white/10 bg-black/70 px-4 py-3 backdrop-blur-xl'
+      : 'flex w-full flex-col gap-3 rounded-2xl border border-neutral-200 bg-white/90 px-4 py-3 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-black/70'
 
   return (
     <div className={cn(containerClassName, className)}>
@@ -49,7 +49,7 @@ export default function TranscriptPanel({
         {TRANSCRIPT_WARNING_TEXT}
       </InfoBanner>
       {content ? (
-        <div className="rounded-2xl border border-dashed border-white/15 bg-white/15 px-4 py-6 text-sm text-white/70">
+        <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-100 px-4 py-6 text-sm text-neutral-600 dark:border-white/15 dark:bg-white/15 dark:text-white/70">
           {content}
         </div>
       ) : (
@@ -65,8 +65,8 @@ export default function TranscriptPanel({
                   className={cn(
                     'max-w-[80%] rounded-lg px-3 py-1.5 text-sm',
                     isMic
-                      ? 'bg-white/15 text-white/90'
-                      : 'bg-white/10 text-white/85',
+                      ? 'bg-neutral-200 text-neutral-900 dark:bg-white/15 dark:text-white/90'
+                      : 'bg-neutral-100 text-neutral-800 dark:bg-white/10 dark:text-white/85',
                     segment.pending && 'opacity-70',
                   )}
                 >

@@ -137,7 +137,7 @@ export default function DashboardSidebar() {
         </div>
       </div>
 
-      <div className="border-t border-white/10" />
+      <div className="border-t border-neutral-200 dark:border-white/10" />
 
       <div className="min-h-0 flex-1 p-1">
         <NotesTree
@@ -162,10 +162,10 @@ export default function DashboardSidebar() {
         />
       </div>
 
-      <div className="border-t border-white/10 p-1">
+      <div className="border-t border-neutral-200 p-1 dark:border-white/10">
         <div
           ref={profileMenuRef}
-          className="relative flex h-8 items-center gap-2 rounded-full text-xs text-neutral-200"
+          className="relative flex h-8 items-center gap-2 rounded-full text-xs text-neutral-700 dark:text-neutral-200"
         >
           <SidebarRowButton
             className="min-w-0 flex-1 text-left"
@@ -190,7 +190,7 @@ export default function DashboardSidebar() {
                 }}
               />
             ) : (
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">
                 {initials}
               </div>
             )}
@@ -205,7 +205,7 @@ export default function DashboardSidebar() {
           {profileMenuOpen ? (
             <div
               role="menu"
-              className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
+              className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
             >
               <SidebarMenuItemButton
                 role="menuitem"

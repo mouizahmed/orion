@@ -63,7 +63,7 @@ function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null
 
 function DashboardContent() {
   const { user, isLoading } = useAuth()
-  const { isOpen, setOpen } = useSidebar()
+  const { isOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
 
   if (isLoading) return null
@@ -72,7 +72,7 @@ function DashboardContent() {
     <DashboardNotesProvider userId={user?.id}>
       <DashboardNoteSelector initialNoteId={initialNoteId} />
       <SidebarNoteAutoClose />
-      <div className="dashboard-root h-screen w-full bg-[#0f0d10] text-neutral-100">
+      <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
           <DashboardTopBar onBackToOverlay={() => window.dashboard?.close?.()} />
 

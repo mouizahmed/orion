@@ -300,19 +300,19 @@ export default function SettingsPanel({
 
   return (
     <div className="flex w-full select-none flex-col gap-2">
-      <div className="relative max-h-[520px] overflow-hidden rounded-2xl border border-white/12 bg-[#171417]/80 p-1 text-sm text-white/80 ring-1 ring-white/8 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.02]">
+      <div className="relative max-h-[520px] overflow-hidden rounded-2xl border border-neutral-200 bg-white/80 p-1 text-sm text-neutral-700 shadow-sm ring-1 ring-neutral-900/5 backdrop-blur-md before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:bg-white/[0.35] dark:border-white/12 dark:bg-[#171417]/80 dark:text-white/80 dark:shadow-none dark:ring-white/8 dark:before:bg-white/[0.02]">
         <div className="attachments-scrollbar relative flex max-h-[512px] flex-col gap-2 overflow-y-auto p-1">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/15 bg-zinc-900/55 text-zinc-100">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-neutral-200 bg-neutral-100 text-neutral-700 dark:border-white/15 dark:bg-zinc-900/55 dark:text-zinc-100">
               <Settings className="h-4 w-4" />
             </div>
             <div className="flex min-w-0 flex-col">
-              <h3 className="text-sm font-semibold text-white">Settings</h3>
+              <h3 className="text-sm font-semibold text-neutral-900 dark:text-white">Settings</h3>
             </div>
           </div>
 
           {!canManageShortcuts ? (
-            <div className="rounded-full border border-white/15 bg-zinc-900/55 px-4 py-2 text-xs text-white/60">
+            <div className="rounded-full border border-neutral-200 bg-neutral-100 px-4 py-2 text-xs text-neutral-500 dark:border-white/15 dark:bg-zinc-900/55 dark:text-white/60">
               Keybind controls are only available in the desktop app.
             </div>
           ) : (
@@ -324,19 +324,19 @@ export default function SettingsPanel({
               )}
 
               {isLoadingShortcuts ? (
-                <div className="flex h-8 items-center gap-2 rounded-full border border-white/15 bg-zinc-900/55 px-4 text-xs text-white/60">
-                  <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-white/60" />
+                <div className="flex h-8 items-center gap-2 rounded-full border border-neutral-200 bg-neutral-100 px-4 text-xs text-neutral-500 dark:border-white/15 dark:bg-zinc-900/55 dark:text-white/60">
+                  <span className="inline-flex h-2 w-2 animate-pulse rounded-full bg-neutral-400 dark:bg-white/60" />
                   Loading shortcuts...
                 </div>
               ) : !shortcutState ? (
-                <div className="rounded-full border border-white/15 bg-zinc-900/55 px-4 py-2 text-xs text-white/60">
+                <div className="rounded-full border border-neutral-200 bg-neutral-100 px-4 py-2 text-xs text-neutral-500 dark:border-white/15 dark:bg-zinc-900/55 dark:text-white/60">
                   Shortcuts are not available right now.
                 </div>
               ) : (
                 <>
                   {shortcutGroups.map((group) => (
                     <div key={group.title} className="flex flex-col gap-1.5">
-                      <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
+                      <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-neutral-500 dark:text-white/40">
                         {group.title}
                       </span>
 
@@ -370,10 +370,10 @@ export default function SettingsPanel({
                           return (
                             <div
                               key={action.key}
-                              className="flex h-10 items-center gap-1 rounded-full border border-white/15 bg-zinc-900/55 p-1"
+                              className="flex h-10 items-center gap-1 rounded-full border border-neutral-200 bg-neutral-100 p-1 dark:border-white/15 dark:bg-zinc-900/55"
                             >
                               <div className="flex h-8 min-w-0 flex-1 items-center px-2.5">
-                                <div className="truncate text-sm font-semibold text-white">
+                                <div className="truncate text-sm font-semibold text-neutral-900 dark:text-white">
                                   {action.label}
                                 </div>
                               </div>
@@ -382,8 +382,8 @@ export default function SettingsPanel({
                                 className={[
                                   'flex h-8 w-[5.9rem] items-center justify-center rounded-full border px-2 font-mono text-[11px] uppercase tracking-wide',
                                   isRecording
-                                    ? 'border-white/40 bg-zinc-950/70 text-white'
-                                    : 'border-white/15 bg-zinc-950/55 text-white/80',
+                                    ? 'border-neutral-300 bg-white text-neutral-950 dark:border-white/40 dark:bg-zinc-950/70 dark:text-white'
+                                    : 'border-neutral-200 bg-white/70 text-neutral-700 dark:border-white/15 dark:bg-zinc-950/55 dark:text-white/80',
                                   isUpdating ? 'opacity-70' : '',
                                 ]
                                   .filter(Boolean)
@@ -396,7 +396,7 @@ export default function SettingsPanel({
                                 type="button"
                                 variant="secondary"
                                 size="sm"
-                                className="h-8 w-14 rounded-full border border-white/15 bg-zinc-900/55 px-0 py-0 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
+                                className="h-8 w-14 rounded-full px-0 py-0 text-xs"
                                 disabled={recordButtonDisabled}
                                 onClick={() => handleRecordToggle(action.key)}
                               >
@@ -406,7 +406,7 @@ export default function SettingsPanel({
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                className="h-8 w-12 rounded-full border-white/15 bg-zinc-900/55 px-0 py-0 text-xs text-white/80 hover:bg-zinc-800/65 hover:text-white"
+                                className="h-8 w-12 rounded-full px-0 py-0 text-xs"
                                 disabled={resetDisabled}
                                 onClick={() => handleReset(action.key)}
                               >
@@ -419,7 +419,7 @@ export default function SettingsPanel({
                     </div>
                   ))}
 
-                  <p className="px-1.5 text-[11px] text-white/50">
+                  <p className="px-1.5 text-[11px] text-neutral-500 dark:text-white/50">
                     Press Escape to cancel while recording. Shortcuts update immediately.
                   </p>
                 </>
@@ -429,7 +429,7 @@ export default function SettingsPanel({
 
           {sections.map(({ key, title, actions }) => (
             <div key={key} className="flex flex-col gap-1.5">
-              <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-white/40">
+              <span className="px-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-neutral-500 dark:text-white/40">
                 {title}
               </span>
 
@@ -441,11 +441,11 @@ export default function SettingsPanel({
                     variant="outline"
                     size="sm"
                     disabled
-                    className="h-10 justify-between rounded-full border-white/15 bg-zinc-900/55 px-3 text-sm font-semibold text-white/70 hover:bg-zinc-800/65"
+                    className="h-10 justify-between rounded-full px-3 text-sm font-semibold"
                   >
                     {label}
                     {hint && (
-                      <span className="ml-2 rounded-full border border-white/10 bg-zinc-950/55 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/50">
+                      <span className="ml-2 rounded-full border border-neutral-200 bg-white/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-neutral-500 dark:border-white/10 dark:bg-zinc-950/55 dark:text-white/50">
                         {hint}
                       </span>
                     )}
@@ -455,11 +455,11 @@ export default function SettingsPanel({
             </div>
           ))}
 
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-2 text-sm text-white/70">
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-neutral-200 pt-2 text-sm text-neutral-600 dark:border-white/10 dark:text-white/70">
             <Button
               type="button"
               variant="outline"
-              className="h-8 min-w-[12rem] flex-1 rounded-full border-white/15 bg-zinc-900/55 px-2.5 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
+              className="h-8 min-w-[12rem] flex-1 rounded-full px-2.5 text-xs"
               onClick={onLogout}
             >
               Log out on this device
@@ -467,7 +467,7 @@ export default function SettingsPanel({
             <Button
               type="button"
               variant="outline"
-              className="h-8 min-w-[12rem] flex-1 rounded-full border-white/15 bg-zinc-900/55 px-2.5 text-xs text-white hover:bg-zinc-800/65 hover:text-white"
+              className="h-8 min-w-[12rem] flex-1 rounded-full px-2.5 text-xs"
               onClick={onLogoutEverywhere}
             >
               Log out everywhere
