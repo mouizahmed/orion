@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { MapPin, Users } from 'lucide-react'
 
-import { DashboardRow } from '@/components/ui/dashboard-row'
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -71,6 +70,7 @@ interface UpcomingMeetingsProps {
 
 const POLL_INTERVAL = 2 * 60 * 1000 // 2 minutes
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
+const CALENDAR_EVENT_OPEN_EVENT = 'dashboard-calendar-event-open'
 
 export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
   const { user } = useAuth()
@@ -245,60 +245,72 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
   return (
     <div>
       <div className="space-y-0.5">
-        {groupedMeetings.map((group) => {
+        {groupedMeetings.map((group, index) => {
           const { month, day } = formatMeetingDate(group.date.toISOString())
           const isToday = isSameDay(group.date, today)
 
           return (
-            <DashboardRow
+            <div
               key={group.key}
+              className={`flex items-start gap-2.5 pb-2 pl-2.5 pr-1.5 ${index === 0 ? 'pt-0' : 'pt-2'}`}
             >
-              <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 text-center dark:border-white/10 dark:bg-white/5">
-                <div className="w-full border-b border-neutral-200 bg-neutral-200/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-500 dark:border-white/10 dark:bg-white/8 dark:text-neutral-300">
-                  {month}
+              <div>
+                <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 text-center dark:border-white/10 dark:bg-white/5">
+                  <div className="w-full border-b border-neutral-200 bg-neutral-200/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-500 dark:border-white/10 dark:bg-white/8 dark:text-neutral-300">
+                    {month}
+                  </div>
+                  <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-800 dark:text-neutral-200">{day}</div>
                 </div>
-                <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-800 dark:text-neutral-200">{day}</div>
               </div>
-              <div className="min-w-0 flex-1 space-y-2 py-0.5">
+              <div className="min-w-0 flex-1 space-y-0.5">
                 {group.meetings.length === 0 ? (
                   <div className="flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
                     {isToday ? 'No events today' : 'No events'}
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
-                    <div key={meeting.id} className="min-w-0 border-l-2 border-[#9f73f2]/55 pl-3">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
-                          {meeting.title}
-                        </span>
-                        {meeting.is_meeting && (
-                          <span className="shrink-0 rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] leading-none text-neutral-600 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
-                            Meeting
+                    <button
+                      key={meeting.id}
+                      type="button"
+                      className="block w-full rounded-lg border border-transparent text-left transition-colors hover:border-neutral-200/70 hover:bg-neutral-100/60 dark:hover:border-white/8 dark:hover:bg-white/[0.055]"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent(CALENDAR_EVENT_OPEN_EVENT, { detail: meeting }))
+                      }}
+                    >
+                      <div className="min-w-0 border-l-2 border-[#9f73f2]/55 py-1 pl-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
+                            {meeting.title}
                           </span>
+                          {meeting.is_meeting && (
+                            <span className="shrink-0 rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] leading-none text-neutral-600 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
+                              Meeting
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                          {formatMeetingTime(meeting.start, meeting.end)}
+                        </p>
+                        {meeting.location && (
+                          <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
+                            <MapPin className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{meeting.location}</span>
+                          </p>
+                        )}
+                        {meeting.attendees && meeting.attendees.length > 0 && (
+                          <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+                            <Users className="h-3 w-3 shrink-0" />
+                            <span>
+                              {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
+                            </span>
+                          </p>
                         )}
                       </div>
-                      <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                        {formatMeetingTime(meeting.start, meeting.end)}
-                      </p>
-                      {meeting.location && (
-                        <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
-                          <MapPin className="h-3 w-3 shrink-0" />
-                          <span className="truncate">{meeting.location}</span>
-                        </p>
-                      )}
-                      {meeting.attendees && meeting.attendees.length > 0 && (
-                        <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                          <Users className="h-3 w-3 shrink-0" />
-                          <span>
-                            {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
-                          </span>
-                        </p>
-                      )}
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
-            </DashboardRow>
+            </div>
           )
         })}
       </div>

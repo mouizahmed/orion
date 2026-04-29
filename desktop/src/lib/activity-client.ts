@@ -1,11 +1,10 @@
 import { auth } from '@/config/firebase'
-import type { ActivityRecord, ActivityType } from '@/types/activity'
+import type { ActivityRecord } from '@/types/activity'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 type ApiActivity = {
   id: string
-  type: ActivityType
   title: string
   actor_label?: string
   timestamp: string
@@ -19,7 +18,6 @@ type ApiActivity = {
 function toActivityRecord(activity: ApiActivity): ActivityRecord {
   return {
     id: activity.id,
-    type: activity.type,
     title: activity.title,
     actorLabel: activity.actor_label,
     timestamp: Date.parse(activity.timestamp),

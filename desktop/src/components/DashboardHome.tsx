@@ -1,8 +1,15 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { FileText, Plus } from 'lucide-react'
+import { ArrowDownUp, ArrowUpDown, CalendarDays, FileText, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   DashboardPanel,
   DashboardPanelBody,
@@ -17,6 +24,8 @@ import { listActivityPage } from '@/lib/activity-client'
 import type { ActivityRecord } from '@/types/activity'
 
 const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
+const CALENDAR_FOCUS_EVENT = 'dashboard-calendar-focus'
+const CALENDAR_OPEN_EVENT = 'dashboard-calendar-open'
 
 function formatActivityDate(timestamp: number) {
   const date = new Date(timestamp)
@@ -64,7 +73,11 @@ function groupActivityByDate(activity: ActivityRecord[]) {
 export default function DashboardHome() {
   const { user } = useAuth()
   const { selectNote, createNewNote } = useDashboardNotes()
+  const calendarPanelRef = useRef<HTMLDivElement | null>(null)
   const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
+  const [activitySort, setActivitySort] = useState('updated')
+  const [activitySortDirection, setActivitySortDirection] = useState<'asc' | 'desc'>('desc')
+  const [activityScope, setActivityScope] = useState('owned')
   const [activity, setActivity] = useState<ActivityRecord[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
   const [activityError, setActivityError] = useState<string | null>(null)
@@ -93,6 +106,17 @@ export default function DashboardHome() {
     }
   }, [loadActivity, user])
 
+  useEffect(() => {
+    const handleCalendarFocus = () => {
+      calendarPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+
+    window.addEventListener(CALENDAR_FOCUS_EVENT, handleCalendarFocus)
+    return () => {
+      window.removeEventListener(CALENDAR_FOCUS_EVENT, handleCalendarFocus)
+    }
+  }, [])
+
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
 
   const handleCreateNewNote = async () => {
@@ -107,22 +131,37 @@ export default function DashboardHome() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       {/* Coming Up */}
-      <DashboardPanel>
-        <DashboardPanelHeader>
-          <DashboardPanelTitle>Coming up</DashboardPanelTitle>
-          <Button
-            onClick={() => setShowOnlyMeetings(!showOnlyMeetings)}
-            variant="secondary"
-            size="sm"
-            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-          >
-            {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
-          </Button>
-        </DashboardPanelHeader>
-        <DashboardPanelBody>
-          <UpcomingMeetings showOnlyMeetings={showOnlyMeetings} />
-        </DashboardPanelBody>
-      </DashboardPanel>
+      <div ref={calendarPanelRef}>
+        <DashboardPanel>
+          <DashboardPanelHeader>
+            <DashboardPanelTitle>Coming up</DashboardPanelTitle>
+            <div className="flex items-center gap-1.5">
+              <Button
+                onClick={() => {
+                  window.dispatchEvent(new Event(CALENDAR_OPEN_EVENT))
+                }}
+                variant="secondary"
+                size="sm"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                View calendar
+              </Button>
+              <Button
+                onClick={() => setShowOnlyMeetings(!showOnlyMeetings)}
+                variant="secondary"
+                size="sm"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
+              </Button>
+            </div>
+          </DashboardPanelHeader>
+          <DashboardPanelBody>
+            <UpcomingMeetings showOnlyMeetings={showOnlyMeetings} />
+          </DashboardPanelBody>
+        </DashboardPanel>
+      </div>
 
       {/* Recent Activity */}
       <DashboardPanel className="flex min-h-0 flex-1 flex-col">
@@ -130,15 +169,62 @@ export default function DashboardHome() {
           <div className="min-w-0">
             <DashboardPanelTitle>Recent Activity</DashboardPanelTitle>
           </div>
-          <Button
-            onClick={() => void handleCreateNewNote()}
-            variant="secondary"
-            size="sm"
-            className="shrink-0"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New note
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-label={activitySortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              title={activitySortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              onClick={() => {
+                setActivitySortDirection((direction) => (direction === 'asc' ? 'desc' : 'asc'))
+              }}
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              {activitySortDirection === 'asc' ? (
+                <ArrowUpDown className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowDownUp className="h-3.5 w-3.5" />
+              )}
+            </Button>
+            <Select value={activitySort} onValueChange={setActivitySort}>
+              <SelectTrigger
+                size="sm"
+                aria-label="Sort recent activity"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="updated">Last updated</SelectItem>
+                <SelectItem value="created">Created</SelectItem>
+                <SelectItem value="title">Title</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={activityScope} onValueChange={setActivityScope}>
+              <SelectTrigger
+                size="sm"
+                aria-label="Filter recent activity"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="owned">Mine</SelectItem>
+                <SelectItem value="shared">Shared</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              onClick={() => void handleCreateNewNote()}
+              variant="secondary"
+              size="sm"
+              className="shrink-0"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New note
+            </Button>
+          </div>
         </DashboardPanelHeader>
 
         <DashboardPanelBody className="min-h-0 flex-1">

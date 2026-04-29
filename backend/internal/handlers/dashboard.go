@@ -20,7 +20,6 @@ type DashboardHandler struct {
 
 type DashboardActivityItem struct {
 	ID         string    `json:"id"`
-	Type       string    `json:"type"`
 	Title      string    `json:"title"`
 	ActorLabel string    `json:"actor_label,omitempty"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -124,14 +123,9 @@ func parseActivityCursor(cursor string) (*time.Time, *string, error) {
 }
 
 func noteToActivityItem(note models.Note) DashboardActivityItem {
-	activityType := "note_updated"
-	if note.UpdatedAt.Equal(note.CreatedAt) || note.UpdatedAt.Sub(note.CreatedAt) < time.Second {
-		activityType = "note_created"
-	}
 	noteID := note.ID
 	return DashboardActivityItem{
-		ID:         fmt.Sprintf("%s:%s", activityType, note.ID),
-		Type:       activityType,
+		ID:         fmt.Sprintf("note:%s", note.ID),
 		Title:      note.Title,
 		ActorLabel: "Me",
 		Timestamp:  note.UpdatedAt,

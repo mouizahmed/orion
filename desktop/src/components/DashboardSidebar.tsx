@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Home, LogOut, Settings, Users } from 'lucide-react'
+import { CalendarDays, Home, LogOut, Notebook, Settings, Users } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -118,6 +118,18 @@ export default function DashboardSidebar() {
     }
   }, [createFolder, selectFolder])
 
+  const openHome = () => {
+    selectFolder(null)
+    selectNote(null)
+  }
+
+  const openCalendar = () => {
+    openHome()
+    window.setTimeout(() => {
+      window.dispatchEvent(new Event('dashboard-calendar-focus'))
+    }, 0)
+  }
+
   return (
     <SidebarContainer className="">
       <div className="p-1">
@@ -125,8 +137,20 @@ export default function DashboardSidebar() {
           <NavButton
             icon={Home}
             label="Home"
-            onClick={() => { selectFolder(null); selectNote(null) }}
+            onClick={openHome}
             isActive={selectedId === null}
+          />
+          <NavButton
+            icon={CalendarDays}
+            label="Calendar"
+            onClick={openCalendar}
+            isActive={false}
+          />
+          <NavButton
+            icon={Notebook}
+            label="My Notes"
+            onClick={() => {}}
+            isActive={false}
           />
           <NavButton
             icon={Users}
