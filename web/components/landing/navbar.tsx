@@ -29,7 +29,7 @@ export default function Navbar() {
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <Image
-                  src="/sunless_ring_exact_editable_svg.svg"
+                  src="/Document.svg"
                   alt="Sunless Logo"
                   width={32}
                   height={32}

@@ -482,28 +482,26 @@ function AppContent() {
           overlayClassName="bg-transparent"
           onOpenChange={(open) => !open && setShowDashboardConfirm(false)}
         >
-          <DialogContent className="sm:max-w-md bg-black/80 dark:bg-black/80 border-white/10">
+          <DialogContent>
             <DialogHeader>
-              <DialogTitle className="text-neutral-900 dark:text-neutral-100">
+              <DialogTitle>
                 End meeting and open dashboard?
               </DialogTitle>
-              <DialogDescription className="text-neutral-600 dark:text-neutral-400">
+              <DialogDescription>
                 Opening the dashboard will end the active meeting.
               </DialogDescription>
             </DialogHeader>
-            <div className="flex justify-end gap-2 pt-2">
+            <div className="flex justify-end gap-2 px-3 pb-1 pt-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setShowDashboardConfirm(false)}
-                className="h-8 px-3 text-xs border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
                 Cancel
               </Button>
               <Button
                 type="button"
                 onClick={handleConfirmOpenDashboard}
-                className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
               >
                 End meeting
               </Button>

@@ -330,7 +330,7 @@ func (t *ToolExecutor) listNotes(userID string, input json.RawMessage) (string, 
 		sort.Slice(notes, func(i, j int) bool {
 			return notes[i].CreatedAt.After(notes[j].CreatedAt)
 		})
-	// default: already sorted by updated_at DESC from repo
+		// default: already sorted by updated_at DESC from repo
 	}
 
 	var result strings.Builder
@@ -382,13 +382,11 @@ func (t *ToolExecutor) getTranscript(userID string, input json.RawMessage) (stri
 	var result strings.Builder
 	result.WriteString(fmt.Sprintf("Transcript (%d segments):\n\n", len(segments)))
 	for _, seg := range segments {
-		speaker := "Speaker"
+		source := "System audio"
 		if seg.Channel == 0 {
-			speaker = "You"
-		} else {
-			speaker = fmt.Sprintf("Speaker %d", seg.Channel)
+			source = "You"
 		}
-		result.WriteString(fmt.Sprintf("[%s]: %s\n", speaker, seg.Text))
+		result.WriteString(fmt.Sprintf("[%s]: %s\n", source, seg.Text))
 	}
 
 	return result.String(), nil

@@ -30,16 +30,16 @@ export default function DashboardHome() {
   return (
     <div className="flex h-full flex-col gap-2">
       {/* Coming Up */}
-      <div className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="rounded-lg border border-white/10 bg-[#171417]/80 px-2.5 py-2 backdrop-blur-md">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          <h2 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
             Coming up
           </h2>
           <Button
             onClick={() => setShowOnlyMeetings(!showOnlyMeetings)}
             variant="ghost"
             size="sm"
-            className="h-6 rounded-md px-2 text-xs text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            className="h-8 rounded-full border border-white/12 bg-white/5 px-3 text-xs text-neutral-300 hover:bg-white/10 hover:text-white"
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
             {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
@@ -49,15 +49,15 @@ export default function DashboardHome() {
       </div>
 
       {/* Recent Activity */}
-      <div className="flex-1 overflow-hidden rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="flex items-center justify-between border-b border-neutral-200 px-2.5 py-2 dark:border-neutral-800">
-          <h2 className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+      <div className="flex-1 overflow-hidden rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md">
+        <div className="flex items-center justify-between border-b border-white/10 px-2.5 py-2">
+          <h2 className="text-xs font-medium text-neutral-900 dark:text-neutral-100">
             Recent Activity
           </h2>
           <Button
             onClick={() => void createNewNote()}
             size="sm"
-            className="h-7 gap-1.5 bg-violet-600 px-2 text-xs text-white hover:bg-violet-700"
+            className="h-8 gap-1.5 rounded-full bg-violet-600 px-3 text-xs text-white hover:bg-violet-700"
           >
             <Plus className="h-3.5 w-3.5" />
             New note
@@ -86,12 +86,12 @@ export default function DashboardHome() {
                 <div
                   key={note.id}
                   onClick={() => selectNote(note.id)}
-                  className="flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+                  className="flex cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 hover:bg-white/8"
                 >
                   <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                      <span className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
                         {note.title || 'Untitled'}
                       </span>
                       <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Folder, Grid3X3, Search } from 'lucide-react'
+import { Folder, Grid3X3, RefreshCw, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +17,9 @@ export default function DashboardTopBar({
   const { isMaximized } = useWindowState()
   const {
     folders,
+    isLoading,
     notes,
+    refresh,
     selectFolder,
     selectNote,
   } = useDashboardNotes()
@@ -215,7 +217,7 @@ export default function DashboardTopBar({
 
   return (
     <div
-      className="relative flex h-12 w-full items-center justify-between px-2 text-sm"
+      className="relative flex h-12 w-full items-center justify-between px-2 text-xs"
       style={
         {
           paddingLeft: isMacOS && !isMaximized ? '80px' : undefined,
@@ -233,7 +235,7 @@ export default function DashboardTopBar({
         }
       />
       <div className="relative z-10 flex items-center gap-2">
-        <img src="./logo.png" alt="Sunless Logo" className="h-6 w-6" />
+        <img src="/Document.svg" alt="Sunless Logo" className="h-6 w-6" />
         <SidebarTrigger />
 
         <div
@@ -241,9 +243,10 @@ export default function DashboardTopBar({
           className="relative"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
+          <div className="flex items-center gap-2 rounded-full border border-white/12 bg-[#171417]/80 px-3 py-1 text-xs text-neutral-200 ring-1 ring-white/8 backdrop-blur-md">
             <Search size={12} className="text-neutral-500 dark:text-neutral-400" />
             <Input
+              variant="ghost"
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value)
@@ -251,17 +254,17 @@ export default function DashboardTopBar({
               }}
               onFocus={() => setIsSearchOpen(true)}
               placeholder="Search people, folders, companies, or meetings"
-              className="h-6 w-[420px] border-0 !bg-transparent dark:!bg-transparent shadow-none p-0 text-xs text-neutral-900 placeholder:text-neutral-400 focus-visible:ring-0 dark:text-neutral-100"
+              className="h-6 w-[420px] p-0 text-xs text-neutral-100 placeholder:text-neutral-400"
             />
           </div>
 
           {isSearchOpen ? (
-            <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-neutral-700/70 bg-[#2a2a2b]/95 text-neutral-100 shadow-2xl backdrop-blur-md">
-              <div className="flex items-center justify-between border-b border-neutral-700/70 px-3 py-2">
-                <span className="text-[11px] text-neutral-300">
+            <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-white/10 bg-[#171417]/95 text-neutral-100 shadow-2xl backdrop-blur-md">
+              <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                <span className="text-xs text-neutral-300">
                   Search people, folders, companies, or meetings
                 </span>
-                <span className="rounded border border-neutral-600/80 px-1.5 py-0.5 text-[10px] text-neutral-300">
+                <span className="rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] text-neutral-300">
                   ESC
                 </span>
               </div>
@@ -280,7 +283,7 @@ export default function DashboardTopBar({
                       <button
                         key={folder.id}
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-neutral-100 hover:bg-white/10"
+                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-100 hover:bg-white/10"
                         onClick={() => {
                           selectFolder(folder.id)
                           setIsSearchOpen(false)
@@ -293,7 +296,7 @@ export default function DashboardTopBar({
                     {showRemote && searchPagination.folders.hasMore ? (
                       <button
                         type="button"
-                        className="w-full rounded-md px-2 py-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
+                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
                         onClick={() => {
                           void loadMoreFolders()
                         }}
@@ -313,21 +316,21 @@ export default function DashboardTopBar({
                       <button
                         key={note.id}
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-neutral-100 hover:bg-white/10"
+                        className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-100 hover:bg-white/10"
                         onClick={() => {
                           selectNote(note.id)
                           selectFolder(note.folderId ?? null)
                           setIsSearchOpen(false)
                         }}
                       >
-                        <span className="text-sm text-neutral-300">•</span>
+                        <span className="text-xs text-neutral-300">•</span>
                         <span className="truncate">{note.title || 'Untitled meeting'}</span>
                       </button>
                     ))}
                     {showRemote && searchPagination.notes.hasMore ? (
                       <button
                         type="button"
-                        className="w-full rounded-md px-2 py-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
+                        className="h-8 w-full rounded-full px-2 text-left text-xs text-[#9f73f2] hover:bg-white/10"
                         onClick={() => {
                           void loadMoreMeetings()
                         }}
@@ -350,7 +353,23 @@ export default function DashboardTopBar({
           type="button"
           variant="ghost"
           size="sm"
-          className="flex items-center gap-2 px-2 text-xs leading-none hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          className="h-8 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs leading-none text-neutral-200 hover:bg-white/10 hover:text-white"
+          onClick={() => {
+            void refresh()
+          }}
+          disabled={isLoading}
+          aria-label="Refresh dashboard"
+          title="Refresh dashboard"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          <RefreshCw size={14} className={isLoading ? 'animate-spin' : undefined} />
+          Refresh
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 rounded-full border border-white/12 bg-[#171417]/80 px-3 text-xs leading-none text-neutral-200 hover:bg-white/10 hover:text-white"
           onClick={onBackToOverlay}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
@@ -361,3 +380,4 @@ export default function DashboardTopBar({
     </div>
   )
 }
+

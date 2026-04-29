@@ -74,13 +74,23 @@ export default function CompactOverlayBar({
         className="flex h-10 w-10 shrink-0 transform-gpu cursor-grab items-center justify-center rounded-full border border-white/12 bg-[#171417]/80 ring-1 ring-white/8 backdrop-blur-md will-change-transform [backface-visibility:hidden] active:cursor-grabbing"
         onMouseDown={onMouseDown}
       >
-        <img
-          src="/sunless_ring_exact_editable_svg.svg"
-          alt="Sunless logo"
-          className="pointer-events-none h-7 w-7 select-none object-contain"
-          draggable={false}
-          onContextMenu={(event) => event.preventDefault()}
-        />
+        <span
+          className={cn(
+            'pointer-events-none flex h-7 w-7 items-center justify-center',
+            meetingActive && !meetingPaused ? 'animate-[logo-size-pulse_1.8s_ease-in-out_infinite]' : null,
+          )}
+        >
+          <img
+            src="/Document.svg"
+            alt="Sunless logo"
+            className={cn(
+              'h-7 w-7 select-none object-contain',
+              meetingActive && !meetingPaused ? 'animate-[spin_4s_linear_infinite]' : null,
+            )}
+            draggable={false}
+            onContextMenu={(event) => event.preventDefault()}
+          />
+        </span>
       </div>
 
       <div

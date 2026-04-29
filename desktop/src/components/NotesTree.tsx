@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Folder, FolderOpen, MoreHorizontal, Plus } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Loader2, MoreHorizontal } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
+import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
 import { cn } from '@/lib/utils'
 import type { FolderRecord } from '@/types/folder'
 import type { NoteRecord } from '@/types/note'
@@ -124,12 +124,11 @@ export function NotesTree({
     return (
       <div key={n.id} className="relative group/row min-w-0" style={indented ? { paddingLeft: '8px' } : {}}>
         <div className={cn(
-          'flex items-center rounded min-w-0',
-          active ? 'bg-violet-200/40 dark:bg-violet-800/30' : 'hover:bg-violet-100/30 dark:hover:bg-violet-900/20',
+          'flex items-center rounded-full min-w-0',
+          active ? 'border border-white/12 bg-white/10 text-white' : 'text-neutral-300 hover:bg-white/8 hover:text-white',
         )}>
-          <button
-            type="button"
-            className="flex flex-1 min-w-0 items-center gap-2 py-1 px-2 text-xs h-7"
+          <SidebarRowButton
+            className="min-w-0 flex-1 rounded-none text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => onSelectNote(n.id)}
             title={n.title || 'Untitled'}
@@ -151,11 +150,10 @@ export function NotesTree({
             ) : (
               <span className="truncate">{n.title || 'Untitled'}</span>
             )}
-          </button>
+          </SidebarRowButton>
           {renamingId !== n.id && (
-            <button
-              type="button"
-              className="opacity-0 group-hover/row:opacity-100 mr-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded hover:bg-neutral-200 dark:hover:bg-neutral-600"
+            <SidebarIconButton
+              revealOnRowHover
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -163,75 +161,62 @@ export function NotesTree({
                 setOpenMenu(isMenuOpen ? null : { kind: 'note', id: n.id, showMove: false })
               }}
             >
-              <MoreHorizontal size={12} />
-            </button>
+              <MoreHorizontal size={14} />
+            </SidebarIconButton>
           )}
         </div>
 
         {isMenuOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-7 z-50 min-w-[160px] rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+            className="absolute right-0 top-8 z-50 min-w-[160px] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
           >
             {!showMove ? (
               <>
-                <button
-                  type="button"
-                  className="w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                <SidebarMenuItemButton
                   onClick={() => startRename(n.id, n.title || 'Untitled')}
                 >
                   Rename
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                </SidebarMenuItemButton>
+                <SidebarMenuItemButton
+                  className="justify-between"
                   onClick={() => setOpenMenu({ kind: 'note', id: n.id, showMove: true })}
                 >
                   Move to folder
-                  <ChevronRight size={12} />
-                </button>
-                <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
-                <button
-                  type="button"
-                  className="w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  <ChevronRight size={14} />
+                </SidebarMenuItemButton>
+                <div className="my-1 border-t border-white/10" />
+                <SidebarMenuItemButton
+                  destructive
                   onClick={() => { void onDeleteNote(n.id); setOpenMenu(null) }}
                 >
                   Delete
-                </button>
+                </SidebarMenuItemButton>
               </>
             ) : (
               <>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-700"
+                <SidebarMenuItemButton
+                  className="text-neutral-400 hover:text-white"
                   onClick={() => setOpenMenu({ kind: 'note', id: n.id, showMove: false })}
                 >
-                  <ChevronLeft size={12} />
+                  <ChevronLeft size={14} />
                   Back
-                </button>
-                <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
-                <button
-                  type="button"
-                  className={cn(
-                    'w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                    !n.folderId ? 'font-medium text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300',
-                  )}
+                </SidebarMenuItemButton>
+                <div className="my-1 border-t border-white/10" />
+                <SidebarMenuItemButton
+                  active={!n.folderId}
                   onClick={() => { void onMoveNote(n.id, null); setOpenMenu(null) }}
                 >
                   No folder
-                </button>
+                </SidebarMenuItemButton>
                 {folders.map((f) => (
-                  <button
+                  <SidebarMenuItemButton
                     key={f.id}
-                    type="button"
-                    className={cn(
-                      'w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                      n.folderId === f.id ? 'font-medium text-neutral-900 dark:text-neutral-100' : 'text-neutral-700 dark:text-neutral-300',
-                    )}
+                    active={n.folderId === f.id}
                     onClick={() => { void onMoveNote(n.id, f.id); setOpenMenu(null) }}
                   >
                     {f.name}
-                  </button>
+                  </SidebarMenuItemButton>
                 ))}
               </>
             )}
@@ -255,12 +240,11 @@ export function NotesTree({
     return (
       <div key={f.id} className="relative group/row min-w-0">
         <div className={cn(
-          'flex items-center rounded min-w-0',
-          isExpanded || isFolderActive ? 'bg-violet-200/40 dark:bg-violet-800/30' : 'hover:bg-violet-100/30 dark:hover:bg-violet-900/20',
+          'flex items-center rounded-full min-w-0',
+          isExpanded || isFolderActive ? 'border border-white/12 bg-white/10 text-white' : 'text-neutral-300 hover:bg-white/8 hover:text-white',
         )}>
-          <button
-            type="button"
-            className="flex flex-1 min-w-0 items-center gap-1 py-1 px-2 text-xs h-7"
+          <SidebarRowButton
+            className="min-w-0 flex-1 rounded-none pr-2 pl-0 text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => {
               onSelectFolder(f.id)
@@ -268,14 +252,16 @@ export function NotesTree({
             }}
           >
             {canExpand ? (
-              <div
-                onClick={(e) => { e.stopPropagation(); toggleFolder(f.id) }}
-                className="flex items-center justify-center w-4 h-4 hover:bg-neutral-200 dark:hover:bg-neutral-600 rounded cursor-pointer flex-shrink-0"
-              >
-                {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              </div>
+              <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center">
+                <span
+                  onClick={(e) => { e.stopPropagation(); toggleFolder(f.id) }}
+                  className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full hover:bg-white/8"
+                >
+                  {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
+              </span>
             ) : (
-              <div className="w-4 flex-shrink-0" />
+              <span className="h-8 w-8 flex-shrink-0" />
             )}
             {isExpanded && hasChildren ? (
               <FolderOpen size={14} className="flex-shrink-0 text-violet-600 dark:text-violet-400" />
@@ -298,11 +284,10 @@ export function NotesTree({
             ) : (
               <span className="truncate text-neutral-700 dark:text-neutral-200">{f.name}</span>
             )}
-          </button>
+          </SidebarRowButton>
           {renamingId !== f.id && (
-            <button
-              type="button"
-              className="opacity-0 group-hover/row:opacity-100 mr-1 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded hover:bg-neutral-200 dark:hover:bg-neutral-600"
+            <SidebarIconButton
+              revealOnRowHover
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -310,49 +295,54 @@ export function NotesTree({
                 setOpenMenu(isMenuOpen ? null : { kind: 'folder', id: f.id })
               }}
             >
-              <MoreHorizontal size={12} />
-            </button>
+              <MoreHorizontal size={14} />
+            </SidebarIconButton>
           )}
         </div>
 
         {isMenuOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-7 z-50 min-w-[140px] rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+            className="absolute right-0 top-8 z-50 min-w-[140px] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
           >
-            <button
-              type="button"
-              className="w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            <SidebarMenuItemButton
               onClick={() => startRename(f.id, f.name)}
             >
               Rename
-            </button>
-            <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
-            <button
-              type="button"
-              className="w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+            </SidebarMenuItemButton>
+            <div className="my-1 border-t border-white/10" />
+            <SidebarMenuItemButton
+              destructive
               onClick={() => { void onDeleteFolder(f.id); setOpenMenu(null) }}
             >
               Delete
-            </button>
+            </SidebarMenuItemButton>
           </div>
         )}
 
         {isExpanded && (hasChildren || showLoadMore) ? (
-          <div>
+          <div className="mt-1 space-y-1">
             {f.noteIds.map((noteId) => renderNoteRow(noteId, true))}
             {showLoadMore ? (
               <div style={{ paddingLeft: '8px' }}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full justify-start gap-2 py-1 px-2 text-[11px] h-7 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                <SidebarRowButton
+                  className="text-neutral-400 hover:bg-white/10"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                   onClick={() => onLoadMore(f.id)}
                   disabled={pagination?.isLoading}
                 >
-                  {pagination?.isLoading ? 'Loading…' : 'Load more'}
-                </Button>
+                  {pagination?.isLoading ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Loading...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown size={14} />
+                      <span>Load more</span>
+                    </>
+                  )}
+                </SidebarRowButton>
               </div>
             ) : null}
           </div>
@@ -362,81 +352,77 @@ export function NotesTree({
   }
 
   return (
-    <div className="mt-4">
-      <div className="group px-2 py-1 flex items-center justify-between hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 rounded">
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-4 w-4 p-0 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="group flex h-8 items-center justify-between rounded-full hover:bg-white/8">
+        <div className="flex items-center gap-2">
+          <SidebarIconButton
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={() => setTreeExpanded(!treeExpanded)}
           >
-            {treeExpanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-          </Button>
+            {treeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </SidebarIconButton>
           <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
             Notes
           </div>
         </div>
-        <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-5 w-5 p-0 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+        <div className="flex items-center">
+          <SidebarIconButton
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={onCreateFolder}
             title="New folder"
           >
-            <Plus size={10} />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-5 w-5 p-0 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+            <FolderPlus size={14} />
+          </SidebarIconButton>
+          <SidebarIconButton
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             onClick={onCreateNote}
             title="New note"
           >
-            <FileText size={10} />
-          </Button>
+            <FilePlus size={14} />
+          </SidebarIconButton>
         </div>
       </div>
 
       {treeExpanded ? (
-        <div className="mt-1 px-2">
+        <div className="mt-1 min-h-0 flex-1 overflow-y-auto overflow-x-hidden sidebar-scrollbar">
           <div className="min-w-0">
             {isLoading ? (
               <div className="space-y-1 px-1 py-1">
                 {[60, 80, 45, 70, 55].map((w, i) => (
-                  <div key={i} className="flex items-center gap-2 px-1 py-1">
-                    <div className="h-3 w-3 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-                    <div className={`h-2.5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700`} style={{ width: `${w}%` }} />
+                  <div key={i} className="flex h-8 items-center gap-2 px-2">
+                    <div className="h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+                    <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" style={{ width: `${w}%` }} />
                   </div>
                 ))}
               </div>
             ) : error ? (
-              <div className="px-2 py-2 text-xs text-red-500">{error}</div>
+              <div className="px-2 py-1 text-xs text-red-500">{error}</div>
             ) : (
-              <div className="space-y-0.5 min-w-0">
+              <div className="space-y-1 min-w-0">
                 {treeFolders.map(renderFolderRow)}
 
                 {unfiledNoteIds.map((noteId) => renderNoteRow(noteId, false))}
 
                 {!search.trim() && folderPagination['__unfiled__']?.hasMore ? (
                   <div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-full justify-start gap-2 py-1 px-2 text-[11px] h-7 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    <SidebarRowButton
+                      className="text-neutral-400 hover:bg-white/10"
                       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                       onClick={() => onLoadMore(null)}
                       disabled={folderPagination['__unfiled__']?.isLoading}
                     >
-                      {folderPagination['__unfiled__']?.isLoading ? 'Loading…' : 'Load more'}
-                    </Button>
+                      {folderPagination['__unfiled__']?.isLoading ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" />
+                          <span>Loading...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown size={14} />
+                          <span>Load more</span>
+                        </>
+                      )}
+                    </SidebarRowButton>
                   </div>
                 ) : null}
               </div>

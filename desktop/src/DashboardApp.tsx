@@ -72,7 +72,7 @@ function DashboardContent() {
     <DashboardNotesProvider userId={user?.id}>
       <DashboardNoteSelector initialNoteId={initialNoteId} />
       <SidebarNoteAutoClose />
-      <div className="h-screen w-full bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-50">
+      <div className="h-screen w-full bg-[#0f0d10] text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
           <DashboardTopBar onBackToOverlay={() => window.dashboard?.close?.()} />
 

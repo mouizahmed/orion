@@ -166,8 +166,8 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
     return hasSavedNote ? (
       // Skeleton matching the note editor layout
       <div className="flex h-full min-h-0 gap-2">
-        <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="flex items-center gap-3 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md">
+          <div className="flex items-center gap-3 border-b border-white/10 px-3 py-2">
             <div className="h-4 w-48 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
             <div className="h-4 w-20 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
           </div>
@@ -200,10 +200,10 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
     <div className="flex h-full min-h-0">
 
       {/* ── Main panel ── */}
-      <div className="relative flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="relative flex min-w-0 flex-1 flex-col rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md">
 
         {/* Title row */}
-        <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
           <input
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
@@ -215,7 +215,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
             }}
             placeholder="Untitled note"
             disabled={!selectedId}
-            className="h-9 min-w-0 flex-1 truncate bg-transparent text-sm font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-50 dark:placeholder:text-neutral-500"
+            className="h-8 min-w-0 flex-1 truncate bg-transparent text-xs font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-50 dark:placeholder:text-neutral-500"
           />
           <div ref={folderPickerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Button
@@ -223,26 +223,26 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
               variant="ghost"
               disabled={!selectedId}
               onClick={() => setFolderPickerOpen((v) => !v)}
-              className="h-7 gap-1.5 rounded-md px-3 text-xs text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
+              className="h-8 gap-1.5 rounded-full border border-white/12 bg-white/5 px-3 text-xs text-neutral-300 hover:bg-white/10 hover:text-white"
             >
               <Folder className="h-3.5 w-3.5" />
               <span>{draftFolderId ? (folders.find((f) => f.id === draftFolderId)?.name ?? 'Folder') : 'No folder'}</span>
             </Button>
             {folderPickerOpen && (
-              <div className="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[160px] rounded-lg border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+              <div className="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[160px] rounded-lg border border-white/10 bg-[#171417]/95 py-1 shadow-lg backdrop-blur-md">
                 <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">Add to folder</div>
                 {[{ id: '', name: 'No folder' }, ...folders].map((f, i) => {
                   const active = (f.id === '' && !draftFolderId) || f.id === draftFolderId
                   return (
                     <Fragment key={f.id || '__none__'}>
                       {i === 1 && folders.length > 0 && (
-                        <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
+                        <div className="my-1 border-t border-white/10" />
                       )}
                       <Button
                         type="button"
                         variant="ghost"
                         onClick={() => { setDraftFolderId(f.id); setFolderPickerOpen(false) }}
-                        className="mx-1 h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-md px-3 text-sm font-normal text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-neutral-700"
+                        className="mx-1 h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 text-xs font-normal text-neutral-100 hover:bg-white/10"
                       >
                         <span className="w-3.5">{active ? <Check className="h-3.5 w-3.5" /> : null}</span>
                         <Folder className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" />
@@ -274,8 +274,8 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
             title={transcriptOpen ? 'Hide transcript' : 'Show transcript'}
             className={
               transcriptOpen
-                ? 'flex items-center gap-1.5 rounded-full bg-neutral-900 px-3 py-1 text-xs font-medium text-white dark:bg-neutral-700 dark:text-white'
-                : 'flex items-center gap-1.5 rounded-full px-3 py-1 text-xs text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200'
+                ? 'flex items-center gap-1.5 rounded-full border border-white/12 bg-white/12 px-3 py-1 text-xs font-medium text-white'
+                : 'flex items-center gap-1.5 rounded-full border border-white/12 bg-white/5 px-3 py-1 text-xs text-neutral-300 hover:bg-white/10 hover:text-white'
             }
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
@@ -285,7 +285,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
         </div>
 
         {enhanceError ? (
-          <div className="m-2.5 rounded-md border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200">
+          <div className="m-2.5 rounded-lg border border-red-500/30 bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-200">
             {enhanceError}
           </div>
         ) : null}
@@ -312,13 +312,13 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
           transcriptOpen ? 'w-[328px]' : 'w-0',
         )}
       >
-        <div className="ml-2 flex h-full w-80 flex-col rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-800">
+        <div className="ml-2 flex h-full w-80 flex-col rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
             <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Transcript</span>
             <button
               type="button"
               onClick={() => setTranscriptOpen(false)}
-              className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
+              className="rounded-full p-1 text-neutral-400 hover:bg-white/10 hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>

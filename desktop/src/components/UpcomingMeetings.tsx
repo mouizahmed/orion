@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { MapPin, Users } from 'lucide-react'
+
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -165,14 +167,14 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     return (
       <div className="space-y-0.5">
         {[70, 55, 80].map((w, i) => (
-          <div key={i} className="flex items-start gap-2.5 px-2.5 py-2">
-            <div className="flex min-w-[36px] flex-col items-center gap-1 rounded px-1.5 py-1">
-              <div className="h-2 w-6 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
-              <div className="h-3 w-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+          <div key={i} className="flex items-start gap-2.5 rounded-lg px-2.5 py-2">
+            <div className="flex min-w-[38px] flex-col items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1.5 py-1">
+              <div className="h-2 w-6 animate-pulse rounded bg-white/15" />
+              <div className="h-3 w-4 animate-pulse rounded bg-white/15" />
             </div>
             <div className="min-w-0 flex-1 space-y-1.5 pt-0.5">
-              <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" style={{ width: `${w}%` }} />
-              <div className="h-2.5 w-32 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="h-3 animate-pulse rounded bg-white/15" style={{ width: `${w}%` }} />
+              <div className="h-2.5 w-32 animate-pulse rounded bg-white/8" />
             </div>
           </div>
         ))}
@@ -182,8 +184,8 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
 
   if (error) {
     return (
-      <div className="rounded-md border border-neutral-200 p-2.5 text-center dark:border-neutral-800">
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
+        <p className="text-xs text-neutral-400">
           Calendar integration coming soon
         </p>
       </div>
@@ -192,8 +194,8 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
 
   if (filteredMeetings.length === 0) {
     return (
-      <div className="rounded-md border border-neutral-200 p-2.5 text-center dark:border-neutral-800">
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">No upcoming events</p>
+      <div className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 text-center">
+        <p className="text-xs text-neutral-400">No upcoming events</p>
       </div>
     )
   }
@@ -208,32 +210,38 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
           return (
             <div
               key={meeting.id}
-              className="flex cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
+              className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-transparent px-2.5 py-2 transition-colors hover:border-white/10 hover:bg-white/8"
             >
-              <div className="flex min-w-[36px] flex-col items-center rounded bg-violet-600 px-1.5 py-1 text-[10px] font-medium text-white">
-                <div>{month}</div>
-                <div>{day}</div>
+              <div className="flex min-w-[38px] flex-col items-center overflow-hidden rounded-md border border-white/10 bg-white/5 text-center">
+                <div className="w-full border-b border-white/10 bg-white/8 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-300">
+                  {month}
+                </div>
+                <div className="px-1.5 py-1 text-sm font-semibold leading-none text-neutral-100">{day}</div>
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  <span className="truncate text-xs font-medium text-neutral-100">
                     {meeting.title}
                   </span>
                   {meeting.is_meeting && (
-                    <span className="shrink-0 rounded bg-blue-100 px-1 py-0.5 text-[10px] text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                    <span className="shrink-0 rounded-full border border-white/12 bg-white/5 px-1.5 py-0.5 text-[10px] leading-none text-neutral-300">
                       Meeting
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">{timeString}</p>
+                <p className="mt-0.5 text-xs text-neutral-400">{timeString}</p>
                 {meeting.location && (
-                  <p className="text-xs text-neutral-500 dark:text-neutral-500">
-                    {meeting.location}
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{meeting.location}</span>
                   </p>
                 )}
                 {meeting.attendees && meeting.attendees.length > 0 && (
-                  <p className="text-xs text-neutral-500 dark:text-neutral-500">
-                    {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
+                    <Users className="h-3 w-3 shrink-0" />
+                    <span>
+                      {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
+                    </span>
                   </p>
                 )}
               </div>

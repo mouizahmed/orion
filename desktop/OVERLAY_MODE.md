@@ -171,7 +171,7 @@ Overlay Mode transforms Sunless into an AI-powered assistant that provides conte
 
 ### Audio Processing (Meeting Mode)
 - **Real-time Speech-to-Text**: Using cloud services (Azure/Google)
-- **Speaker Diarization**: Identify different speakers
+- **Source Separation**: Keep microphone and system audio as separate transcript channels
 - **Noise Cancellation**: Filter background noise
 - **Privacy**: Local processing options for sensitive meetings
 

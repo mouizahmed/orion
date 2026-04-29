@@ -1,14 +1,16 @@
-import React, { useMemo, useState } from 'react'
-import { Home, Users } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Home, LogOut, Settings, Users } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Sidebar as SidebarContainer, SidebarContent } from '@/components/ui/sidebar'
+import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
+import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
 import { NotesTree } from '@/components/NotesTree'
 import { CreateFolderDialog } from '@/components/dialog/CreateFolderDialog'
 import { CreateNoteDialog } from '@/components/dialog/CreateNoteDialog'
+import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
 export default function DashboardSidebar() {
+  const { user, logout, logoutEverywhere } = useAuth()
   const {
     isLoading,
     loadError,
@@ -32,6 +34,55 @@ export default function DashboardSidebar() {
 
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false)
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
+  const [profileImageFailed, setProfileImageFailed] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement | null>(null)
+  const displayName = user?.name || user?.email || 'Account'
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'S'
+
+  useEffect(() => {
+    setProfileImageFailed(false)
+  }, [user?.picture])
+
+  useEffect(() => {
+    console.log('Dashboard sidebar user avatar debug', {
+      id: user?.id,
+      email: user?.email,
+      name: user?.name,
+      picture: user?.picture,
+    })
+  }, [user?.email, user?.id, user?.name, user?.picture])
+
+  useEffect(() => {
+    if (!profileMenuOpen) {
+      return
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setProfileMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [profileMenuOpen])
 
   function NavButton({
     icon: Icon,
@@ -45,20 +96,14 @@ export default function DashboardSidebar() {
     isActive?: boolean
   }) {
     return (
-      <Button
-        type="button"
-        variant={isActive ? 'default' : 'ghost'}
-        className={`w-full justify-start gap-2 py-1 px-2 text-xs h-7 ${
-          isActive
-            ? 'bg-violet-600 text-white hover:bg-violet-700'
-            : 'hover:bg-neutral-100 dark:hover:bg-neutral-700'
-        }`}
+      <SidebarRowButton
+        active={isActive}
         onClick={onClick}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <Icon size={14} />
         <span>{label}</span>
-      </Button>
+      </SidebarRowButton>
     )
   }
 
@@ -75,7 +120,7 @@ export default function DashboardSidebar() {
 
   return (
     <SidebarContainer className="">
-      <SidebarContent className="">
+      <div className="p-1">
         <div className="space-y-1">
           <NavButton
             icon={Home}
@@ -90,7 +135,11 @@ export default function DashboardSidebar() {
             isActive={false}
           />
         </div>
+      </div>
 
+      <div className="border-t border-white/10" />
+
+      <div className="min-h-0 flex-1 p-1">
         <NotesTree
           folders={folders}
           onCreateFolder={() => setShowCreateFolderDialog(true)}
@@ -111,7 +160,79 @@ export default function DashboardSidebar() {
           onDeleteNote={async (id) => { await deleteById(id) }}
           onMoveNote={async (id, folderId) => { await moveNote(id, folderId) }}
         />
-      </SidebarContent>
+      </div>
+
+      <div className="border-t border-white/10 p-1">
+        <div
+          ref={profileMenuRef}
+          className="relative flex h-8 items-center gap-2 rounded-full text-xs text-neutral-200"
+        >
+          <SidebarRowButton
+            className="min-w-0 flex-1 text-left"
+            aria-haspopup="menu"
+            aria-expanded={profileMenuOpen}
+            onClick={() => setProfileMenuOpen((open) => !open)}
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            {user?.picture && !profileImageFailed ? (
+              <img
+                src={user.picture}
+                alt=""
+                className="h-5 w-5 shrink-0 rounded-full object-cover"
+                draggable={false}
+                referrerPolicy="no-referrer"
+                onLoad={() => {
+                  console.log('Dashboard sidebar avatar loaded', user.picture)
+                }}
+                onError={(event) => {
+                  console.warn('Dashboard sidebar avatar failed to load', user.picture, event.currentTarget.currentSrc)
+                  setProfileImageFailed(true)
+                }}
+              />
+            ) : (
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white">
+                {initials}
+              </div>
+            )}
+            <span className="min-w-0 flex-1 truncate font-medium">{displayName}</span>
+          </SidebarRowButton>
+          <SidebarIconButton
+            aria-label="Settings"
+            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          >
+            <Settings size={14} />
+          </SidebarIconButton>
+          {profileMenuOpen ? (
+            <div
+              role="menu"
+              className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-white/10 bg-[#171417]/95 p-1 text-neutral-100 shadow-xl backdrop-blur-md"
+            >
+              <SidebarMenuItemButton
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false)
+                  logout()
+                }}
+              >
+                <LogOut size={14} />
+                <span>Log out</span>
+              </SidebarMenuItemButton>
+              <SidebarMenuItemButton
+                role="menuitem"
+                destructive
+                className="mt-1"
+                onClick={() => {
+                  setProfileMenuOpen(false)
+                  logoutEverywhere()
+                }}
+              >
+                <LogOut size={14} />
+                <span>Log out everywhere</span>
+              </SidebarMenuItemButton>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       <CreateFolderDialog
         isOpen={showCreateFolderDialog}

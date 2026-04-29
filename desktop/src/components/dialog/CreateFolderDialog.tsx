@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
@@ -46,18 +46,15 @@ export function CreateFolderDialog({ isOpen, onClose, onCreate }: CreateFolderDi
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
-      <DialogContent className="sm:max-w-lg bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-neutral-900 dark:text-neutral-100">Create folder</DialogTitle>
-          <DialogDescription className="text-neutral-600 dark:text-neutral-400">
-            Create a new folder to organize your notes.
-          </DialogDescription>
+          <DialogTitle>Create folder</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="folder-name" className="text-sm text-neutral-900 dark:text-neutral-100">
-              Folder name
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <div className="space-y-1">
+            <Label htmlFor="folder-name" className="text-xs text-neutral-100">
+              Folder
             </Label>
             <Input
               id="folder-name"
@@ -66,26 +63,23 @@ export function CreateFolderDialog({ isOpen, onClose, onCreate }: CreateFolderDi
               onChange={(e) => setName(e.target.value)}
               disabled={creating}
               autoFocus
-              className="h-8 text-xs bg-neutral-50 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-500 dark:placeholder:text-neutral-400"
             />
           </div>
 
-          {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
+          {error && <div className="text-xs text-red-600 dark:text-red-400">{error}</div>}
 
-          <div className="flex justify-end gap-2 pt-2">
+          <div className="flex min-h-8 justify-end gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
               disabled={creating}
-              className="h-8 px-3 text-xs border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={creating || !name.trim()}
-              className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
             >
               {creating ? 'Creating...' : 'Create folder'}
             </Button>
@@ -95,4 +89,3 @@ export function CreateFolderDialog({ isOpen, onClose, onCreate }: CreateFolderDi
     </Dialog>
   )
 }
-

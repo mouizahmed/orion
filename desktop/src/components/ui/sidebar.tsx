@@ -45,8 +45,10 @@ export function Sidebar({ children, className }: { children: React.ReactNode; cl
   return (
     <div
       className={cn(
-        'h-full transition-all duration-200 ease-in-out select-none overflow-hidden',
-        isOpen ? 'w-56' : 'w-0',
+        'h-full transition-all duration-200 ease-in-out select-none overflow-hidden text-neutral-100',
+        isOpen
+          ? 'w-56 rounded-lg border border-white/10 bg-[#171417]/80 backdrop-blur-md'
+          : 'w-0 border-0 bg-transparent',
         className,
       )}
     >
@@ -66,19 +68,13 @@ export function SidebarTrigger({ className }: { className?: string }) {
       size="sm"
       onClick={() => sidebarContext.toggle()}
       className={cn(
-        'flex items-center gap-2 px-2 text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800',
+        'flex h-8 items-center gap-2 rounded-full border border-white/12 bg-[#171417]/80 px-2 text-xs text-neutral-300 hover:bg-white/10 hover:text-white',
         className,
       )}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
       <PanelLeft size={14} />
     </Button>
-  )
-}
-
-export function SidebarHeader({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn('p-3 border-b border-neutral-200 dark:border-neutral-800', className)}>{children}</div>
   )
 }
 
@@ -97,6 +93,5 @@ export function SidebarContent({ children, className }: { children: React.ReactN
 }
 
 export function SidebarFooter({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn('border-t border-neutral-200 dark:border-neutral-800', className)}>{children}</div>
+  return <div className={cn('border-t border-white/10', className)}>{children}</div>
 }
-

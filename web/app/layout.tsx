@@ -13,9 +13,9 @@ export const metadata: Metadata = {
   title: "Sunless",
   description: "AI meeting assistant that makes you smarter.",
   icons: {
-    icon: "/sunless_ring_exact_editable_svg.svg",
-    shortcut: "/sunless_ring_exact_editable_svg.svg",
-    apple: "/sunless_ring_exact_editable_svg.svg",
+    icon: "/Document.svg",
+    shortcut: "/Document.svg",
+    apple: "/Document.svg",
   },
 };
 

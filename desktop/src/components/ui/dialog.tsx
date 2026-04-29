@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -43,8 +44,10 @@ function DialogTrigger({ children }: { children: React.ReactNode }) {
 }
 
 function DialogPortal({ children }: { children: React.ReactNode }) {
-  // No-op portal; we use fixed positioning.
-  return <>{children}</>
+  if (typeof document === 'undefined') {
+    return null
+  }
+  return createPortal(children, document.body)
 }
 
 function DialogClose({
@@ -101,15 +104,15 @@ const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTML
           role="dialog"
           aria-modal="true"
           className={cn(
-            'fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 animate-in fade-in-0 zoom-in-95 sm:rounded-lg max-h-[90vh] overflow-y-auto sidebar-scrollbar',
+            'fixed left-[50%] top-[50%] z-50 grid max-h-[90vh] w-[min(calc(100vw-32px),380px)] translate-x-[-50%] translate-y-[-50%] gap-2 overflow-y-auto rounded-xl border border-white/10 bg-[#171417]/95 p-3 text-neutral-100 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in-0 zoom-in-95 sidebar-scrollbar',
             className,
           )}
           onMouseDown={(e) => e.stopPropagation()}
           {...props}
         >
           {children}
-          <DialogClose className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-            <X className="h-4 w-4" />
+          <DialogClose className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-white/8 hover:text-white focus:outline-none focus:ring-2 focus:ring-white/20 disabled:pointer-events-none">
+            <X size={14} />
             <span className="sr-only">Close</span>
           </DialogClose>
         </div>
@@ -120,7 +123,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTML
 DialogContent.displayName = 'DialogContent'
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn('flex flex-col space-y-1.5 text-center sm:text-left', className)} {...props} />
+  <div className={cn('flex min-h-8 flex-col justify-center space-y-1 pr-10 text-left', className)} {...props} />
 )
 DialogHeader.displayName = 'DialogHeader'
 
@@ -131,14 +134,14 @@ DialogFooter.displayName = 'DialogFooter'
 
 const DialogTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h2 ref={ref} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
+    <h2 ref={ref} className={cn('text-sm font-semibold leading-none text-neutral-100', className)} {...props} />
   ),
 )
 DialogTitle.displayName = 'DialogTitle'
 
 const DialogDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-sm text-muted-foreground', className)} {...props} />
+    <p ref={ref} className={cn('text-xs leading-5 text-neutral-400', className)} {...props} />
   ),
 )
 DialogDescription.displayName = 'DialogDescription'

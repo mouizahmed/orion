@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -63,18 +63,15 @@ export function CreateNoteDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
-      <DialogContent className="sm:max-w-lg bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-neutral-900 dark:text-neutral-100">Create note</DialogTitle>
-          <DialogDescription className="text-neutral-600 dark:text-neutral-400">
-            Choose a folder and name your note.
-          </DialogDescription>
+          <DialogTitle>Create note</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="note-title" className="text-sm text-neutral-900 dark:text-neutral-100">
-              Note title
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <div className="space-y-1">
+            <Label htmlFor="note-title" className="text-xs text-neutral-100">
+              Title
             </Label>
             <Input
               id="note-title"
@@ -83,23 +80,22 @@ export function CreateNoteDialog({
               onChange={(e) => setTitle(e.target.value)}
               disabled={creating}
               autoFocus
-              className="h-8 text-xs bg-neutral-50 dark:bg-neutral-800 border-neutral-300 dark:border-neutral-600 text-neutral-900 dark:text-neutral-100 placeholder:text-neutral-500 dark:placeholder:text-neutral-400"
             />
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="note-folder" className="text-sm text-neutral-900 dark:text-neutral-100">
+          <div className="space-y-1">
+            <Label htmlFor="note-folder" className="text-xs text-neutral-100">
               Folder
             </Label>
             <Select value={folderId} onValueChange={setFolderId} disabled={creating}>
               <SelectTrigger
                 id="note-folder"
-                className="h-8 border-neutral-300 bg-neutral-50 text-neutral-900 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+                className="w-full"
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               >
                 <SelectValue placeholder="Choose a folder" />
               </SelectTrigger>
-              <SelectContent className="border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+              <SelectContent>
                 <SelectItem value={UNFILED_VALUE}>Unfiled</SelectItem>
                 {folders.map((f) => (
                   <SelectItem key={f.id} value={f.id}>
@@ -110,7 +106,7 @@ export function CreateNoteDialog({
             </Select>
           </div>
 
-          {error && <div className="text-sm text-red-600 dark:text-red-400">{error}</div>}
+          {error && <div className="text-xs text-red-600 dark:text-red-400">{error}</div>}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button
@@ -118,14 +114,12 @@ export function CreateNoteDialog({
               variant="outline"
               onClick={onClose}
               disabled={creating}
-              className="h-8 px-3 text-xs border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={creating || !title.trim()}
-              className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
             >
               {creating ? 'Creating...' : 'Create note'}
             </Button>

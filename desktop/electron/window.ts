@@ -42,6 +42,17 @@ function updateDashboardTitleBarColors() {
   })
 }
 
+function preventRefreshShortcuts(window: BrowserWindow) {
+  window.webContents.on('before-input-event', (event, input) => {
+    const key = input.key.toLowerCase()
+    const isRefreshShortcut = key === 'r' && (input.control || input.meta)
+
+    if (isRefreshShortcut) {
+      event.preventDefault()
+    }
+  })
+}
+
 export function setAppQuitting(value: boolean) {
   isAppQuitting = value
 }
@@ -67,6 +78,7 @@ export function createWindow() {
 
   // Set window reference for protocol handler (auth callbacks)
   setMainWindow(win)
+  preventRefreshShortcuts(win)
 
   // Enable content protection to hide window from screen sharing
   win.setContentProtection(false)
@@ -128,6 +140,7 @@ export function createDashboardWindow(noteId?: string) {
   })
 
   dashboardWin.setMenuBarVisibility(false)
+  preventRefreshShortcuts(dashboardWin)
 
   // On Windows: clicking the window "X" should minimize-to-tray (hide),
   // not quit the app. We'll allow programmatic closes (e.g. "Back to overlay")

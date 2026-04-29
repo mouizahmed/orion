@@ -11,14 +11,14 @@
 | Live summaries | GPT-4o Mini | Claude Haiku 4.5 |
 | Web search tool | Built-in | Claude built-in tool use |
 | Embeddings | text-embedding-3 | Voyage AI (voyage-3-large) |
-| Transcription | Not implemented | Deepgram Nova-2 (streaming + diarization) |
+| Transcription | Not implemented | AssemblyAI Universal-Streaming |
 | Agent workflows | Not implemented | Claude Agent SDK (Sonnet/Opus) |
 
 ### New Stack
 
 | Service | Purpose | SDK |
 |---|---|---|
-| **Deepgram** | Real-time transcription with speaker diarization | WebSocket API (direct from Electron) |
+| **AssemblyAI** | Real-time transcription for mic and system audio streams | WebSocket API via backend proxy |
 | **Claude (Anthropic)** | Chat, note enhancement, summaries, agent workflows | Claude Agent SDK (TypeScript) |
 | **Voyage AI** | Text embeddings for Pinecone semantic search | Voyage AI API (REST) |
 | **Pinecone** | Vector storage for memories and chunks | Pinecone SDK (Go) |
@@ -26,7 +26,7 @@
 ### Why not OpenAI?
 
 - Claude Agent SDK enables multi-step agentic workflows (meeting prep, cross-note research, auto-organization) that simple request-response LLM calls can't do
-- Deepgram has better real-time transcription with native diarization; OpenAI has no comparable real-time transcription API
+- AssemblyAI Universal-Streaming is lower cost for realtime transcription while preserving separate mic/system streams through two sessions.
 - Voyage AI embeddings are higher quality for retrieval tasks (recommended by Anthropic)
 - Single vendor for all LLM reasoning (simpler billing, consistent behavior)
 

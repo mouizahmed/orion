@@ -66,7 +66,7 @@ function AuthCallbackContent() {
       <div className={`${authShellClass} py-10`}>
         <div className="flex w-full max-w-xl flex-col items-center gap-6">
           <Image
-            src="/sunless-logo.svg"
+            src="/Document.svg"
             alt="Sunless Logo"
             width={80}
             height={80}
@@ -115,7 +115,7 @@ function AuthCallbackContent() {
     <div className={`${authShellClass} py-12`}>
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <Image
-          src="/sunless-logo.svg"
+          src="/Document.svg"
           alt="Sunless Logo"
           width={88}
           height={88}
