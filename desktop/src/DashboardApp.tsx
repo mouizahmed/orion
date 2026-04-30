@@ -4,9 +4,10 @@ import ChatWidget from '@/components/ChatWidget'
 import DashboardWorkspace from '@/components/DashboardWorkspace'
 import DashboardTopBar from '@/components/DashboardTopBar'
 import DashboardSidebar from '@/components/DashboardSidebar'
+import type { DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { DashboardNotesProvider } from '@/contexts/DashboardNotesContext'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
 function SidebarNoteAutoClose() {
@@ -65,6 +66,8 @@ function DashboardContent() {
   const { user, isLoading } = useAuth()
   const { isOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
+  const [viewMode, setViewMode] = useState<'notes' | 'calendar' | 'settings'>('notes')
+  const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
 
   if (isLoading) return null
 
@@ -77,14 +80,27 @@ function DashboardContent() {
           <DashboardTopBar onBackToOverlay={() => window.dashboard?.close?.()} />
 
           <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen ? 'gap-2' : ''}`}>
-            <DashboardSidebar />
+            <DashboardSidebar
+              mode={viewMode}
+              selectedSettingsSection={settingsSection}
+              onOpenHome={() => setViewMode('notes')}
+              onOpenCalendar={() => setViewMode('calendar')}
+              onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'notes' : 'settings'))}
+              onCloseSettings={() => setViewMode('notes')}
+              onSelectSettingsSection={setSettingsSection}
+            />
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden select-none">
-              <DashboardWorkspace userId={user?.id} />
+              <DashboardWorkspace
+                userId={user?.id}
+                mode={viewMode}
+                selectedSettingsSection={settingsSection}
+                onOpenCalendar={() => setViewMode('calendar')}
+              />
             </div>
           </div>
         </div>
       </div>
-      <ChatWidget variant="dashboard" />
+      {viewMode === 'notes' ? <ChatWidget variant="dashboard" /> : null}
     </DashboardNotesProvider>
   )
 }

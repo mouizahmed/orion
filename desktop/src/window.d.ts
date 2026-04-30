@@ -77,6 +77,17 @@ interface ShortcutControl {
   update: (action: ShortcutAction, shortcut: string | null) => Promise<ShortcutState>
 }
 
+type RecordingSettings = {
+  storageLocation: 'server' | 'local'
+  localRecordingsPath: string
+}
+
+interface RecordingSettingsControl {
+  get: () => Promise<RecordingSettings>
+  update: (settings: Partial<RecordingSettings>) => Promise<RecordingSettings>
+  pickLocalPath: () => Promise<RecordingSettings>
+}
+
 interface AttachmentResult {
   kind: 'image' | 'file'
   mimeType: string
@@ -140,6 +151,7 @@ declare global {
     windowControl: WindowControl
     electronAPI: ElectronAPI
     shortcutControl?: ShortcutControl
+    recordingSettings?: RecordingSettingsControl
     attachments?: AttachmentsControl
     liveInsights?: LiveInsightsControl
     dashboard?: DashboardControl

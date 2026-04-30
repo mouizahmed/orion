@@ -24,8 +24,6 @@ import { listActivityPage } from '@/lib/activity-client'
 import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/types/activity'
 
 const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
-const CALENDAR_FOCUS_EVENT = 'dashboard-calendar-focus'
-const CALENDAR_OPEN_EVENT = 'dashboard-calendar-open'
 
 function formatActivityDate(timestamp: number) {
   const date = new Date(timestamp)
@@ -70,10 +68,9 @@ function groupActivityByDate(activity: ActivityRecord[]) {
   }, [])
 }
 
-export default function DashboardHome() {
+export default function DashboardHome({ onOpenCalendar }: { onOpenCalendar?: () => void }) {
   const { user } = useAuth()
   const { selectNote, openCreateNoteDialog } = useDashboardNotes()
-  const calendarPanelRef = useRef<HTMLDivElement | null>(null)
   const activityRequestRef = useRef(0)
   const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
@@ -118,17 +115,6 @@ export default function DashboardHome() {
     }
   }, [loadActivity, user])
 
-  useEffect(() => {
-    const handleCalendarFocus = () => {
-      calendarPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-
-    window.addEventListener(CALENDAR_FOCUS_EVENT, handleCalendarFocus)
-    return () => {
-      window.removeEventListener(CALENDAR_FOCUS_EVENT, handleCalendarFocus)
-    }
-  }, [])
-
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
 
   if (!user) return null
@@ -136,15 +122,13 @@ export default function DashboardHome() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       {/* Coming Up */}
-      <div ref={calendarPanelRef}>
+      <div>
         <DashboardPanel>
           <DashboardPanelHeader>
             <DashboardPanelTitle>Coming up</DashboardPanelTitle>
             <div className="flex items-center gap-1.5">
               <Button
-                onClick={() => {
-                  window.dispatchEvent(new Event(CALENDAR_OPEN_EVENT))
-                }}
+                onClick={onOpenCalendar}
                 variant="secondary"
                 size="sm"
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}

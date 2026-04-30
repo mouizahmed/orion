@@ -8,14 +8,24 @@ import { updateNote, enhanceNote } from '@/lib/notes-client'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
 import SavedTranscriptView from '@/components/SavedTranscriptView'
 import MarkdownEditor from '@/components/MarkdownEditor'
+import { DashboardCalendar } from '@/components/DashboardCalendar'
 import DashboardHome from '@/components/DashboardHome'
+import DashboardSettingsPage, { type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
 type DashboardWorkspaceProps = {
   userId?: string
+  mode?: 'notes' | 'calendar' | 'settings'
+  selectedSettingsSection?: DashboardSettingsSection
+  onOpenCalendar?: () => void
 }
 
-export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) {
+export default function DashboardWorkspace({
+  userId,
+  mode = 'notes',
+  selectedSettingsSection = 'account',
+  onOpenCalendar,
+}: DashboardWorkspaceProps) {
   const { folders, selectedId, selected, optimisticPatch, replaceNote, isLoading } = useDashboardNotes()
 
   const [draftTitle, setDraftTitle] = useState('')
@@ -161,6 +171,22 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
     }
   }, [replaceNote, selectedId])
 
+  if (mode === 'settings') {
+    return (
+      <div className="h-full">
+        <DashboardSettingsPage selectedSection={selectedSettingsSection} />
+      </div>
+    )
+  }
+
+  if (mode === 'calendar') {
+    return (
+      <div className="h-full">
+        <DashboardCalendar />
+      </div>
+    )
+  }
+
   if (isLoading) {
     const hasSavedNote = Boolean(localStorage.getItem('dashboard:selectedNoteId'))
     return hasSavedNote ? (
@@ -183,7 +209,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
       </div>
     ) : (
       <div className="h-full">
-        <DashboardHome />
+        <DashboardHome onOpenCalendar={onOpenCalendar} />
       </div>
     )
   }
@@ -191,7 +217,7 @@ export default function DashboardWorkspace({ userId }: DashboardWorkspaceProps) 
   if (!selectedId) {
     return (
       <div className="h-full">
-        <DashboardHome />
+        <DashboardHome onOpenCalendar={onOpenCalendar} />
       </div>
     )
   }

@@ -5,10 +5,27 @@ import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
 import { NotesTree } from '@/components/NotesTree'
 import { CreateFolderDialog } from '@/components/dialog/CreateFolderDialog'
+import { DashboardSettingsNav, type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
-export default function DashboardSidebar() {
+export default function DashboardSidebar({
+  mode = 'notes',
+  selectedSettingsSection = 'account',
+  onOpenHome,
+  onOpenCalendar,
+  onOpenSettings,
+  onCloseSettings,
+  onSelectSettingsSection,
+}: {
+  mode?: 'notes' | 'calendar' | 'settings'
+  selectedSettingsSection?: DashboardSettingsSection
+  onOpenHome?: () => void
+  onOpenCalendar?: () => void
+  onOpenSettings?: () => void
+  onCloseSettings?: () => void
+  onSelectSettingsSection?: (section: DashboardSettingsSection) => void
+}) {
   const { user, logout, logoutEverywhere } = useAuth()
   const {
     isLoading,
@@ -117,72 +134,111 @@ export default function DashboardSidebar() {
   }, [createFolder, selectFolder])
 
   const openHome = () => {
+    onCloseSettings?.()
+    onOpenHome?.()
     selectFolder(null)
     selectNote(null)
   }
 
   const openCalendar = () => {
-    openHome()
-    window.setTimeout(() => {
-      window.dispatchEvent(new Event('dashboard-calendar-focus'))
-    }, 0)
+    onOpenCalendar?.()
+    selectFolder(null)
+    selectNote(null)
+  }
+
+  const openNotesPage = () => {
+    onOpenHome?.()
   }
 
   return (
     <SidebarContainer className="">
       <div className="p-1">
-        <div className="space-y-1">
-          <NavButton
-            icon={Home}
-            label="Home"
-            onClick={openHome}
-            isActive={selectedId === null}
+        {mode === 'settings' ? (
+          <DashboardSettingsNav
+            selectedSection={selectedSettingsSection}
+            onSelectSection={(section) => onSelectSettingsSection?.(section)}
+            onBackToApp={() => onCloseSettings?.()}
           />
-          <NavButton
-            icon={CalendarDays}
-            label="Calendar"
-            onClick={openCalendar}
-            isActive={false}
-          />
-          <NavButton
-            icon={Notebook}
-            label="My Notes"
-            onClick={() => {}}
-            isActive={false}
-          />
-          <NavButton
-            icon={Users}
-            label="Shared with me"
-            onClick={() => {}}
-            isActive={false}
-          />
+        ) : (
+          <div className="space-y-1">
+            <NavButton
+              icon={Home}
+              label="Home"
+              onClick={openHome}
+              isActive={mode === 'notes' && selectedId === null}
+            />
+            <NavButton
+              icon={CalendarDays}
+              label="Calendar"
+              onClick={openCalendar}
+              isActive={mode === 'calendar'}
+            />
+            <NavButton
+              icon={Notebook}
+              label="My Notes"
+              onClick={() => {}}
+              isActive={false}
+            />
+            <NavButton
+              icon={Users}
+              label="Shared with me"
+              onClick={() => {}}
+              isActive={false}
+            />
+          </div>
+        )}
+      </div>
+
+      {mode === 'settings' ? (
+        <div className="flex min-h-0 flex-1 items-end px-3 pb-2">
+          <p className="text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+            Need help? Email{' '}
+            <a
+              href="mailto:support@orionly.app"
+              className="font-medium text-neutral-700 underline-offset-2 hover:underline dark:text-neutral-200"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              support@orionly.app
+            </a>
+          </p>
         </div>
-      </div>
+      ) : (
+        <>
+          <div className="border-t border-neutral-200 dark:border-white/10" />
 
-      <div className="border-t border-neutral-200 dark:border-white/10" />
-
-      <div className="min-h-0 flex-1 p-1">
-        <NotesTree
-          folders={folders}
-          onCreateFolder={() => setShowCreateFolderDialog(true)}
-          onCreateNote={openCreateNoteDialog}
-          notes={filteredNotes}
-          isLoading={isLoading}
-          error={loadError}
-          folderPagination={folderPagination}
-          onLoadMore={loadMoreForFolder}
-          selectedFolderId={selectedFolderId}
-          selectedNoteId={selectedId}
-          search={search}
-          onSelectFolder={selectFolder}
-          onSelectNote={selectNote}
-          onRenameFolder={async (id, name) => { await renameFolder(id, name) }}
-          onDeleteFolder={async (id) => { await deleteFolder(id) }}
-          onRenameNote={async (id, title) => { await renameNote(id, title) }}
-          onDeleteNote={async (id) => { await deleteById(id) }}
-          onMoveNote={async (id, folderId) => { await moveNote(id, folderId) }}
-        />
-      </div>
+          <div className="min-h-0 flex-1 p-1">
+            <NotesTree
+              folders={folders}
+              onCreateFolder={() => setShowCreateFolderDialog(true)}
+              onCreateNote={() => {
+                openNotesPage()
+                openCreateNoteDialog()
+              }}
+              notes={filteredNotes}
+              isLoading={isLoading}
+              error={loadError}
+              folderPagination={folderPagination}
+              onLoadMore={loadMoreForFolder}
+              selectedFolderId={selectedFolderId}
+              selectedNoteId={selectedId}
+              search={search}
+              onSelectFolder={(folderId) => {
+                openNotesPage()
+                selectFolder(folderId)
+              }}
+              onSelectNote={(noteId) => {
+                openNotesPage()
+                selectNote(noteId)
+              }}
+              onRenameFolder={async (id, name) => { await renameFolder(id, name) }}
+              onDeleteFolder={async (id) => { await deleteFolder(id) }}
+              onRenameNote={async (id, title) => { await renameNote(id, title) }}
+              onDeleteNote={async (id) => { await deleteById(id) }}
+              onMoveNote={async (id, folderId) => { await moveNote(id, folderId) }}
+            />
+          </div>
+        </>
+      )}
 
       <div className="border-t border-neutral-200 p-1 dark:border-white/10">
         <div
@@ -220,6 +276,9 @@ export default function DashboardSidebar() {
           </SidebarRowButton>
           <SidebarIconButton
             aria-label="Settings"
+            suppressHoverBackground={mode === 'settings'}
+            onClick={onOpenSettings}
+            className={mode === 'settings' ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : undefined}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <Settings size={14} />

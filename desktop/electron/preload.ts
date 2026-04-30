@@ -18,6 +18,11 @@ type ShortcutState = {
   defaults: Record<ShortcutAction, string>
 }
 
+type RecordingSettings = {
+  storageLocation: 'server' | 'local'
+  localRecordingsPath: string
+}
+
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
   on(...args: Parameters<typeof ipcRenderer.on>) {
@@ -124,6 +129,14 @@ contextBridge.exposeInMainWorld('shortcutControl', {
   getAll: () => ipcRenderer.invoke('shortcuts:get') as Promise<ShortcutState>,
   update: (action: ShortcutAction, shortcut: string | null) =>
     ipcRenderer.invoke('shortcuts:update', { action, shortcut }) as Promise<ShortcutState>,
+})
+
+contextBridge.exposeInMainWorld('recordingSettings', {
+  get: () => ipcRenderer.invoke('recording-settings:get') as Promise<RecordingSettings>,
+  update: (settings: Partial<RecordingSettings>) =>
+    ipcRenderer.invoke('recording-settings:update', settings) as Promise<RecordingSettings>,
+  pickLocalPath: () =>
+    ipcRenderer.invoke('recording-settings:pick-local-path') as Promise<RecordingSettings>,
 })
 
 
