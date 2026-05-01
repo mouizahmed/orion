@@ -95,6 +95,10 @@ function DashboardContent() {
                 mode={viewMode}
                 selectedSettingsSection={settingsSection}
                 onOpenCalendar={() => setViewMode('calendar')}
+                onOpenCalendarSettings={() => {
+                  setSettingsSection('calendar')
+                  setViewMode('settings')
+                }}
               />
             </div>
           </div>

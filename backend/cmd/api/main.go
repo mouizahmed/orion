@@ -186,6 +186,7 @@ func main() {
 		authenticated.GET("/transcript/search", transcriptHandler.SearchSegments)
 
 		// Calendar routes
+		authenticated.GET("/calendar/calendars", calendarHandler.GetCalendars)
 		authenticated.GET("/calendar/upcoming", calendarHandler.GetUpcomingEvents)
 
 		// Chat routes

@@ -6,15 +6,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"golang.org/x/oauth2"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"golang.org/x/oauth2"
 )
 
 type CalendarHandler struct {
@@ -22,22 +23,62 @@ type CalendarHandler struct {
 }
 
 type CalendarEvent struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Start       time.Time `json:"start"`
-	End         time.Time `json:"end"`
-	Location    string    `json:"location,omitempty"`
-	Description string    `json:"description,omitempty"`
-	Organizer   string    `json:"organizer,omitempty"`
-	Provider    string    `json:"provider"`
-	IsMeeting   bool      `json:"is_meeting"`
-	Attendees   []string  `json:"attendees,omitempty"`
+	ID           string             `json:"id"`
+	Title        string             `json:"title"`
+	Start        time.Time          `json:"start"`
+	End          time.Time          `json:"end"`
+	Location     string             `json:"location,omitempty"`
+	Description  string             `json:"description,omitempty"`
+	MeetingLink  string             `json:"meeting_link,omitempty"`
+	CalendarID   string             `json:"calendar_id,omitempty"`
+	CalendarName string             `json:"calendar_name,omitempty"`
+	Color        string             `json:"color,omitempty"`
+	Organizer    string             `json:"organizer,omitempty"`
+	Provider     string             `json:"provider"`
+	IsMeeting    bool               `json:"is_meeting"`
+	Attendees    []CalendarAttendee `json:"attendees,omitempty"`
+}
+
+type CalendarAttendee struct {
+	Name  string `json:"name,omitempty"`
+	Email string `json:"email,omitempty"`
+}
+
+type CalendarSource struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Provider        string `json:"provider"`
+	Color           string `json:"color,omitempty"`
+	BackgroundColor string `json:"background_color,omitempty"`
+	ForegroundColor string `json:"foreground_color,omitempty"`
+	Primary         bool   `json:"primary"`
+	Selected        bool   `json:"selected"`
+	AccessRole      string `json:"access_role,omitempty"`
 }
 
 func NewCalendarHandler(oauthTokenRepo repository.OAuthTokenRepository) *CalendarHandler {
 	return &CalendarHandler{
 		oauthTokenRepo: oauthTokenRepo,
 	}
+}
+
+func (h *CalendarHandler) GetCalendars(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	calendars, err := h.getCalendars(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch calendars"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "success",
+		"calendars": calendars,
+	})
 }
 
 func (h *CalendarHandler) GetUpcomingEvents(c *gin.Context) {
@@ -63,6 +104,49 @@ func (h *CalendarHandler) GetUpcomingEvents(c *gin.Context) {
 		"status": "success",
 		"events": events,
 	})
+}
+
+func (h *CalendarHandler) getCalendars(userID string) ([]*CalendarSource, error) {
+	var allCalendars []*CalendarSource
+
+	tokens, err := h.oauthTokenRepo.GetByUser(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OAuth tokens: %w", err)
+	}
+
+	if len(tokens) == 0 {
+		return []*CalendarSource{}, nil
+	}
+
+	for _, token := range tokens {
+		if token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt) {
+			err := h.refreshTokenIfNeeded(userID, token.Provider)
+			if err != nil {
+				continue
+			}
+			refreshedToken, err := h.oauthTokenRepo.GetByUserAndProvider(userID, token.Provider)
+			if err != nil {
+				continue
+			}
+			token = refreshedToken
+		}
+
+		var calendars []*CalendarSource
+		switch token.Provider {
+		case "google":
+			calendars, err = h.getGoogleCalendars(token)
+		default:
+			continue
+		}
+
+		if err != nil {
+			continue
+		}
+
+		allCalendars = append(allCalendars, calendars...)
+	}
+
+	return allCalendars, nil
 }
 
 func (h *CalendarHandler) getUpcomingEvents(userID string, limit int) ([]*CalendarEvent, error) {
@@ -191,13 +275,9 @@ func (h *CalendarHandler) refreshTokenIfNeeded(userID, provider string) error {
 	return nil
 }
 
-func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limit int) ([]*CalendarEvent, error) {
+func (h *CalendarHandler) getGoogleCalendars(token *models.OAuthToken) ([]*CalendarSource, error) {
 	client := &http.Client{}
-
-	timeMin := time.Now().Format(time.RFC3339)
-	url := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=%s&orderBy=startTime&singleEvents=true&maxResults=%d", timeMin, limit)
-
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", "https://www.googleapis.com/calendar/v3/users/me/calendarList", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -212,13 +292,89 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Google Calendar API error: %s", string(body))
+		return nil, fmt.Errorf("Google CalendarList API error: %s", string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
+
+	var googleResponse struct {
+		Items []struct {
+			ID              string `json:"id"`
+			Summary         string `json:"summary"`
+			BackgroundColor string `json:"backgroundColor"`
+			ForegroundColor string `json:"foregroundColor"`
+			Primary         bool   `json:"primary"`
+			Selected        bool   `json:"selected"`
+			AccessRole      string `json:"accessRole"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(body, &googleResponse); err != nil {
+		return nil, err
+	}
+
+	calendars := make([]*CalendarSource, 0, len(googleResponse.Items))
+	for _, item := range googleResponse.Items {
+		calendars = append(calendars, &CalendarSource{
+			ID:              item.ID,
+			Name:            item.Summary,
+			Provider:        "google",
+			Color:           item.BackgroundColor,
+			BackgroundColor: item.BackgroundColor,
+			ForegroundColor: item.ForegroundColor,
+			Primary:         item.Primary,
+			Selected:        item.Selected,
+			AccessRole:      item.AccessRole,
+		})
+	}
+
+	return calendars, nil
+}
+
+func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limit int) ([]*CalendarEvent, error) {
+	calendars, err := h.getGoogleCalendars(token)
+	if err != nil {
+		return nil, err
+	}
+
+	var allEvents []*CalendarEvent
+	for _, calendar := range calendars {
+		if !calendar.Selected && !calendar.Primary {
+			continue
+		}
+
+		events, err := h.getGoogleCalendarEventsForCalendar(token, calendar, limit)
+		if err != nil {
+			continue
+		}
+		allEvents = append(allEvents, events...)
+	}
+
+	return allEvents, nil
+}
+
+func (h *CalendarHandler) getGoogleCalendarEventsForCalendar(token *models.OAuthToken, calendar *CalendarSource, limit int) ([]*CalendarEvent, error) {
+	client := &http.Client{}
+
+	timeMin := url.QueryEscape(time.Now().Format(time.RFC3339))
+	calendarID := url.PathEscape(calendar.ID)
+	requestURL := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/%s/events?timeMin=%s&orderBy=startTime&singleEvents=true&maxResults=%d", calendarID, timeMin, limit)
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
 	var googleResponse struct {
 		Items []struct {
@@ -232,9 +388,16 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 				DateTime string `json:"dateTime"`
 				Date     string `json:"date"`
 			} `json:"end"`
-			Location    string `json:"location"`
-			Description string `json:"description"`
-			Organizer   struct {
+			Location       string `json:"location"`
+			Description    string `json:"description"`
+			HangoutLink    string `json:"hangoutLink"`
+			ConferenceData struct {
+				EntryPoints []struct {
+					EntryPointType string `json:"entryPointType"`
+					URI            string `json:"uri"`
+				} `json:"entryPoints"`
+			} `json:"conferenceData"`
+			Organizer struct {
 				DisplayName string `json:"displayName"`
 				Email       string `json:"email"`
 			} `json:"organizer"`
@@ -246,6 +409,16 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 		} `json:"items"`
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Google Calendar API error: %s", string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := json.Unmarshal(body, &googleResponse); err != nil {
 		return nil, err
 	}
@@ -253,11 +426,24 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 	var events []*CalendarEvent
 	for _, item := range googleResponse.Items {
 		event := &CalendarEvent{
-			ID:          item.ID,
-			Title:       item.Summary,
-			Location:    item.Location,
-			Description: item.Description,
-			Provider:    "google",
+			ID:           item.ID,
+			Title:        item.Summary,
+			Location:     item.Location,
+			Description:  item.Description,
+			MeetingLink:  item.HangoutLink,
+			CalendarID:   calendar.ID,
+			CalendarName: calendar.Name,
+			Color:        calendar.Color,
+			Provider:     "google",
+		}
+
+		if event.MeetingLink == "" {
+			for _, entryPoint := range item.ConferenceData.EntryPoints {
+				if entryPoint.URI != "" && (entryPoint.EntryPointType == "video" || entryPoint.EntryPointType == "hangoutsMeet") {
+					event.MeetingLink = entryPoint.URI
+					break
+				}
+			}
 		}
 
 		if item.Organizer.DisplayName != "" {
@@ -266,12 +452,13 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 			event.Organizer = item.Organizer.Email
 		}
 
-		var attendees []string
+		var attendees []CalendarAttendee
 		for _, attendee := range item.Attendees {
-			if attendee.DisplayName != "" {
-				attendees = append(attendees, attendee.DisplayName)
-			} else if attendee.Email != "" {
-				attendees = append(attendees, attendee.Email)
+			if attendee.DisplayName != "" || attendee.Email != "" {
+				attendees = append(attendees, CalendarAttendee{
+					Name:  attendee.DisplayName,
+					Email: attendee.Email,
+				})
 			}
 		}
 		event.Attendees = attendees
@@ -296,7 +483,7 @@ func (h *CalendarHandler) getGoogleCalendarEvents(token *models.OAuthToken, limi
 			}
 		}
 
-		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.Attendees)
+		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, event.Attendees)
 
 		events = append(events, event)
 	}
@@ -365,11 +552,14 @@ func (h *CalendarHandler) getMicrosoftCalendarEvents(token *models.OAuthToken, l
 	var events []*CalendarEvent
 	for _, item := range microsoftResponse.Value {
 		event := &CalendarEvent{
-			ID:          item.ID,
-			Title:       item.Subject,
-			Location:    item.Location.DisplayName,
-			Description: item.BodyPreview,
-			Provider:    "microsoft",
+			ID:           item.ID,
+			Title:        item.Subject,
+			Location:     item.Location.DisplayName,
+			Description:  item.BodyPreview,
+			CalendarID:   "microsoft",
+			CalendarName: "Microsoft Calendar",
+			Color:        "#38bdf8",
+			Provider:     "microsoft",
 		}
 
 		if item.Organizer.EmailAddress.Name != "" {
@@ -386,7 +576,7 @@ func (h *CalendarHandler) getMicrosoftCalendarEvents(token *models.OAuthToken, l
 			event.End = endTime
 		}
 
-		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.Attendees)
+		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, event.Attendees)
 
 		events = append(events, event)
 	}
@@ -394,7 +584,7 @@ func (h *CalendarHandler) getMicrosoftCalendarEvents(token *models.OAuthToken, l
 	return events, nil
 }
 
-func (h *CalendarHandler) isMeeting(title, description, location string, attendees []string) bool {
+func (h *CalendarHandler) isMeeting(title, description, location, meetingLink string, attendees []CalendarAttendee) bool {
 	if len(attendees) > 1 {
 		return true
 	}
@@ -419,7 +609,7 @@ func (h *CalendarHandler) isMeeting(title, description, location string, attende
 		"whereby.com", "discord.gg", "bluejeans.com",
 	}
 
-	combinedText := strings.ToLower(description + " " + location)
+	combinedText := strings.ToLower(description + " " + location + " " + meetingLink)
 	for _, pattern := range meetingLinkPatterns {
 		if strings.Contains(combinedText, pattern) {
 			return true

@@ -1,6 +1,6 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { ArrowDownUp, ArrowUpDown, CalendarDays, FileText, Plus } from 'lucide-react'
+import { ArrowDownUp, ArrowUpDown, FileText, Plus, Settings2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -68,7 +68,13 @@ function groupActivityByDate(activity: ActivityRecord[]) {
   }, [])
 }
 
-export default function DashboardHome({ onOpenCalendar }: { onOpenCalendar?: () => void }) {
+export default function DashboardHome({
+  onOpenCalendar,
+  onOpenCalendarSettings,
+}: {
+  onOpenCalendar?: () => void
+  onOpenCalendarSettings?: () => void
+}) {
   const { user } = useAuth()
   const { selectNote, openCreateNoteDialog } = useDashboardNotes()
   const activityRequestRef = useRef(0)
@@ -128,12 +134,22 @@ export default function DashboardHome({ onOpenCalendar }: { onOpenCalendar?: () 
             <DashboardPanelTitle>Coming up</DashboardPanelTitle>
             <div className="flex items-center gap-1.5">
               <Button
+                type="button"
+                onClick={onOpenCalendarSettings}
+                variant="secondary"
+                size="icon-sm"
+                aria-label="Calendar settings"
+                title="Calendar settings"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button
                 onClick={onOpenCalendar}
                 variant="secondary"
                 size="sm"
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
               >
-                <CalendarDays className="h-3.5 w-3.5" />
                 View calendar
               </Button>
               <Button

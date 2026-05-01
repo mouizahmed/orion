@@ -10,7 +10,10 @@ import {
   DashboardPanelHeader,
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
+import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
 
@@ -34,6 +37,16 @@ type ShortcutState = {
 type RecordingSettings = {
   storageLocation: 'server' | 'local'
   localRecordingsPath: string
+}
+
+type ConnectedCalendar = {
+  id: string
+  name: string
+  provider: string
+  color?: string
+  background_color?: string
+  primary: boolean
+  selected: boolean
 }
 
 type ShortcutGroup = {
@@ -371,6 +384,9 @@ export default function DashboardSettingsPage({
   const [updatingAction, setUpdatingAction] = useState<ShortcutAction | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [profileImageFailed, setProfileImageFailed] = useState(false)
+  const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
+  const [isLoadingCalendars, setIsLoadingCalendars] = useState(false)
+  const [calendarError, setCalendarError] = useState<string | null>(null)
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>({
     storageLocation: 'server',
     localRecordingsPath: '',
@@ -386,6 +402,54 @@ export default function DashboardSettingsPage({
   useEffect(() => {
     setProfileImageFailed(false)
   }, [user?.picture])
+
+  useEffect(() => {
+    if (selectedSection !== 'calendar' || !user) return
+    let isSubscribed = true
+
+    async function loadCalendars() {
+      setIsLoadingCalendars(true)
+      setCalendarError(null)
+
+      try {
+        const currentUser = auth.currentUser
+        if (!currentUser) throw new Error('Not authenticated')
+
+        const idToken = await currentUser.getIdToken()
+        const response = await fetch(`${API_BASE_URL}/calendar/calendars`, {
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch calendars: ${response.status}`)
+        }
+
+        const data = await response.json()
+        if (!isSubscribed) return
+
+        if (data.status === 'success' && Array.isArray(data.calendars)) {
+          setConnectedCalendars(data.calendars)
+        } else {
+          setConnectedCalendars([])
+        }
+      } catch (loadError) {
+        if (!isSubscribed) return
+        setConnectedCalendars([])
+        setCalendarError(loadError instanceof Error ? loadError.message : 'Failed to load calendars')
+      } finally {
+        if (isSubscribed) setIsLoadingCalendars(false)
+      }
+    }
+
+    void loadCalendars()
+
+    return () => {
+      isSubscribed = false
+    }
+  }, [selectedSection, user])
 
   useEffect(() => {
     if (selectedSection !== 'security' || !window.recordingSettings) return
@@ -661,24 +725,31 @@ export default function DashboardSettingsPage({
                   Reset
                 </button>
               </div>
-              {[
-                { label: user?.email || 'Primary calendar', color: 'bg-cyan-300', enabled: true },
-                { label: 'University - Summer Term', color: 'bg-emerald-400', enabled: false },
-                { label: 'Holidays in Canada', color: 'bg-green-500', enabled: false },
-              ].map((calendar) => (
-                <div
-                  key={calendar.label}
-                  className="flex min-h-12 items-center justify-between gap-3 px-3 py-2"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className={`h-3 w-3 shrink-0 rounded-sm ${calendar.color}`} />
-                    <span className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                      {calendar.label}
-                    </span>
+              {isLoadingCalendars ? (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading calendars...</div>
+              ) : calendarError ? (
+                <div className="px-3 py-4 text-xs text-red-600 dark:text-red-300">{calendarError}</div>
+              ) : connectedCalendars.length > 0 ? (
+                connectedCalendars.map((calendar) => (
+                  <div
+                    key={`${calendar.provider}-${calendar.id}`}
+                    className="flex min-h-12 items-center justify-between gap-3 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-sm bg-neutral-300 dark:bg-white/25"
+                        style={calendar.color || calendar.background_color ? { backgroundColor: calendar.color || calendar.background_color } : undefined}
+                      />
+                      <span className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
+                        {calendar.name || calendar.id}
+                      </span>
+                    </div>
+                    <ToggleSwitch enabled={calendar.selected || calendar.primary} />
                   </div>
-                  <ToggleSwitch enabled={calendar.enabled} />
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No connected calendars found.</div>
+              )}
             </div>
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <SettingRow

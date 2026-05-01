@@ -24,6 +24,11 @@ const END_HOUR = 24
 
 type CalendarView = 'agenda' | 'week' | 'month'
 
+type CalendarAttendee = {
+  name?: string
+  email?: string
+}
+
 type ServerCalendarEvent = {
   id: string
   title: string
@@ -31,10 +36,14 @@ type ServerCalendarEvent = {
   end: string
   location?: string
   description?: string
+  meeting_link?: string
+  calendar_id?: string
+  calendar_name?: string
+  color?: string
   organizer?: string
   provider: string
   is_meeting: boolean
-  attendees?: string[]
+  attendees?: CalendarAttendee[]
 }
 
 type CalendarEvent = {
@@ -45,7 +54,7 @@ type CalendarEvent = {
   calendarId: string
   calendarName: string
   color: string
-  attendees: string[]
+  attendees: CalendarAttendee[]
   meetingLink?: string
   location?: string
   description?: string
@@ -143,6 +152,23 @@ function extractMeetingLink(event: ServerCalendarEvent) {
   return text.match(/https?:\/\/[^\s<>"')]+/i)?.[0]
 }
 
+function getReadableTextColor(backgroundColor: string) {
+  const match = backgroundColor.match(/^#?([0-9a-f]{6})$/i)
+  if (!match) return '#ffffff'
+
+  const value = match[1]
+  const red = parseInt(value.slice(0, 2), 16)
+  const green = parseInt(value.slice(2, 4), 16)
+  const blue = parseInt(value.slice(4, 6), 16)
+  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255
+
+  return luminance > 0.62 ? '#111827' : '#ffffff'
+}
+
+function getAttendeeLabel(attendee: CalendarAttendee) {
+  return attendee.name || attendee.email || 'Unknown attendee'
+}
+
 function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
   const providerLabel = event.provider === 'google' ? 'Google Calendar' : event.provider === 'microsoft' ? 'Microsoft Calendar' : 'Calendar'
 
@@ -151,11 +177,11 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
     title: event.title || 'Untitled event',
     start: event.start,
     end: event.end,
-    calendarId: event.provider,
-    calendarName: providerLabel,
-    color: event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2',
+    calendarId: event.calendar_id || event.provider,
+    calendarName: event.calendar_name || providerLabel,
+    color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
     attendees: event.attendees ?? [],
-    meetingLink: extractMeetingLink(event),
+    meetingLink: event.meeting_link ?? extractMeetingLink(event),
     location: event.location,
     description: event.description,
     organizer: event.organizer,
@@ -239,24 +265,7 @@ function EventDetail({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        <Button type="button" variant="secondary" size="sm" onClick={onStartNote}>
-          Start note
-        </Button>
-        <Button type="button" variant="secondary" size="sm" disabled>
-          Start transcript
-        </Button>
-        {event.meetingLink ? (
-          <Button type="button" variant="secondary" size="sm" asChild>
-            <a href={event.meetingLink} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-3.5 w-3.5" />
-              Join
-            </a>
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="mt-4 space-y-4 overflow-y-auto pr-1 sidebar-scrollbar">
+      <div className="mt-4 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 sidebar-scrollbar">
         <section>
           <div className="mb-2 text-xs font-semibold text-neutral-400">Details</div>
           <div className="space-y-2 text-xs text-neutral-500 dark:text-neutral-400">
@@ -273,23 +282,22 @@ function EventDetail({
           </div>
         </section>
 
-        {event.description ? (
-          <section>
-            <div className="mb-2 text-xs font-semibold text-neutral-400">Description</div>
-            <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs leading-5 text-neutral-600 sidebar-scrollbar dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-300">
-              {event.description}
-            </div>
-          </section>
-        ) : null}
-
         <section>
           <div className="mb-2 text-xs font-semibold text-neutral-400">Attendees</div>
           {event.attendees.length > 0 ? (
             <div className="space-y-1.5">
-              {event.attendees.slice(0, 8).map((attendee) => (
-                <div key={attendee} className="flex min-w-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
+              {event.attendees.slice(0, 8).map((attendee, index) => (
+                <div
+                  key={`${attendee.email || attendee.name || 'attendee'}-${index}`}
+                  className="flex min-w-0 items-start gap-1.5 text-xs text-neutral-500 dark:text-neutral-400"
+                >
                   <Users className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{attendee}</span>
+                  <div className="min-w-0">
+                    <div className="truncate">{getAttendeeLabel(attendee)}</div>
+                    {attendee.name && attendee.email ? (
+                      <div className="truncate text-[11px] text-neutral-400 dark:text-neutral-500">{attendee.email}</div>
+                    ) : null}
+                  </div>
                 </div>
               ))}
               {event.attendees.length > 8 ? (
@@ -301,6 +309,32 @@ function EventDetail({
           )}
         </section>
 
+        {event.description ? (
+          <section className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-2 text-xs font-semibold text-neutral-400">Description</div>
+            <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs leading-5 text-neutral-600 sidebar-scrollbar dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-300">
+              {event.description}
+            </div>
+          </section>
+        ) : null}
+
+      </div>
+
+      <div className="sticky bottom-0 mt-3 flex shrink-0 flex-wrap justify-center gap-1.5 border-t border-neutral-200 pt-3 dark:border-white/10">
+        <Button type="button" variant="secondary" size="sm" onClick={onStartNote}>
+          Start note
+        </Button>
+        <Button type="button" variant="secondary" size="sm" disabled>
+          Start transcript
+        </Button>
+        {event.meetingLink ? (
+          <Button type="button" variant="secondary" size="sm" asChild>
+            <a href={event.meetingLink} target="_blank" rel="noreferrer">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Join
+            </a>
+          </Button>
+        ) : null}
       </div>
     </div>
   )
@@ -505,7 +539,7 @@ export function DashboardCalendar() {
         </DashboardPanelHeader>
       </DashboardPanel>
 
-      <div className={cn('grid min-h-0 flex-1 gap-2', hasDetailsPanel && 'lg:grid-cols-[minmax(0,1fr)_280px]')}>
+      <div className={cn('grid min-h-0 flex-1 gap-2', hasDetailsPanel && 'lg:grid-cols-[minmax(0,1fr)_304px]')}>
         <DashboardPanel className="flex min-h-0 flex-col">
           <DashboardPanelBody className="min-h-0 flex-1 p-0">
             {loading ? (
@@ -605,13 +639,19 @@ export function DashboardCalendar() {
                                 key={event.id}
                                 type="button"
                                 onClick={() => toggleSelectedEvent(event)}
-                                className="absolute overflow-hidden rounded-md border border-white/40 px-2 py-1 text-left text-white shadow-sm"
+                                className={cn(
+                                  'absolute overflow-hidden rounded-md border px-2 py-1 text-left text-white shadow-sm transition-[box-shadow,outline-color]',
+                                  selectedEvent?.id === event.id
+                                    ? 'border-white outline outline-2 outline-offset-1 outline-neutral-900/25 dark:outline-white/70'
+                                    : 'border-white/40',
+                                )}
                                 style={{
                                   top: event.top,
                                   height: event.height,
                                   left: `${event.left}%`,
                                   width: `calc(${event.width}% - 4px)`,
                                   backgroundColor: event.color,
+                                  color: getReadableTextColor(event.color),
                                 }}
                               >
                                 <div className="truncate text-[11px] font-semibold">{event.title}</div>
@@ -648,7 +688,10 @@ export function DashboardCalendar() {
                                   key={event.id}
                                   type="button"
                                   onClick={() => toggleSelectedEvent(event)}
-                                  className="flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/8"
+                                  className={cn(
+                                    'flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-white/8',
+                                    selectedEvent?.id === event.id && 'bg-neutral-100 ring-1 ring-neutral-300 dark:bg-white/10 dark:ring-white/20',
+                                  )}
                                 >
                                   <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: event.color }} />
                                   <span className="truncate">{event.title}</span>

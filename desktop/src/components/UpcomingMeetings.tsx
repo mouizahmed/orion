@@ -7,6 +7,11 @@ import { useAuth } from '@/contexts/AuthContext'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
+type CalendarAttendee = {
+  name?: string
+  email?: string
+}
+
 interface Meeting {
   id: string
   title: string
@@ -14,9 +19,10 @@ interface Meeting {
   end: string
   location?: string
   organizer?: string
+  color?: string
   provider: string
   is_meeting: boolean
-  attendees?: string[]
+  attendees?: CalendarAttendee[]
 }
 
 interface CalendarEvent {
@@ -27,9 +33,10 @@ interface CalendarEvent {
   location?: string
   description?: string
   organizer?: string
+  color?: string
   provider: string
   is_meeting: boolean
-  attendees?: string[]
+  attendees?: CalendarAttendee[]
 }
 
 function formatMeetingDate(startTime: string) {
@@ -131,6 +138,7 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
           end: event.end,
           location: event.location,
           organizer: event.organizer,
+          color: event.color,
           provider: event.provider,
           is_meeting: event.is_meeting,
           attendees: event.attendees,
@@ -265,7 +273,9 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
               <div className="min-w-0 flex-1 space-y-0.5">
                 {group.meetings.length === 0 ? (
                   <div className="flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
-                    {isToday ? 'No events today' : 'No events'}
+                    {isToday
+                      ? showOnlyMeetings ? 'No meetings today' : 'No events today'
+                      : showOnlyMeetings ? 'No meetings' : 'No events'}
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
@@ -277,7 +287,10 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
                         window.dispatchEvent(new CustomEvent(CALENDAR_EVENT_OPEN_EVENT, { detail: meeting }))
                       }}
                     >
-                      <div className="min-w-0 border-l-2 border-[#9f73f2]/55 py-1 pl-3">
+                      <div
+                        className="min-w-0 border-l-2 py-1 pl-3"
+                        style={{ borderLeftColor: meeting.color || '#9f73f2' }}
+                      >
                         <div className="flex items-center gap-1.5">
                           <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
                             {meeting.title}

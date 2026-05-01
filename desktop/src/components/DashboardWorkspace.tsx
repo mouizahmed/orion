@@ -18,6 +18,7 @@ type DashboardWorkspaceProps = {
   mode?: 'notes' | 'calendar' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenCalendar?: () => void
+  onOpenCalendarSettings?: () => void
 }
 
 export default function DashboardWorkspace({
@@ -25,6 +26,7 @@ export default function DashboardWorkspace({
   mode = 'notes',
   selectedSettingsSection = 'account',
   onOpenCalendar,
+  onOpenCalendarSettings,
 }: DashboardWorkspaceProps) {
   const { folders, selectedId, selected, optimisticPatch, replaceNote, isLoading } = useDashboardNotes()
 
@@ -209,7 +211,7 @@ export default function DashboardWorkspace({
       </div>
     ) : (
       <div className="h-full">
-        <DashboardHome onOpenCalendar={onOpenCalendar} />
+        <DashboardHome onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} />
       </div>
     )
   }
@@ -217,7 +219,7 @@ export default function DashboardWorkspace({
   if (!selectedId) {
     return (
       <div className="h-full">
-        <DashboardHome onOpenCalendar={onOpenCalendar} />
+        <DashboardHome onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} />
       </div>
     )
   }
