@@ -220,11 +220,11 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 
 		log.Printf("OAuth provider returned error: %s", errorMsg)
 
-		callbackPlatform := "desktop"
 		if statePayload, err := h.consumeLoginOAuthState(state); err == nil {
-			callbackPlatform = statePayload.Platform
+			h.redirectToFrontendWithError(c, errorParam, errorDesc, statePayload.Platform)
+		} else {
+			h.redirectToFrontendWithError(c, errorParam, errorDesc)
 		}
-		h.redirectToFrontendWithError(c, errorParam, errorDesc, callbackPlatform)
 		return
 	}
 
@@ -232,14 +232,14 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	if code == "" || state == "" {
 		errorMsg := "Missing authorization code or state parameter"
 		log.Printf("OAuth callback error: %s", errorMsg)
-		h.redirectToFrontendWithError(c, "invalid_request", errorMsg, "desktop")
+		h.redirectToFrontendWithError(c, "invalid_request", errorMsg)
 		return
 	}
 
 	statePayload, err := h.consumeLoginOAuthState(state)
 	if err != nil {
 		log.Printf("OAuth callback rejected due to invalid state: %v", err)
-		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired", "desktop")
+		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired")
 		return
 	}
 	callbackPlatform := statePayload.Platform
