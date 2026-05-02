@@ -25,6 +25,7 @@ type AuthSessionUpdateEvent =
   | {
       success: true
       firebaseToken: string
+      isNewUser?: boolean
       timestamp: string
     }
   | {
@@ -46,6 +47,8 @@ interface WindowControl {
   onToggleNotepadFocus: (callback: () => void) => () => void
   onToggleOverlayPanel: (callback: (panel: MeetingPanel) => void) => () => void
   blurOverlay: () => void
+  minimize: () => void
+  close: () => void
 }
 
 interface DashboardControl {
@@ -127,8 +130,8 @@ interface ElectronAPI {
   authenticateWithGoogle: () => Promise<AuthResult>
 
   // Session Management
+  cancelAuthentication: () => Promise<AuthResult>
   logout: () => Promise<AuthResult>
-  logoutEverywhere: (idToken: string) => Promise<AuthResult>
 
   // Event listeners
   onAuthSessionUpdated: (

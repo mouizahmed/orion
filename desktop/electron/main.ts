@@ -1,17 +1,24 @@
 import { app, BrowserWindow, desktopCapturer, globalShortcut, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { setupAuthHandlers } from './auth-handlers'
-import { setupProtocolHandler, setupProtocolEvents, setMainWindow } from './protocol-handler'
+import { isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
+import { setupProtocolHandler, setupProtocolEvents, setAuthCallbackWindow, setAuthWindowRevealHandler } from './protocol-handler'
 import {
+  closeAuthWindow,
+  closeDashboardWindow,
+  createAuthWindow,
   createWindow,
+  destroyOverlayWindow,
   getWindow,
   setAppQuitting,
+  setAuthWindow,
   setWindow,
+  showAuthWindow,
 } from './window'
 import { setupAttachmentHandlers } from './attachments'
 import {
   registerKeyboardShortcuts,
+  unregisterKeyboardShortcuts,
 } from './shortcuts'
 import { setupIpcHandlers } from './ipc-handlers'
 import { destroyTray, setupTray } from './tray'
@@ -60,29 +67,17 @@ if (!gotTheLock) {
       )
     }
 
-    // Setup auth IPC handlers
-    setupAuthHandlers()
-
     // Setup attachment handlers
     setupAttachmentHandlers()
+    setAuthWindowRevealHandler(() => {
+      destroyOverlayWindow()
+      showAuthWindow()
+    })
 
     // Setup IPC handlers
     setupIpcHandlers()
 
-    // Create the main window
-    const win = createWindow()
-
-    // Setup system tray (keep app running even if windows are closed)
-    setupTray({
-      onQuit: () => {
-        isQuitting = true
-        setAppQuitting(true)
-        app.quit()
-      },
-    })
-
-    // Register keyboard shortcuts after window is ready
-    win.webContents.on('did-finish-load', () => {
+    const registerOverlayShortcuts = () => {
       const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
         const overlay = getWindow()
         if (!overlay || overlay.isDestroyed()) return
@@ -132,16 +127,42 @@ if (!gotTheLock) {
         toggleAsk: () => toggleOverlayPanel('ask'),
         toggleInsights: () => toggleOverlayPanel('insights'),
       })
+    }
+
+    // Register auth IPC before loading the renderer, otherwise a restored
+    // Firebase session can emit auth state before the main process is listening.
+    setupAuthHandlers({
+      onSignedIn: () => {
+        const overlay = createWindow()
+        if (!overlay.isVisible()) overlay.show()
+        closeAuthWindow()
+        registerOverlayShortcuts()
+      },
+      onSignedOut: () => {
+        closeDashboardWindow()
+        destroyOverlayWindow()
+        showAuthWindow()
+        unregisterKeyboardShortcuts()
+      },
+      onOAuthPending: () => {
+        closeDashboardWindow()
+        destroyOverlayWindow()
+        showAuthWindow()
+        unregisterKeyboardShortcuts()
+      },
     })
 
-    // Focus input when window is shown
-    win.on('show', () => {
-      // Defer focus event one frame to avoid blocking first paint on show.
-      setTimeout(() => {
-        if (!win.isDestroyed() && win.isVisible()) {
-          win.webContents.send('focus-input')
-        }
-      }, 16)
+    // Create the logged-out auth window first. The overlay window is created
+    // only after auth so its frameless transparent flags stay isolated.
+    createAuthWindow({ show: false })
+
+    // Setup system tray (keep app running even if windows are closed)
+    setupTray({
+      onQuit: () => {
+        isQuitting = true
+        setAppQuitting(true)
+        app.quit()
+      },
     })
   })
 }
@@ -154,7 +175,8 @@ app.on('window-all-closed', () => {
   if (isQuitting) {
     app.quit()
     setWindow(null)
-    setMainWindow(null)
+    setAuthWindow(null)
+    setAuthCallbackWindow(null)
   }
 })
 
@@ -162,7 +184,11 @@ app.on('activate', () => {
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    if (isRendererAuthenticated()) {
+      createWindow()
+    } else {
+      showAuthWindow()
+    }
   }
 })
 

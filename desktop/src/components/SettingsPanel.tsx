@@ -8,7 +8,6 @@ import {
 
 type SettingsPanelProps = {
   onLogout: () => void
-  onLogoutEverywhere: () => void
 }
 
 type ShortcutAction =
@@ -169,7 +168,6 @@ function formatShortcut(event: KeyboardEvent) {
 
 export default function SettingsPanel({
   onLogout,
-  onLogoutEverywhere,
 }: SettingsPanelProps) {
   const shortcutApi = typeof window !== 'undefined' ? window.shortcutControl : undefined
   const canManageShortcuts = Boolean(shortcutApi)
@@ -462,15 +460,7 @@ export default function SettingsPanel({
               className="h-8 min-w-[12rem] flex-1 rounded-full px-2.5 text-xs"
               onClick={onLogout}
             >
-              Log out on this device
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 min-w-[12rem] flex-1 rounded-full px-2.5 text-xs"
-              onClick={onLogoutEverywhere}
-            >
-              Log out everywhere
+              Log out
             </Button>
           </div>
         </div>

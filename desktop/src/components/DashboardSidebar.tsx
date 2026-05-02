@@ -26,7 +26,7 @@ export default function DashboardSidebar({
   onCloseSettings?: () => void
   onSelectSettingsSection?: (section: DashboardSettingsSection) => void
 }) {
-  const { user, logout, logoutEverywhere } = useAuth()
+  const { user, logout } = useAuth()
   const {
     isLoading,
     loadError,
@@ -297,18 +297,6 @@ export default function DashboardSidebar({
               >
                 <LogOut size={14} />
                 <span>Log out</span>
-              </SidebarMenuItemButton>
-              <SidebarMenuItemButton
-                role="menuitem"
-                destructive
-                className="mt-1"
-                onClick={() => {
-                  setProfileMenuOpen(false)
-                  logoutEverywhere()
-                }}
-              >
-                <LogOut size={14} />
-                <span>Log out everywhere</span>
               </SidebarMenuItemButton>
             </div>
           ) : null}

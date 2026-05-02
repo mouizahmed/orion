@@ -1,10 +1,11 @@
 import { initializeApp } from 'firebase/app'
 import {
+  initializeAuth,
   getAuth,
-  signInWithCustomToken,
-  setPersistence,
+  signInWithCustomToken as firebaseSignInWithCustomToken,
   browserLocalPersistence,
   onAuthStateChanged,
+  type Auth,
 } from 'firebase/auth'
 
 // Define Firebase config type
@@ -28,11 +29,22 @@ const firebaseConfig: FirebaseConfig = __FIREBASE_CONFIG__
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig)
-const auth = getAuth(app)
 
-// Ensure persistent authentication across app restarts
-setPersistence(auth, browserLocalPersistence).catch((error) => {
-  console.error('Failed to set Firebase persistence:', error)
-})
+function createAuth() {
+  try {
+    return initializeAuth(app, {
+      persistence: browserLocalPersistence,
+    })
+  } catch {
+    return getAuth(app)
+  }
+}
 
-export { auth, signInWithCustomToken, onAuthStateChanged }
+const auth = createAuth()
+const authPersistenceReady = Promise.resolve()
+
+async function signInWithCustomToken(authInstance: Auth, token: string) {
+  return firebaseSignInWithCustomToken(authInstance, token)
+}
+
+export { auth, authPersistenceReady, signInWithCustomToken, onAuthStateChanged }

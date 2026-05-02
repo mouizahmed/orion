@@ -18,6 +18,7 @@ type OneTimeCode struct {
 	FirebaseToken string     `json:"firebase_token"`
 	Provider      string     `json:"provider"`
 	Platform      string     `json:"platform"`
+	IsNewUser     bool       `json:"is_new_user"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ExpiresAt     time.Time  `json:"expires_at"`
 	Used          bool       `json:"used"`
@@ -36,10 +37,12 @@ func NewCodeManager(redisClient *redis.Client) *CodeManager {
 }
 
 // GenerateCode creates a new one-time code and stores it in Redis
-func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, platform string) string {
+func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, platform string, isNewUser bool) (string, error) {
 	// Generate a secure random code
 	codeBytes := make([]byte, 16) // 32 character hex string
-	rand.Read(codeBytes)
+	if _, err := rand.Read(codeBytes); err != nil {
+		return "", fmt.Errorf("failed to generate auth code: %w", err)
+	}
 	code := hex.EncodeToString(codeBytes)
 
 	// Create the code
@@ -49,6 +52,7 @@ func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, pl
 		FirebaseToken: firebaseToken,
 		Provider:      provider,
 		Platform:      platform,
+		IsNewUser:     isNewUser,
 		CreatedAt:     time.Now(),
 		ExpiresAt:     time.Now().Add(5 * time.Minute), // 5 minute expiry
 		Used:          false,
@@ -57,18 +61,17 @@ func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, pl
 	// Serialize to JSON
 	codeData, err := json.Marshal(oneTimeCode)
 	if err != nil {
-		// If marshaling fails, we can't store the code
-		// This is a critical error, but we'll return the code anyway
-		// The validation will fail later, which is acceptable
-		return code
+		return "", fmt.Errorf("failed to marshal auth code: %w", err)
 	}
 
 	// Store in Redis with 5-minute TTL
 	ctx := context.Background()
 	key := fmt.Sprintf("auth_code:%s", code)
-	cm.redisClient.SetEx(ctx, key, codeData, 5*time.Minute)
+	if err := cm.redisClient.SetEx(ctx, key, codeData, 5*time.Minute).Err(); err != nil {
+		return "", fmt.Errorf("failed to store auth code: %w", err)
+	}
 
-	return code
+	return code, nil
 }
 
 // ValidateAndConsumeCode validates a code and atomically deletes it (one-time use)

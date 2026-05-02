@@ -1,28 +1,33 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { config } from './config'
-import { validateState } from './auth-handlers'
 
-// Reference to the main window (will be set from main.ts)
-let mainWindow: BrowserWindow | null = null
+let authCallbackWindow: BrowserWindow | null = null
+let revealAuthWindow: (() => void) | null = null
 
-export function setMainWindow(win: BrowserWindow | null) {
-  mainWindow = win
+export function setAuthCallbackWindow(win: BrowserWindow | null) {
+  authCallbackWindow = win
+}
+
+export function setAuthWindowRevealHandler(handler: (() => void) | null) {
+  revealAuthWindow = handler
 }
 
 // Helper to send auth session updates to renderer
 function sendAuthUpdate(
   success: boolean,
-  data: { firebaseToken?: string; error?: string },
+  data: { firebaseToken?: string; error?: string; isNewUser?: boolean },
 ) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('auth-session-updated', {
-      success,
-      ...(success
-        ? { firebaseToken: data.firebaseToken }
-        : { error: data.error }),
-      timestamp: new Date().toISOString(),
-    })
+  const payload = {
+    success,
+    ...(success
+      ? { firebaseToken: data.firebaseToken, isNewUser: data.isNewUser }
+      : { error: data.error }),
+    timestamp: new Date().toISOString(),
+  }
+
+  if (authCallbackWindow && !authCallbackWindow.isDestroyed()) {
+    authCallbackWindow.webContents.send('auth-session-updated', payload)
   }
 }
 
@@ -48,15 +53,16 @@ export function setupProtocolHandler() {
 
 export function setupProtocolEvents() {
   app.on('second-instance', (_event, commandLine) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-      mainWindow.show()
-    }
-
     const url = commandLine.find((arg) => arg.startsWith('orionly://'))
     if (url) {
       handleProtocolUrl(url)
+      return
+    }
+
+    if (authCallbackWindow) {
+      if (authCallbackWindow.isMinimized()) authCallbackWindow.restore()
+      authCallbackWindow.focus()
+      authCallbackWindow.show()
     }
   })
 
@@ -97,21 +103,17 @@ async function handleProtocolUrl(url: string) {
 }
 
 async function handleAuthComplete(parsed: URL) {
+  const error = parsed.searchParams.get('error')
+  const errorDescription = parsed.searchParams.get('error_description')
   const code = parsed.searchParams.get('code')
-  const state = parsed.searchParams.get('state')
 
-  // Show window
-  if (mainWindow) {
-    mainWindow.show()
-  }
-
-  // Validate state for CSRF protection (OAuth 2.0 standard)
-  // The state parameter ensures the callback is for a request we initiated
-  if (!state || !validateState(state)) {
-    console.error('Invalid or missing OAuth state parameter')
+  if (error) {
     sendAuthUpdate(false, {
-      error: 'Authentication failed: Invalid session state',
+      error:
+        errorDescription ||
+        `Authentication failed: ${error.replace(/_/g, ' ')}`,
     })
+    revealAuthWindow?.()
     return
   }
 
@@ -119,6 +121,7 @@ async function handleAuthComplete(parsed: URL) {
     sendAuthUpdate(false, {
       error: 'Authentication failed: No authorization code received',
     })
+    revealAuthWindow?.()
     return
   }
 
@@ -140,6 +143,7 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
     sendAuthUpdate(false, {
       error: 'Authentication failed: Invalid authorization code format',
     })
+    revealAuthWindow?.()
     return
   }
 
@@ -155,6 +159,7 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
       sendAuthUpdate(false, {
         error: `Authentication failed (${response.status}): ${responseText}`,
       })
+      revealAuthWindow?.()
       return
     }
 
@@ -162,22 +167,28 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
 
     if (authResult.status === 'success' && authResult.user) {
       if (authResult.firebaseToken) {
-        sendAuthUpdate(true, { firebaseToken: authResult.firebaseToken })
+        sendAuthUpdate(true, {
+          firebaseToken: authResult.firebaseToken,
+          isNewUser: Boolean(authResult.is_new_user),
+        })
       } else {
         sendAuthUpdate(false, {
           error: 'Authentication completed but no token received',
         })
+        revealAuthWindow?.()
       }
     } else {
       sendAuthUpdate(false, {
         error:
           authResult.error || 'Authentication was not completed successfully',
       })
+      revealAuthWindow?.()
     }
   } catch (error) {
     sendAuthUpdate(false, {
       error: error instanceof Error ? error.message : String(error),
     })
+    revealAuthWindow?.()
   }
 }
 

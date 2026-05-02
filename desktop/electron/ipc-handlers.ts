@@ -1,8 +1,9 @@
-import { app, dialog, ipcMain, desktopCapturer, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, desktopCapturer, type OpenDialogOptions } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
 import fs from 'node:fs'
-import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow } from './window'
+import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, showAuthWindow } from './window'
+import { isRendererAuthenticated } from './auth-handlers'
 import {
   restoreKeyboardShortcuts,
   unregisterKeyboardShortcuts,
@@ -70,8 +71,8 @@ function ensureWritableDirectory(dirPath: string) {
 
 export function setupIpcHandlers() {
   // Window control IPC handlers
-  ipcMain.on('window-drag-start', (_event, { mouseX, mouseY }) => {
-    const win = getWindow()
+  ipcMain.on('window-drag-start', (event, { mouseX, mouseY }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const [winX, winY] = win.getPosition()
     win.webContents.send('drag-offset', {
@@ -80,20 +81,20 @@ export function setupIpcHandlers() {
     })
   })
 
-  ipcMain.on('window-drag-move', (_event, { mouseX, mouseY, offsetX, offsetY }) => {
-    const win = getWindow()
+  ipcMain.on('window-drag-move', (event, { mouseX, mouseY, offsetX, offsetY }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.setPosition(mouseX - offsetX, mouseY - offsetY)
   })
 
-  ipcMain.on('set-ignore-mouse-events', (_event, ignore: boolean) => {
-    const win = getWindow()
+  ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.setIgnoreMouseEvents(ignore, { forward: true })
   })
 
-  ipcMain.on('set-window-height', (_event, rawHeight: number) => {
-    const win = getWindow()
+  ipcMain.on('set-window-height', (event, rawHeight: number) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const newHeight = Math.max(60, Math.round(rawHeight))
     const [currentWidth, currentHeight] = win.getSize()
@@ -115,8 +116,8 @@ export function setupIpcHandlers() {
     }
   })
 
-  ipcMain.on('set-window-size', (_event, payload: { width: number; height: number }) => {
-    const win = getWindow()
+  ipcMain.on('set-window-size', (event, payload: { width: number; height: number }) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const width = Math.max(240, Math.round(payload?.width ?? 0))
     const height = Math.max(60, Math.round(payload?.height ?? 0))
@@ -156,7 +157,24 @@ export function setupIpcHandlers() {
     win.blur()
   })
 
+  ipcMain.on('window-minimize', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    win.minimize()
+  })
+
+  ipcMain.on('window-close', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win || win.isDestroyed()) return
+    win.hide()
+  })
+
   ipcMain.on('dashboard:open', (_event, payload?: { noteId?: string }) => {
+    if (!isRendererAuthenticated()) {
+      showAuthWindow()
+      return
+    }
+
     unregisterKeyboardShortcuts()
 
     const overlay = getWindow()
@@ -182,6 +200,21 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.on('dashboard:close', () => {
+    if (!isRendererAuthenticated()) {
+      const overlay = getWindow()
+      if (overlay && !overlay.isDestroyed()) {
+        overlay.hide()
+        overlay.setIgnoreMouseEvents(false)
+        overlay.setOpacity(1)
+      }
+
+      closeDashboardWindow()
+
+      unregisterKeyboardShortcuts()
+      showAuthWindow()
+      return
+    }
+
     const overlay = getWindow()
     if (overlay && !overlay.isDestroyed()) {
       if (!overlay.isVisible()) {

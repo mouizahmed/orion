@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -31,6 +33,14 @@ type OAuthHandler struct {
 	googleConfig   *oauth2.Config
 }
 
+type LoginOAuthState struct {
+	Purpose   string `json:"purpose"`
+	Platform  string `json:"platform"`
+	IP        string `json:"ip"`
+	UserAgent string `json:"user_agent"`
+	CreatedAt string `json:"created_at"`
+}
+
 func NewOAuthHandler(userRepo *repository.UserRepository, oauthTokenRepo repository.OAuthTokenRepository, redisClient *redis.Client) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
 	codeManager := auth.NewCodeManager(redisClient)
@@ -54,24 +64,45 @@ func NewOAuthHandler(userRepo *repository.UserRepository, oauthTokenRepo reposit
 	}
 }
 
+func generateSecureState() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(bytes), nil
+}
+
+func normalizeOAuthPlatform(platform string) (string, bool) {
+	switch platform {
+	case "", "desktop":
+		return "desktop", true
+	case "web":
+		return "web", true
+	default:
+		return "", false
+	}
+}
+
 // isRateLimited checks if the request should be rate limited
 func (h *OAuthHandler) isRateLimited(ip, endpoint string, limit int, window time.Duration) bool {
 	ctx := context.Background()
 	key := fmt.Sprintf("rate_limit:%s:%s", ip, endpoint)
 
-	// Get current count
-	count, err := h.redisClient.Get(ctx, key).Int()
-	if err != nil && err != redis.Nil {
+	const rateLimitScript = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("PEXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`
+	count, err := h.redisClient.Eval(ctx, rateLimitScript, []string{key}, window.Milliseconds()).Int()
+	if err != nil {
 		return false // Allow on Redis error to avoid blocking legitimate users
 	}
 
-	if count >= limit {
+	if count > limit {
 		return true // Rate limited
 	}
-
-	// Increment counter
-	h.redisClient.Incr(ctx, key)
-	h.redisClient.Expire(ctx, key, window)
 
 	return false
 }
@@ -87,35 +118,48 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		return
 	}
 
-	state := c.Query("state")
-	platform := c.Query("platform")
-
-	// Validate parameters
-	if state == "" {
+	platform, ok := normalizeOAuthPlatform(c.Query("platform"))
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Missing required parameter: state is required",
+			"error": "Unsupported platform",
+		})
+		return
+	}
+
+	state, err := generateSecureState()
+	if err != nil {
+		log.Printf("Failed to generate OAuth state: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to start authentication",
 		})
 		return
 	}
 
 	provider := "google" // Only Google is supported
-	log.Printf("🚀 Started OAuth flow: %s (provider: %s, platform: %s)", state, provider, platform)
+	log.Printf("Started OAuth login flow (provider: %s, platform: %s)", provider, platform)
 
-	// Store platform metadata in Redis for callback routing (NOT for state validation)
-	// State validation is done client-side; this is just for determining callback URL
-	// Key: oauth_state:{state} → JSON { platform, ip, created_at }
-	{
-		ctx := context.Background()
-		key := fmt.Sprintf("oauth_state:%s", state)
-		payload, _ := json.Marshal(map[string]any{
-			"platform":   platform,
-			"ip":         c.ClientIP(),
-			"created_at": time.Now().UTC().Format(time.RFC3339Nano),
+	ctx := context.Background()
+	key := fmt.Sprintf("oauth_state:%s", state)
+	payload, err := json.Marshal(LoginOAuthState{
+		Purpose:   "app_login",
+		Platform:  platform,
+		IP:        c.ClientIP(),
+		UserAgent: c.GetHeader("User-Agent"),
+		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		log.Printf("Failed to encode OAuth state payload: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to start authentication",
 		})
-		if err := h.redisClient.SetEx(ctx, key, payload, 10*time.Minute).Err(); err != nil {
-			// Non-fatal: log and proceed to avoid blocking auth on transient Redis issues
-			log.Printf("⚠️ Failed to store platform metadata in Redis: %v", err)
-		}
+		return
+	}
+	if err := h.redisClient.SetEx(ctx, key, payload, 10*time.Minute).Err(); err != nil {
+		log.Printf("Failed to store OAuth state in Redis: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to start authentication",
+		})
+		return
 	}
 
 	// Get OAuth URL with offline access for refresh tokens
@@ -124,10 +168,39 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		oauth2.ApprovalForce,
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"))
 
-	log.Printf("🌐 Redirecting to OAuth provider: %s", authURL)
+	log.Printf("Redirecting to OAuth provider (provider: %s, platform: %s)", provider, platform)
 
 	// Redirect to OAuth provider
 	c.Redirect(http.StatusFound, authURL)
+}
+
+func (h *OAuthHandler) consumeLoginOAuthState(state string) (*LoginOAuthState, error) {
+	if state == "" {
+		return nil, fmt.Errorf("missing state")
+	}
+
+	ctx := context.Background()
+	key := fmt.Sprintf("oauth_state:%s", state)
+	res := h.redisClient.GetDel(ctx, key)
+	if err := res.Err(); err != nil {
+		if err == redis.Nil {
+			return nil, fmt.Errorf("state missing or expired")
+		}
+		return nil, fmt.Errorf("failed to read state: %w", err)
+	}
+
+	var payload LoginOAuthState
+	if err := json.Unmarshal([]byte(res.Val()), &payload); err != nil {
+		return nil, fmt.Errorf("invalid state payload: %w", err)
+	}
+	if payload.Purpose != "app_login" {
+		return nil, fmt.Errorf("invalid state purpose")
+	}
+	if _, ok := normalizeOAuthPlatform(payload.Platform); !ok {
+		return nil, fmt.Errorf("invalid state platform")
+	}
+
+	return &payload, nil
 }
 
 // HandleCallback handles OAuth callback from Google
@@ -145,54 +218,44 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 			errorMsg += fmt.Sprintf(" (%s)", errorDesc)
 		}
 
-		log.Printf("❌ OAuth error: %s", errorMsg)
+		log.Printf("OAuth provider returned error: %s", errorMsg)
 
-		// Redirect to frontend with error parameters
-		h.redirectToFrontendWithError(c, errorParam, errorDesc)
+		callbackPlatform := "desktop"
+		if statePayload, err := h.consumeLoginOAuthState(state); err == nil {
+			callbackPlatform = statePayload.Platform
+		}
+		h.redirectToFrontendWithError(c, errorParam, errorDesc, callbackPlatform)
 		return
 	}
 
 	// Validate parameters
 	if code == "" || state == "" {
 		errorMsg := "Missing authorization code or state parameter"
-		log.Printf("❌ OAuth callback error: %s", errorMsg)
-		h.redirectToFrontendWithError(c, "invalid_request", errorMsg)
+		log.Printf("OAuth callback error: %s", errorMsg)
+		h.redirectToFrontendWithError(c, "invalid_request", errorMsg, "desktop")
 		return
 	}
 
-	// Retrieve platform from Redis (for routing to correct callback URL)
-	// Note: State validation is done client-side (desktop app), not here
-	// We only use Redis to determine the callback platform (desktop vs web)
-	var callbackPlatform string
-	{
-		ctx := context.Background()
-		key := fmt.Sprintf("oauth_state:%s", state)
-		res := h.redisClient.GetDel(ctx, key)
-		if err := res.Err(); err == nil && res.Val() != "" {
-			var meta struct {
-				Platform string `json:"platform"`
-			}
-			if err := json.Unmarshal([]byte(res.Val()), &meta); err == nil {
-				callbackPlatform = meta.Platform
-			}
-		} else {
-			// Redis lookup failed or expired - default to desktop
-			callbackPlatform = "desktop"
-		}
+	statePayload, err := h.consumeLoginOAuthState(state)
+	if err != nil {
+		log.Printf("OAuth callback rejected due to invalid state: %v", err)
+		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired", "desktop")
+		return
 	}
+	callbackPlatform := statePayload.Platform
 
 	// Exchange code for token and get user info from Google
 	user, oauthToken, err := h.handleGoogleCallback(code)
 	if err != nil {
-		log.Printf("❌ Failed to get user info from Google: %v", err)
+		log.Printf("Failed to get user info from Google: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with Google: %v", err), callbackPlatform)
 		return
 	}
 
 	// Create or update user in database (returns actual user ID for Firebase)
-	actualUserID, err := h.createOrUpdateUser(user)
+	actualUserID, isNewUser, err := h.createOrUpdateUser(user)
 	if err != nil {
-		log.Printf("❌ Failed to create/update user: %v", err)
+		log.Printf("Failed to create/update user: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform)
 		return
 	}
@@ -200,7 +263,7 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	// Create Firebase custom token using the actual user ID (handles account linking)
 	firebaseToken, err := h.firebaseClient.CreateCustomToken(actualUserID, nil)
 	if err != nil {
-		log.Printf("❌ Failed to create Firebase token: %v", err)
+		log.Printf("Failed to create Firebase token: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication token", callbackPlatform)
 		return
 	}
@@ -208,61 +271,80 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	// Create or update user in Firebase Auth using the actual user ID
 	_, err = h.firebaseClient.CreateOrUpdateUser(actualUserID, user.Email, user.Name, user.Picture)
 	if err != nil {
-		log.Printf("⚠️ Failed to create/update Firebase user (continuing anyway): %v", err)
+		log.Printf("Failed to create/update Firebase user (continuing anyway): %v", err)
 	}
 
 	// Store OAuth tokens in database
 	err = h.storeOAuthTokens(actualUserID, provider, oauthToken)
 	if err != nil {
-		log.Printf("⚠️ Failed to store OAuth tokens (continuing anyway): %v", err)
+		log.Printf("Failed to store OAuth tokens (continuing anyway): %v", err)
 	}
 
 	// Update the user object with the actual ID for session storage
 	user.ID = actualUserID
 
-	// Generate one-time code using platform derived from state (default to desktop)
-	if callbackPlatform == "" {
-		callbackPlatform = "desktop"
-	}
-	oneTimeCode := h.codeManager.GenerateCode(user, firebaseToken, provider, callbackPlatform)
-
-	log.Printf("✅ OAuth completed successfully for user: %s (%s)", user.Name, user.Email)
-	log.Printf("🔑 Generated one-time code: %s", oneTimeCode)
-
-	// Determine callback URL based on platform
-	// For desktop platform, redirect to frontend which will then open the desktop app
-	// The desktop app will then call the /complete endpoint
-	var frontendCallbackURL string
-	frontendCallbackURL = os.Getenv("FRONTEND_CALLBACK_URL")
-	if frontendCallbackURL == "" {
-		frontendCallbackURL = "http://localhost:3000/auth/callback"
+	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, provider, callbackPlatform, isNewUser)
+	if err != nil {
+		log.Printf("Failed to create one-time auth code: %v", err)
+		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication code", callbackPlatform)
+		return
 	}
 
-	// Add one-time code and state to URL
-	redirectURL := fmt.Sprintf("%s?code=%s&state=%s", frontendCallbackURL, url.QueryEscape(oneTimeCode), url.QueryEscape(state))
+	log.Printf("OAuth completed successfully for user: %s (%s)", user.Name, user.Email)
 
-	log.Printf("🔗 Redirecting to frontend with one-time code: %s", redirectURL)
+	redirectURL := buildCallbackURL(getFrontendCallbackURL(), map[string]string{
+		"code":     oneTimeCode,
+		"state":    state,
+		"platform": callbackPlatform,
+	})
+
+	log.Printf("Redirecting to frontend auth callback (platform: %s)", callbackPlatform)
 	c.Redirect(http.StatusFound, redirectURL)
 }
 
 // Helper method to redirect to frontend with error
-// Always redirects to the frontend HTTP callback URL, regardless of platform
-// The frontend will handle opening desktop app if needed
 func (h *OAuthHandler) redirectToFrontendWithError(c *gin.Context, error, errorDescription string, platform ...string) {
-	// Always redirect to frontend HTTP callback URL
-	// The frontend page will handle opening the desktop app if platform is "desktop"
+	callbackPlatform := ""
+	if len(platform) > 0 {
+		callbackPlatform = platform[0]
+	}
+
+	redirectURL := buildCallbackURL(getFrontendCallbackURL(), map[string]string{
+		"error":             error,
+		"error_description": errorDescription,
+		"platform":          callbackPlatform,
+	})
+
+	log.Printf("Redirecting to auth callback with error")
+	c.Redirect(http.StatusFound, redirectURL)
+}
+
+func getFrontendCallbackURL() string {
 	frontendCallbackURL := os.Getenv("FRONTEND_CALLBACK_URL")
 	if frontendCallbackURL == "" {
-		frontendCallbackURL = "http://localhost:3000/auth/callback"
+		return "http://localhost:3000/auth/callback"
+	}
+	return frontendCallbackURL
+}
+
+func buildCallbackURL(base string, values map[string]string) string {
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
 	}
 
-	redirectURL := fmt.Sprintf("%s?error=%s", frontendCallbackURL, url.QueryEscape(error))
-	if errorDescription != "" {
-		redirectURL += fmt.Sprintf("&error_description=%s", url.QueryEscape(errorDescription))
+	query := url.Values{}
+	for key, value := range values {
+		if value != "" {
+			query.Set(key, value)
+		}
 	}
 
-	log.Printf("🔗 Redirecting to frontend with error: %s", redirectURL)
-	c.Redirect(http.StatusFound, redirectURL)
+	encoded := query.Encode()
+	if encoded == "" {
+		return base
+	}
+	return base + separator + encoded
 }
 
 // CompleteAuth validates and consumes a one-time code
@@ -309,6 +391,7 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 		"firebaseToken": oneTimeCode.FirebaseToken,
 		"provider":      oneTimeCode.Provider,
 		"platform":      oneTimeCode.Platform,
+		"is_new_user":   oneTimeCode.IsNewUser,
 	})
 }
 
@@ -395,16 +478,16 @@ func (h *OAuthHandler) handleGoogleCallback(code string) (*auth.OAuthUser, *oaut
 }
 
 // createOrUpdateUser creates or updates user in the database, returns the actual user ID to use for Firebase
-func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, error) {
+func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, bool, error) {
 	// Validate required fields before creating/updating
 	if oauthUser.ID == "" {
-		return "", fmt.Errorf("user ID is empty - cannot create/update user")
+		return "", false, fmt.Errorf("user ID is empty - cannot create/update user")
 	}
 	if oauthUser.Email == "" {
-		return "", fmt.Errorf("user email is empty - cannot create/update user")
+		return "", false, fmt.Errorf("user email is empty - cannot create/update user")
 	}
 	if oauthUser.Name == "" {
-		return "", fmt.Errorf("user name is empty - cannot create/update user")
+		return "", false, fmt.Errorf("user name is empty - cannot create/update user")
 	}
 
 	log.Printf("👤 Creating/updating user: ID=%s, Email=%s, Name=%s", oauthUser.ID, oauthUser.Email, oauthUser.Name)
@@ -412,13 +495,13 @@ func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, er
 	// First check if a user exists with this email (account linking)
 	existingUserByEmail, err := h.userRepo.GetUserByEmail(oauthUser.Email)
 	if err != nil && err.Error() != "user not found" {
-		return "", fmt.Errorf("failed to check existing user by email: %w", err)
+		return "", false, fmt.Errorf("failed to check existing user by email: %w", err)
 	}
 
 	// Then check if user exists with this OAuth ID
 	existingUserByID, err := h.userRepo.GetUserByID(oauthUser.ID)
 	if err != nil && err.Error() != "user not found" {
-		return "", fmt.Errorf("failed to check existing user by ID: %w", err)
+		return "", false, fmt.Errorf("failed to check existing user by ID: %w", err)
 	}
 
 	// Determine which user account to use
@@ -453,9 +536,9 @@ func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, er
 		log.Printf("📝 Updating existing user %s with new OAuth data", existingUser.ID)
 		err := h.userRepo.UpdateUser(existingUser.ID, user)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		return existingUser.ID, nil // Return the linked account's ID
+		return existingUser.ID, false, nil // Return the linked account's ID
 	} else {
 		// Create new user
 		var avatarURL *string
@@ -477,9 +560,9 @@ func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, er
 		log.Printf("✨ Creating new user account for %s", oauthUser.Email)
 		err := h.userRepo.CreateUser(user)
 		if err != nil {
-			return "", err
+			return "", false, err
 		}
-		return oauthUser.ID, nil // Return the new account's ID
+		return oauthUser.ID, true, nil // Return the new account's ID
 	}
 }
 

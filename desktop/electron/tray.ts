@@ -1,7 +1,8 @@
 import { Menu, Tray, nativeImage } from 'electron'
 import path from 'node:path'
-import { getWindow, createDashboardWindow, getDashboardWindow } from './window'
+import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, showAuthWindow } from './window'
 import { restoreKeyboardShortcuts, unregisterKeyboardShortcuts } from './shortcuts'
+import { isRendererAuthenticated } from './auth-handlers'
 
 let tray: Tray | null = null
 
@@ -37,10 +38,14 @@ export function setupTray(options: { onQuit: () => void }) {
       {
         label: 'Show Overlay',
         click: () => {
+          if (!isRendererAuthenticated()) {
+            showAuthWindow()
+            return
+          }
           const overlay = getWindow()
           const dashboard = getDashboardWindow()
           if (dashboard && !dashboard.isDestroyed()) {
-            dashboard.close()
+            closeDashboardWindow()
           }
           restoreKeyboardShortcuts()
           overlay?.show()
@@ -51,6 +56,10 @@ export function setupTray(options: { onQuit: () => void }) {
         label: 'Open Dashboard',
         click: () => {
           const overlay = getWindow()
+          if (!isRendererAuthenticated()) {
+            showAuthWindow()
+            return
+          }
           if (overlay && !overlay.isDestroyed()) {
             overlay.hide()
           }
@@ -70,6 +79,11 @@ export function setupTray(options: { onQuit: () => void }) {
   tray.setContextMenu(buildMenu())
 
   tray.on('click', () => {
+    if (!isRendererAuthenticated()) {
+      showAuthWindow()
+      return
+    }
+
     const overlay = getWindow()
     if (!overlay) return
     if (overlay.isVisible()) {

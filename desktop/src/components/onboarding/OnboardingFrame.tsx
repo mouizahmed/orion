@@ -1,0 +1,55 @@
+import { forwardRef, type ReactNode, useEffect } from 'react'
+import { Minus, X } from 'lucide-react'
+
+import { ONBOARDING_LAYOUT_HEIGHT, type OnboardingLayout } from '@/components/onboarding/types'
+
+type OnboardingFrameProps = {
+  layout: OnboardingLayout
+  children: ReactNode
+}
+
+export const OnboardingFrame = forwardRef<HTMLDivElement, OnboardingFrameProps>(function OnboardingFrame(
+  { layout, children },
+  ref,
+) {
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('welcome-layout-change', { detail: { layout } }))
+  }, [layout])
+
+  return (
+    <div
+      ref={ref}
+      data-overlay-visible
+      className="relative w-full overflow-hidden bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100"
+      style={{ minHeight: ONBOARDING_LAYOUT_HEIGHT[layout] }}
+    >
+      <div
+        className="absolute left-0 right-24 top-0 z-20 h-12 [-webkit-app-region:drag]"
+        aria-hidden
+      />
+
+      <div className="absolute right-3 top-3 z-30 flex items-center gap-1 [-webkit-app-region:no-drag]">
+        <button
+          type="button"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
+          aria-label="Minimize"
+          onClick={() => window.windowControl?.minimize?.()}
+        >
+          <Minus className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-red-500 hover:text-white dark:text-neutral-300"
+          aria-label="Close"
+          onClick={() => window.windowControl?.close?.()}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="relative h-12" />
+
+      {children}
+    </div>
+  )
+})

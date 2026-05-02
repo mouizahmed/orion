@@ -217,7 +217,7 @@ func (h *TranscriptionHandler) authenticateClientConn(clientConn *websocket.Conn
 		return errors.New("invalid auth payload")
 	}
 
-	if _, err := firebaseClient.VerifyIDToken(authMsg.Token); err != nil {
+	if _, err := firebaseClient.VerifyIDTokenAndCheckRevoked(authMsg.Token); err != nil {
 		return errors.New("invalid token")
 	}
 	return nil

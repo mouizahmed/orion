@@ -102,7 +102,15 @@ contextBridge.exposeInMainWorld('windowControl', {
 
   blurOverlay: () => {
     ipcRenderer.send('blur-overlay')
-  }
+  },
+
+  minimize: () => {
+    ipcRenderer.send('window-minimize')
+  },
+
+  close: () => {
+    ipcRenderer.send('window-close')
+  },
 })
 
 // Dashboard window controls
@@ -160,8 +168,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   authenticateWithGoogle: () => ipcRenderer.invoke('auth:google'),
 
   // Session Management
+  cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
   logout: () => ipcRenderer.invoke('auth:logout'),
-  logoutEverywhere: (idToken: string) => ipcRenderer.invoke('auth:logout-everywhere', idToken),
 
   // Event listeners
   onAuthSessionUpdated: (callback: (event: IpcRendererEvent, data: unknown) => void) => {

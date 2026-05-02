@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { DesktopAuthRoot, useAuth } from '@/contexts/AuthContext'
 import CompactOverlayBar from '@/components/CompactOverlayBar'
 import CompactMeetingPanel, { type CompactMeetingPanelHandle } from '@/components/CompactMeetingPanel'
 import SettingsPanel from '@/components/SettingsPanel'
@@ -25,9 +25,15 @@ const OVERLAY_MEETING_COMPACT_WIDTH = 464
 const OVERLAY_EXPANDED_WIDTH = 520
 const PANEL_UNDER_PILL_CLASSNAME = 'w-full'
 type MeetingPanel = 'notepad' | 'transcript' | 'insights' | 'ask'
+type WelcomeLayout = 'compact' | 'large'
+
+const WELCOME_LAYOUT_WIDTH: Record<WelcomeLayout, number> = {
+  compact: 592,
+  large: 1254,
+}
 
 const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting', number> = {
-  welcome: OVERLAY_EXPANDED_WIDTH,
+  welcome: WELCOME_LAYOUT_WIDTH.compact,
   settings: OVERLAY_EXPANDED_WIDTH,
   compact: OVERLAY_COMPACT_WIDTH,
   compactMeeting: OVERLAY_EXPANDED_WIDTH,
@@ -35,11 +41,12 @@ const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting'
 }
 
 function AppContent() {
-  const { user, isLoading, logout, logoutEverywhere } = useAuth()
+  const { user, isLoading, logout } = useAuth()
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [activePanel, setActivePanel] = useState<'main' | 'settings'>('main')
   const [meetingPanel, setMeetingPanel] = useState<MeetingPanel | null>(null)
+  const [welcomeLayout, setWelcomeLayout] = useState<WelcomeLayout>('compact')
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null)
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     setContentEl(node)
@@ -91,9 +98,43 @@ function AppContent() {
   }, [])
 
   useEffect(() => {
-    if (user) {
-      setActivePanel('main')
+    const handleWelcomeLayoutChange = (event: Event) => {
+      const layout = (event as CustomEvent<{ layout?: WelcomeLayout }>).detail?.layout
+      if (layout === 'compact' || layout === 'large') {
+        setWelcomeLayout(layout)
+      }
     }
+
+    window.addEventListener('welcome-layout-change', handleWelcomeLayoutChange)
+    return () => {
+      window.removeEventListener('welcome-layout-change', handleWelcomeLayoutChange)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    if (notepadFocusTimerRef.current) {
+      window.clearTimeout(notepadFocusTimerRef.current)
+      notepadFocusTimerRef.current = null
+    }
+
+    pendingNotepadFocusRef.current = false
+    setActivePanel('main')
+    setMeetingPanel(null)
+    setShowDashboardConfirm(false)
+    setSettingsPanelMounted(false)
+    setSettingsPanelClosing(false)
+
+    if (user) return
+
+    setMeetingActive(false)
+    setMeetingPaused(false)
+    setMeetingNoteId(null)
+    setMeetingSessionId(null)
+    setMicMuted(false)
+    setSpeakerMuted(false)
+    setTranscriptionEnabled(false)
+    setTranscriptionMode('live')
+    setTranscriptionNotice(null)
   }, [user])
 
   useEffect(() => {
@@ -254,6 +295,8 @@ function AppContent() {
       const height = contentHeight + WINDOW_VERTICAL_PADDING
       const contentWidth = windowLayoutKey === 'compact' || windowLayoutKey === 'expandedMeeting'
         ? Math.ceil(contentEl.getBoundingClientRect().width)
+        : windowLayoutKey === 'welcome'
+          ? WELCOME_LAYOUT_WIDTH[welcomeLayout]
         : LAYOUT_WIDTH[windowLayoutKey]
       const width = contentWidth + WINDOW_HORIZONTAL_PADDING
       const visibleEl = contentEl.querySelector<HTMLElement>('[data-overlay-visible]')
@@ -289,7 +332,7 @@ function AppContent() {
     return () => {
       observer.disconnect()
     }
-  }, [contentEl, windowLayoutKey])
+  }, [contentEl, welcomeLayout, windowLayoutKey])
 
   // Show nothing while loading auth state
   if (isLoading) {
@@ -470,7 +513,14 @@ function AppContent() {
     <div className="overlay-root flex w-full select-none flex-col items-start justify-start">
       <div
         ref={contentRef}
-        style={{ maxHeight: MAX_APP_HEIGHT, width: isContentSizedLayout ? undefined : LAYOUT_WIDTH[layoutKey] }}
+        style={{
+          maxHeight: MAX_APP_HEIGHT,
+          width: isContentSizedLayout
+            ? undefined
+            : layoutKey === 'welcome'
+              ? WELCOME_LAYOUT_WIDTH[welcomeLayout]
+              : LAYOUT_WIDTH[layoutKey],
+        }}
         className={cn(
           'flex flex-col gap-2 transition-[width] duration-200 ease-out',
           'p-0',
@@ -551,10 +601,7 @@ function AppContent() {
                     : 'translate-y-0 scale-100 opacity-100',
                 )}
               >
-                <SettingsPanel
-                  onLogout={logout}
-                  onLogoutEverywhere={logoutEverywhere}
-                />
+                <SettingsPanel onLogout={logout} />
               </div>
             ) : meetingActive && meetingNoteId && meetingPanel === 'notepad' ? (
               <div className={PANEL_UNDER_PILL_CLASSNAME}>
@@ -615,7 +662,7 @@ function AppContent() {
             ) : null}
           </>
         ) : (
-          <Welcome onMouseDown={handleMouseDown} />
+          <Welcome />
         )}
       </div>
     </div>
@@ -624,9 +671,9 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
+    <DesktopAuthRoot>
       <AppContent />
-    </AuthProvider>
+    </DesktopAuthRoot>
   )
 }
 

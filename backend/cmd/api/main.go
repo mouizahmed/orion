@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -27,6 +28,22 @@ import (
 
 func init() {
 	gin.SetMode(gin.ReleaseMode)
+}
+
+func allowedCORSOrigins() []string {
+	raw := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if raw == "" {
+		raw = "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,https://orionly.com,https://www.orionly.com"
+	}
+
+	origins := make([]string, 0)
+	for _, origin := range strings.Split(raw, ",") {
+		origin = strings.TrimSpace(origin)
+		if origin != "" {
+			origins = append(origins, origin)
+		}
+	}
+	return origins
 }
 
 func main() {
@@ -121,7 +138,7 @@ func main() {
 
 	// Configure CORS
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     allowedCORSOrigins(),
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "Cache-Control", "Connection", "Access-Control-Allow-Origin", "svix-id", "svix-timestamp", "svix-signature"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Type", "Cache-Control", "Content-Encoding", "Transfer-Encoding"},

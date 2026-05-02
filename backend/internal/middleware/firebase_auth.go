@@ -54,8 +54,8 @@ func FirebaseAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Verify the Firebase ID token
-		firebaseToken, err := firebaseClient.VerifyIDToken(token)
+		// Verify the Firebase ID token and reject sessions revoked by logout-everywhere.
+		firebaseToken, err := firebaseClient.VerifyIDTokenAndCheckRevoked(token)
 		if err != nil {
 			// Provide specific error messages based on the error type
 			var errorMsg, userMsg string

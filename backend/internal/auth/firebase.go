@@ -90,6 +90,16 @@ func (c *FirebaseClient) VerifyIDToken(idToken string) (*auth.Token, error) {
 	return token, nil
 }
 
+// VerifyIDTokenAndCheckRevoked verifies a Firebase ID token and rejects revoked sessions.
+func (c *FirebaseClient) VerifyIDTokenAndCheckRevoked(idToken string) (*auth.Token, error) {
+	ctx := context.Background()
+	token, err := c.Auth.VerifyIDTokenAndCheckRevoked(ctx, idToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify ID token with revocation check: %w", err)
+	}
+	return token, nil
+}
+
 // CreateOrUpdateUser creates or updates a user in Firebase Auth
 func (c *FirebaseClient) CreateOrUpdateUser(userID, email, name, photoURL string) (*auth.UserRecord, error) {
 	ctx := context.Background()

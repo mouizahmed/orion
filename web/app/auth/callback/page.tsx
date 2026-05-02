@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import Image from "next/image";
 import { pageBackground } from "@/lib/styles";
 
 const authShellClass = `flex min-h-screen items-center justify-center ${pageBackground} px-6 text-center`;
+
+function buildProtocolUrl(params: { code?: string; error?: string; errorDescription?: string }) {
+  const query = new URLSearchParams();
+  if (params.code) query.set("code", params.code);
+  if (params.error) query.set("error", params.error);
+  if (params.errorDescription) query.set("error_description", params.errorDescription);
+  return `orionly://auth-complete?${query.toString()}`;
+}
 
 function AuthCallbackContent() {
   const searchParams = useSearchParams();
@@ -14,31 +22,23 @@ function AuthCallbackContent() {
 
   useEffect(() => {
     const error = searchParams.get("error");
+    const errorDescription = searchParams.get("error_description");
     const code = searchParams.get("code");
-    const state = searchParams.get("state");
 
     if (error) {
-      console.log("❌ OAuth error:", error);
+      console.log("OAuth error:", error);
+      window.location.href = buildProtocolUrl({ error, errorDescription: errorDescription ?? undefined });
       return;
     }
 
     if (!code) {
-      console.warn("⚠️ No code in callback URL");
+      console.warn("No code in callback URL");
       return;
     }
 
-    console.log("🔑 Code received:", code);
-    console.log("🔑 State received:", state);
-
-    // Try to open desktop app
     try {
-      const protocolUrl = `orionly://auth-complete?code=${code}&state=${state}`;
-      console.log("🔗 Opening app with:", protocolUrl);
+      window.location.href = buildProtocolUrl({ code });
 
-      // Set location to trigger protocol
-      window.location.href = protocolUrl;
-
-      // Try to close if opened from desktop app
       setTimeout(() => {
         if (window.opener) {
           window.close();
@@ -51,16 +51,20 @@ function AuthCallbackContent() {
 
   const handleManualOpen = () => {
     const code = searchParams.get("code");
-    const state = searchParams.get("state");
+    const error = searchParams.get("error");
+    const errorDescription = searchParams.get("error_description");
+    if (error) {
+      window.location.href = buildProtocolUrl({ error, errorDescription: errorDescription ?? undefined });
+      return;
+    }
     if (code) {
-      window.location.href = `orionly://auth-complete?code=${code}&state=${state}`;
+      window.location.href = buildProtocolUrl({ code });
     }
   };
 
   const error = searchParams.get("error");
   const code = searchParams.get("code");
 
-  // Show error state
   if (error) {
     return (
       <div className={`${authShellClass} py-10`}>
@@ -100,6 +104,14 @@ function AuthCallbackContent() {
           </div>
 
           <button
+            onClick={handleManualOpen}
+            className="inline-flex items-center gap-2 text-brand underline decoration-brand-dark underline-offset-4 transition hover:text-brand-light"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open Orionly
+          </button>
+
+          <button
             onClick={() => router.push("/")}
             className="rounded-full bg-brand px-6 py-2.5 text-sm font-semibold text-white shadow-lg shadow-black/30 transition hover:bg-brand-light"
           >
@@ -110,7 +122,6 @@ function AuthCallbackContent() {
     );
   }
 
-  // Show success state
   return (
     <div className={`${authShellClass} py-12`}>
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">

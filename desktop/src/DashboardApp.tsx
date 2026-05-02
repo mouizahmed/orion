@@ -1,4 +1,4 @@
-import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { DashboardAuthRoot, useAuth } from '@/contexts/AuthContext'
 import { ChatProvider } from '@/contexts/ChatContext'
 import ChatWidget from '@/components/ChatWidget'
 import DashboardWorkspace from '@/components/DashboardWorkspace'
@@ -69,10 +69,30 @@ function DashboardContent() {
   const [viewMode, setViewMode] = useState<'notes' | 'calendar' | 'settings'>('notes')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
 
-  if (isLoading) return null
+  useEffect(() => {
+    if (!isLoading && !user) {
+      window.dashboard?.close?.()
+    }
+  }, [isLoading, user])
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#0f0d10] text-sm text-neutral-400">
+        Opening dashboard...
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-[#0f0d10] text-sm text-neutral-400">
+        Returning to sign in...
+      </div>
+    )
+  }
 
   return (
-    <DashboardNotesProvider userId={user?.id}>
+    <DashboardNotesProvider userId={user.id}>
       <DashboardNoteSelector initialNoteId={initialNoteId} />
       <SidebarNoteAutoClose />
       <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
@@ -91,7 +111,7 @@ function DashboardContent() {
             />
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden select-none">
               <DashboardWorkspace
-                userId={user?.id}
+                userId={user.id}
                 mode={viewMode}
                 selectedSettingsSection={settingsSection}
                 onOpenCalendar={() => setViewMode('calendar')}
@@ -111,12 +131,12 @@ function DashboardContent() {
 
 export default function DashboardApp() {
   return (
-    <AuthProvider>
+    <DashboardAuthRoot>
       <ChatProvider>
         <SidebarProvider defaultOpen={true}>
           <DashboardContent />
         </SidebarProvider>
       </ChatProvider>
-    </AuthProvider>
+    </DashboardAuthRoot>
   )
 }

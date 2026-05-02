@@ -138,6 +138,17 @@ The Rust helper owns:
 - local debug metrics
 - optional local raw/processed recording
 
+### Capture Backend Strategy
+
+Mic capture uses `cpal` on both Windows and macOS. It handles WASAPI and CoreAudio mic input well, device enumeration is solid, and it avoids writing the same boilerplate twice.
+
+System audio capture should use direct platform APIs even where library-level loopback support exists. The product needs predictable system-audio behavior, self-capture exclusion, permission handling, diagnostics, and low-level recovery hooks. Direct APIs also keep the backend strategy explicit instead of depending on the subset of loopback behavior exposed by a cross-platform abstraction.
+
+| Source | Windows | macOS |
+|---|---|---|
+| Mic | cpal | cpal |
+| System audio | WASAPI loopback direct | Core Audio tap direct |
+
 ### macOS Backend Strategy
 
 The macOS capture backend should be implemented inside the Rust audio engine first, using Rust bindings to Apple's native Core Audio APIs.
@@ -254,6 +265,52 @@ Go should translate those facts into product meaning:
 The inferred context should guide realtime AI behavior, transcript presentation, summaries, and follow-up workflows. For example, in a `mic`-only session, realtime insights should prefer in-person meeting behavior such as key points, decisions, names, and action items. In a `system`-only session, insights should avoid conversational coaching and focus on media summarization, topic extraction, and timestamped notes.
 
 This logic belongs in the Go backend, not the Rust helper, because it affects AI prompts, persistence, billing, product behavior, and can evolve without shipping a native helper update.
+
+## IPC Transport
+
+The Rust helper and Electron main communicate over two persistent connections, not one. Mixing high-throughput audio frames and control messages on a single pipe causes audio frames to block time-sensitive commands like mute.
+
+### Connections
+
+| Channel | Purpose | Format |
+|---|---|---|
+| Control | Commands, status, device events, errors | Length-prefixed JSON |
+| Audio stream | Binary audio frames with metadata header | Length-prefixed binary |
+
+### Transport Per Platform
+
+- **macOS:** Unix domain sockets under the app temp/runtime directory. Socket names should include a helper instance or session id, for example `$TMPDIR/orionly/{session}/control.sock` and `$TMPDIR/orionly/{session}/audio.sock`.
+- **Windows:** Named pipes with per-user ACLs. Pipe names should include a helper instance or session id, for example `\\.\pipe\orionly-{session}-control` and `\\.\pipe\orionly-{session}-audio`.
+
+The helper should clean up stale macOS socket files before binding. Electron main should get the concrete socket/pipe names from the helper startup path or initial ready metadata rather than relying on global fixed names.
+
+### Framing
+
+All messages use a 4-byte little-endian length header followed by the payload. The protocol must define maximum sizes for control messages and audio frames before allocation. Oversized frames are protocol errors.
+
+For audio frames, the payload is a fixed binary header (source id, sequence, timestamp, VAD state, RMS, flags) followed by raw PCM samples. JSON metadata is not embedded in the audio frame payload — it travels on the control channel as a separate event if needed.
+
+The audio stream needs an explicit backpressure policy. If Electron main or the backend cannot keep up, the helper should prefer bounded buffering plus dropped-frame accounting over unbounded memory growth. Control messages should remain responsive even when audio frames are being dropped.
+
+### Startup And Readiness
+
+1. Helper creates both sockets/pipes on startup.
+2. Helper writes a single line to stdout: `ready` followed by a newline. After this, stdout is silent.
+3. Electron main reads the ready signal and connects to both channels.
+4. Helper sends a `hello` control message with protocol version and platform info.
+5. Electron main sends a `hello_ack` to complete the handshake.
+
+On helper restart, Electron main gets the new socket/pipe names from the restarted helper and reconnects to both channels. The helper always creates fresh sockets/pipes on startup.
+
+### Reconnect Behavior
+
+Electron main should treat a closed control channel as a helper crash. It should:
+
+- stop forwarding audio frames to the backend
+- attempt to restart the helper
+- reconnect to both channels
+- re-send session state if a recording was in progress
+- surface a recoverable error to the renderer
 
 ## Audio Format And Streaming Protocol
 
@@ -812,8 +869,11 @@ These phases are for execution order. The target architecture is the full produc
 Build:
 
 - Rust helper crate
-- versioned IPC protocol
-- Electron main audio engine manager
+- named pipe/Unix socket IPC transport (control channel + audio stream channel)
+- 4-byte length-prefixed message framing
+- helper ready/handshake protocol
+- versioned IPC control message protocol
+- Electron main audio engine manager with reconnect logic
 - backend realtime audio session contract
 - provider-neutral transcription interfaces
 - new transcript segment model plan/migration
@@ -900,14 +960,20 @@ Build:
 - crash recovery
 - QA matrix pass
 
+## Resolved Decisions
+
+| Decision | Resolution |
+|---|---|
+| IPC transport | Named pipe (Windows) / Unix domain socket (macOS). Two channels: control and audio stream. Endpoint names are per helper/session, not global fixed names. |
+| Mic capture | `cpal` on both platforms. |
+| System audio capture | Direct platform APIs on both platforms: WASAPI loopback on Windows, Core Audio process tap on macOS, even where library-level loopback support exists. |
+
 ## Open Technical Decisions
 
 Decide during implementation:
 
-- direct platform APIs vs `cpal` for each capture source
 - exact Rust binding split for macOS Core Audio: `objc2-core-audio`, `coreaudio-sys`, or a minimal C/Obj-C shim if required
 - WebRTC Audio Processing binding choice
-- stdio vs named pipe/socket IPC
 - PCM vs Opus between desktop and backend
 - continuous silence vs timestamped sparse audio during VAD silence
 - whether Electron main or a local Rust network client streams directly to backend
@@ -925,6 +991,7 @@ Main risks:
 - diarization quality variance
 - STT provider lock-in
 - long-meeting memory/CPU issues
+- Windows named pipe ACL misconfiguration allowing unauthorized connections
 
 Mitigations:
 
@@ -934,6 +1001,7 @@ Mitigations:
 - use provider abstraction
 - design transcript schema with metadata
 - validate packaged builds early
+- set explicit ACLs on Windows named pipes to prevent unauthorized process connections
 
 ## Definition Of Done
 

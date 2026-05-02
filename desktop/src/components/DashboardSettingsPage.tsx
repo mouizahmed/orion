@@ -375,7 +375,7 @@ export default function DashboardSettingsPage({
 }: {
   selectedSection: DashboardSettingsSection
 }) {
-  const { user, logout, logoutEverywhere } = useAuth()
+  const { user, logout } = useAuth()
   const shortcutApi = typeof window !== 'undefined' ? window.shortcutControl : undefined
   const canManageShortcuts = Boolean(shortcutApi)
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
@@ -596,15 +596,10 @@ export default function DashboardSettingsPage({
                 label="Session"
                 value="Manage sign-in on this device."
                 action={
-                  <div className="flex gap-1.5">
-                    <Button type="button" variant="outline" size="sm" onClick={logout}>
-                      <LogOut className="h-3.5 w-3.5" />
-                      Log out
-                    </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={logoutEverywhere}>
-                      Log out everywhere
-                    </Button>
-                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={logout}>
+                    <LogOut className="h-3.5 w-3.5" />
+                    Log out
+                  </Button>
                 }
               />
             </div>
