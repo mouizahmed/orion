@@ -15,11 +15,8 @@ function syncSystemThemeToDom() {
 
   apply()
 
-  // Safari fallback
   if ('addEventListener' in media) {
     media.addEventListener('change', apply)
-  } else if ('addListener' in media) {
-    media.addListener(apply)
   }
 }
 

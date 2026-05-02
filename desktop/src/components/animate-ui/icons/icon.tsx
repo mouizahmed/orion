@@ -402,14 +402,19 @@ function AnimateIcon({
     },
   );
 
+  const { ref: ignoredRef, ...contentProps } = props as typeof props & {
+    ref?: unknown;
+  };
+  void ignoredRef;
+
   const content = asChild ? (
     <Slot
-      ref={inViewRef}
+      ref={inViewRef as React.Ref<HTMLElement>}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
-      {...props}
+      {...contentProps}
     >
       {children}
     </Slot>
@@ -420,7 +425,7 @@ function AnimateIcon({
       onMouseLeave={handleMouseLeave}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
-      {...props}
+      {...contentProps}
     >
       {children}
     </motion.span>
