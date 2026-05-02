@@ -28,8 +28,6 @@ interface FirebaseAuthContextType {
 const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(undefined)
 
 const LOGOUT_STORAGE_KEYS = [
-  'orionly:isNewUser',
-  'orionly:hasSeenPlanOnboarding',
   'dashboard:selectedNoteId',
   'dashboard:selectedFolderId',
   'chat:activeConversationId',

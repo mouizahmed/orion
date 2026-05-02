@@ -25,7 +25,6 @@ type AuthSessionUpdateEvent =
   | {
       success: true
       firebaseToken: string
-      isNewUser?: boolean
       timestamp: string
     }
   | {

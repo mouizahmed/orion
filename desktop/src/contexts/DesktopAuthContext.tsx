@@ -91,11 +91,6 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      localStorage.setItem('orionly:isNewUser', data.isNewUser ? 'true' : 'false')
-      if (!data.isNewUser) {
-        localStorage.setItem('orionly:hasSeenPlanOnboarding', 'true')
-      }
-
       signInWithCustomToken(auth, data.firebaseToken)
         .then(() => {
           resetPendingAuth(null, false)

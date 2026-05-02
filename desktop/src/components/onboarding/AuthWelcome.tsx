@@ -58,7 +58,7 @@ function TermsAgreement({
 }
 
 const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
-  const { loginLoading, loginWithGoogle, cancelAuth } = useAuth()
+  const { authError, loginLoading, loginWithGoogle, cancelAuth } = useAuth()
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const onboardingSteps = useMemo(() => authOnboardingSteps, [])
   const [stepIndex, setStepIndex] = useState(0)
@@ -88,10 +88,17 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
         stepCount={onboardingSteps.length}
         bodyOverride={
           isSignInStep ? (
-            <TermsAgreement
-              checked={acceptedTerms}
-              onCheckedChange={setAcceptedTerms}
-            />
+            <>
+              <TermsAgreement
+                checked={acceptedTerms}
+                onCheckedChange={setAcceptedTerms}
+              />
+              {authError ? (
+                <div className="mt-3 max-w-[440px] rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
+                  {authError}
+                </div>
+              ) : null}
+            </>
           ) : undefined
         }
         nextDisabled={loginLoading}

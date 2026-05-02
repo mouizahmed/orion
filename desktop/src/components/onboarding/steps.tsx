@@ -1,5 +1,4 @@
 import type { OnboardingStep } from '@/components/onboarding/types'
-import { PlanBody, ProfileBody, SuggestionsBody } from '@/components/onboarding/step-bodies'
 import {
   IntegrationsVisual,
   LargeLogoVisual,
@@ -46,36 +45,3 @@ export const authOnboardingSteps: OnboardingStep[] = [
     visual: <LargeLogoVisual />,
   },
 ]
-
-const planOnboardingStep: OnboardingStep = {
-  eyebrow: 'Plan',
-  title: 'Try it free for 7 days',
-  description: 'No credit card required. Cancel anytime.',
-  layout: 'large',
-  body: <PlanBody />,
-}
-
-const setupOnboardingSteps: OnboardingStep[] = [
-  {
-    eyebrow: '1/2',
-    title: 'Let us get to know you',
-    description: 'We will tailor meeting notes and suggestions based on your profile.',
-    layout: 'large',
-    body: <ProfileBody />,
-  },
-  {
-    eyebrow: '2/2',
-    title: 'Set up live suggestions',
-    description: 'Choose the moments Orionly should help with during calls.',
-    layout: 'large',
-    body: <SuggestionsBody />,
-    nextLabel: 'Continue',
-  },
-]
-
-export function buildAuthenticatedOnboardingSteps(isNewUser: boolean) {
-  return [
-    ...(isNewUser ? [planOnboardingStep] : []),
-    ...setupOnboardingSteps,
-  ]
-}

@@ -16,12 +16,12 @@ export function setAuthWindowRevealHandler(handler: (() => void) | null) {
 // Helper to send auth session updates to renderer
 function sendAuthUpdate(
   success: boolean,
-  data: { firebaseToken?: string; error?: string; isNewUser?: boolean },
+  data: { firebaseToken?: string; error?: string },
 ) {
   const payload = {
     success,
     ...(success
-      ? { firebaseToken: data.firebaseToken, isNewUser: data.isNewUser }
+      ? { firebaseToken: data.firebaseToken }
       : { error: data.error }),
     timestamp: new Date().toISOString(),
   }
@@ -169,7 +169,6 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
       if (authResult.firebaseToken) {
         sendAuthUpdate(true, {
           firebaseToken: authResult.firebaseToken,
-          isNewUser: Boolean(authResult.is_new_user),
         })
       } else {
         sendAuthUpdate(false, {
