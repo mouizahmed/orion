@@ -4,6 +4,7 @@ import { config } from './config'
 
 let authCallbackWindow: BrowserWindow | null = null
 let revealAuthWindow: (() => void) | null = null
+let revealIntegrationWindow: (() => void) | null = null
 
 export function setAuthCallbackWindow(win: BrowserWindow | null) {
   authCallbackWindow = win
@@ -11,6 +12,10 @@ export function setAuthCallbackWindow(win: BrowserWindow | null) {
 
 export function setAuthWindowRevealHandler(handler: (() => void) | null) {
   revealAuthWindow = handler
+}
+
+export function setIntegrationWindowRevealHandler(handler: (() => void) | null) {
+  revealIntegrationWindow = handler
 }
 
 // Helper to send auth session updates to renderer
@@ -28,6 +33,24 @@ function sendAuthUpdate(
 
   if (authCallbackWindow && !authCallbackWindow.isDestroyed()) {
     authCallbackWindow.webContents.send('auth-session-updated', payload)
+  }
+}
+
+function sendIntegrationUpdate(payload: {
+  success: boolean
+  provider?: string
+  feature?: string
+  error?: string
+}) {
+  const eventPayload = {
+    type: 'integration_connection_completed',
+    ...payload,
+  }
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('integration:connection-completed', eventPayload)
+    }
   }
 }
 
@@ -95,11 +118,36 @@ async function handleProtocolUrl(url: string) {
       parsed.pathname.replace(/^\/|\/$/g, '') === 'auth-complete'
     ) {
       await handleAuthComplete(parsed)
+      return
     }
-    // Future: Add more protocol handlers here
+
+    if (
+      parsed.hostname === 'integrations' &&
+      parsed.pathname.replace(/^\/|\/$/g, '') === 'callback'
+    ) {
+      handleIntegrationCallback(parsed)
+    }
   } catch (error) {
     console.error('Error parsing protocol URL:', error)
   }
+}
+
+function handleIntegrationCallback(parsed: URL) {
+  const success = parsed.searchParams.get('success') === 'true'
+  const provider = parsed.searchParams.get('provider') || undefined
+  const feature = parsed.searchParams.get('feature') || undefined
+  const error = parsed.searchParams.get('error_description') || parsed.searchParams.get('error') || undefined
+
+  revealIntegrationWindow?.()
+
+  setTimeout(() => {
+    sendIntegrationUpdate({
+      success,
+      provider,
+      feature,
+      error,
+    })
+  }, 150)
 }
 
 async function handleAuthComplete(parsed: URL) {

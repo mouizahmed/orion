@@ -50,7 +50,7 @@ func NewOAuthHandler(userRepo *repository.UserRepository, oauthTokenRepo reposit
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		Endpoint:     google.Endpoint,
-		Scopes:       []string{"openid", "email", "profile", "https://www.googleapis.com/auth/calendar.readonly"},
+		Scopes:       []string{"openid", "email", "profile"},
 		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"), // e.g., http://localhost:8080/auth/callback
 	}
 

@@ -14,11 +14,16 @@ type CalendarAttendee = {
 
 interface Meeting {
   id: string
+  providerId?: string
+  connectionId?: string
+  accountEmail?: string
   title: string
   start: string
   end: string
   location?: string
   organizer?: string
+  calendarId?: string
+  calendarName?: string
   color?: string
   provider: string
   is_meeting: boolean
@@ -27,12 +32,17 @@ interface Meeting {
 
 interface CalendarEvent {
   id: string
+  provider_id?: string
+  connection_id?: string
+  account_email?: string
   title: string
   start: string
   end: string
   location?: string
   description?: string
   organizer?: string
+  calendar_id?: string
+  calendar_name?: string
   color?: string
   provider: string
   is_meeting: boolean
@@ -133,11 +143,16 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
       if (data.status === 'success' && data.events) {
         const formattedMeetings: Meeting[] = data.events.map((event: CalendarEvent) => ({
           id: event.id,
+          providerId: event.provider_id,
+          connectionId: event.connection_id,
+          accountEmail: event.account_email,
           title: event.title,
           start: event.start,
           end: event.end,
           location: event.location,
           organizer: event.organizer,
+          calendarId: event.calendar_id,
+          calendarName: event.calendar_name,
           color: event.color,
           provider: event.provider,
           is_meeting: event.is_meeting,
@@ -304,6 +319,11 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
                         <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                           {formatMeetingTime(meeting.start, meeting.end)}
                         </p>
+                        {(meeting.calendarName || meeting.accountEmail) && (
+                          <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                            {[meeting.calendarName, meeting.accountEmail].filter(Boolean).join(' - ')}
+                          </p>
+                        )}
                         {meeting.location && (
                           <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
                             <MapPin className="h-3 w-3 shrink-0" />

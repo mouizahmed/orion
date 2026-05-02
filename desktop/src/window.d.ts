@@ -12,6 +12,25 @@ type AuthResult =
       error: string
     }
 
+type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+
+type IntegrationResult =
+  | {
+      success: true
+    }
+  | {
+      success: false
+      error: string
+    }
+
+type IntegrationConnectionCompletedEvent = {
+  type: 'integration_connection_completed'
+  success: boolean
+  provider?: string
+  feature?: string
+  error?: string
+}
+
 // IPC Event type for Electron renderer
 interface IpcRendererEvent {
   preventDefault(): void
@@ -128,6 +147,17 @@ interface ElectronAPI {
   // OAuth Authentication
   authenticateWithGoogle: () => Promise<AuthResult>
 
+  // Integration connections
+  connectIntegration: (
+    provider: IntegrationProvider,
+    feature: string,
+    idToken: string,
+  ) => Promise<IntegrationResult>
+  disconnectIntegration: (
+    connectionID: string,
+    idToken: string,
+  ) => Promise<IntegrationResult>
+
   // Session Management
   cancelAuthentication: () => Promise<AuthResult>
   logout: () => Promise<AuthResult>
@@ -138,6 +168,9 @@ interface ElectronAPI {
       event: IpcRendererEvent,
       data: AuthSessionUpdateEvent,
     ) => void,
+  ) => () => void
+  onIntegrationConnectionCompleted: (
+    callback: (data: IntegrationConnectionCompletedEvent) => void,
   ) => () => void
 }
 

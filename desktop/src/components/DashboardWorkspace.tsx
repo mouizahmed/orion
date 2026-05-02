@@ -184,7 +184,7 @@ export default function DashboardWorkspace({
   if (mode === 'calendar') {
     return (
       <div className="h-full">
-        <DashboardCalendar />
+        <DashboardCalendar onOpenCalendarSettings={onOpenCalendarSettings} />
       </div>
     )
   }

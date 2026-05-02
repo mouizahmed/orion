@@ -2,10 +2,17 @@ import { app, BrowserWindow, desktopCapturer, globalShortcut, session } from 'el
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
-import { setupProtocolHandler, setupProtocolEvents, setAuthCallbackWindow, setAuthWindowRevealHandler } from './protocol-handler'
+import {
+  setupProtocolHandler,
+  setupProtocolEvents,
+  setAuthCallbackWindow,
+  setAuthWindowRevealHandler,
+  setIntegrationWindowRevealHandler,
+} from './protocol-handler'
 import {
   closeAuthWindow,
   closeDashboardWindow,
+  createDashboardWindow,
   createAuthWindow,
   createWindow,
   destroyOverlayWindow,
@@ -72,6 +79,25 @@ if (!gotTheLock) {
     setAuthWindowRevealHandler(() => {
       destroyOverlayWindow()
       showAuthWindow()
+    })
+    setIntegrationWindowRevealHandler(() => {
+      if (!isRendererAuthenticated()) {
+        showAuthWindow()
+        return
+      }
+
+      unregisterKeyboardShortcuts()
+
+      const overlay = getWindow()
+      if (overlay && !overlay.isDestroyed()) {
+        overlay.setIgnoreMouseEvents(true, { forward: true })
+        overlay.setOpacity(0)
+      }
+
+      const dashboard = createDashboardWindow()
+      if (dashboard.isMinimized()) dashboard.restore()
+      dashboard.show()
+      dashboard.focus()
     })
 
     // Setup IPC handlers

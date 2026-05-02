@@ -1,9 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, desktopCapturer, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, desktopCapturer, shell, type OpenDialogOptions } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, showAuthWindow } from './window'
 import { isRendererAuthenticated } from './auth-handlers'
+import { config } from './config'
 import {
   restoreKeyboardShortcuts,
   unregisterKeyboardShortcuts,
@@ -20,8 +21,38 @@ type RecordingSettings = {
   localRecordingsPath: string
 }
 
+type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+
+type IntegrationResult = {
+  success: boolean
+  error?: string
+}
+
 function defaultLocalRecordingsPath() {
   return path.join(app.getPath('documents'), 'Orionly Recordings')
+}
+
+function isIntegrationProvider(value: unknown): value is IntegrationProvider {
+  return value === 'google' || value === 'microsoft' || value === 'notion'
+}
+
+function normalizeIdToken(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+async function readApiError(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: unknown; message?: unknown }
+    if (typeof body.error === 'string' && body.error.trim().length > 0) {
+      return body.error
+    }
+    if (typeof body.message === 'string' && body.message.trim().length > 0) {
+      return body.message
+    }
+  } catch {
+    // Use the fallback below.
+  }
+  return fallback
 }
 
 function defaultRecordingSettings(): RecordingSettings {
@@ -315,6 +346,102 @@ export function setupIpcHandlers() {
     writeRecordingSettings(next)
     return next
   })
+
+  ipcMain.handle(
+    'integration:connect',
+    async (
+      _event,
+      payload?: { provider?: unknown; feature?: unknown; idToken?: unknown },
+    ): Promise<IntegrationResult> => {
+      const provider = payload?.provider
+      const feature = typeof payload?.feature === 'string' ? payload.feature.trim() : ''
+      const idToken = normalizeIdToken(payload?.idToken)
+
+      if (!isRendererAuthenticated() || !idToken) {
+        return { success: false, error: 'Not authenticated' }
+      }
+      if (!isIntegrationProvider(provider)) {
+        return { success: false, error: 'Unsupported integration provider' }
+      }
+      if (!feature) {
+        return { success: false, error: 'Missing integration feature' }
+      }
+
+      try {
+        const response = await fetch(`${config.backendUrl}/api/integrations/connections/start`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({ provider, feature, platform: 'desktop' }),
+        })
+
+        if (!response.ok) {
+          return {
+            success: false,
+            error: await readApiError(response, 'Failed to start integration connection'),
+          }
+        }
+
+        const result = (await response.json()) as { auth_url?: unknown; already_connected?: unknown }
+        if (result.already_connected === true) {
+          return { success: true }
+        }
+        if (typeof result.auth_url !== 'string' || result.auth_url.length === 0) {
+          return { success: false, error: 'Integration connection did not return an auth URL' }
+        }
+
+        await shell.openExternal(result.auth_url)
+        return { success: true }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return { success: false, error: errorMessage }
+      }
+    },
+  )
+
+  ipcMain.handle(
+    'integration:disconnect',
+    async (_event, payload?: { connectionID?: unknown; idToken?: unknown }): Promise<IntegrationResult> => {
+      const connectionID =
+        typeof payload?.connectionID === 'string' && payload.connectionID.trim().length > 0
+          ? payload.connectionID.trim()
+          : null
+      const idToken = normalizeIdToken(payload?.idToken)
+
+      if (!isRendererAuthenticated() || !idToken) {
+        return { success: false, error: 'Not authenticated' }
+      }
+      if (!connectionID) {
+        return { success: false, error: 'Missing connection ID' }
+      }
+
+      try {
+        const response = await fetch(
+          `${config.backendUrl}/api/integrations/connections/${encodeURIComponent(connectionID)}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+            },
+          },
+        )
+
+        if (!response.ok) {
+          return {
+            success: false,
+            error: await readApiError(response, 'Failed to disconnect integration'),
+          }
+        }
+
+        return { success: true }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        return { success: false, error: errorMessage }
+      }
+    },
+  )
 
   // Audio capture IPC handlers
 

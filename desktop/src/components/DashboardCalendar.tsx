@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
-import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Users, X } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Settings2, Users, X } from 'lucide-react'
 
 import { auth } from '@/config/firebase'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,9 @@ type CalendarAttendee = {
 
 type ServerCalendarEvent = {
   id: string
+  provider_id?: string
+  connection_id?: string
+  account_email?: string
   title: string
   start: string
   end: string
@@ -48,6 +51,9 @@ type ServerCalendarEvent = {
 
 type CalendarEvent = {
   id: string
+  providerId?: string
+  connectionId?: string
+  accountEmail?: string
   title: string
   start: string
   end: string
@@ -174,6 +180,9 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
 
   return {
     id: event.id,
+    providerId: event.provider_id,
+    connectionId: event.connection_id,
+    accountEmail: event.account_email,
     title: event.title || 'Untitled event',
     start: event.start,
     end: event.end,
@@ -279,6 +288,9 @@ function EventDetail({
               <div className="truncate">Organizer: {event.organizer}</div>
             ) : null}
             <div className="truncate">Calendar: {event.calendarName}</div>
+            {event.accountEmail ? (
+              <div className="truncate">Account: {event.accountEmail}</div>
+            ) : null}
           </div>
         </section>
 
@@ -391,7 +403,11 @@ function DayEventsDetail({
   )
 }
 
-export function DashboardCalendar() {
+export function DashboardCalendar({
+  onOpenCalendarSettings,
+}: {
+  onOpenCalendarSettings?: () => void
+}) {
   const { user } = useAuth()
   const { openCreateNoteDialog } = useDashboardNotes()
   const [view, setView] = useState<CalendarView>('week')
@@ -497,6 +513,16 @@ export function DashboardCalendar() {
             </div>
           </div>
           <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            <Button
+              type="button"
+              onClick={onOpenCalendarSettings}
+              variant="secondary"
+              size="icon-sm"
+              aria-label="Calendar settings"
+              title="Calendar settings"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+            </Button>
             <div className="flex rounded-full border border-neutral-200 bg-white/60 p-0.5 dark:border-white/10 dark:bg-white/5">
               {(['agenda', 'week', 'month'] as CalendarView[]).map((option) => (
                 <button
@@ -586,6 +612,9 @@ export function DashboardCalendar() {
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">{event.title}</div>
                                   <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{formatTimeRange(event)}</div>
+                                  {event.accountEmail ? (
+                                    <div className="mt-0.5 truncate text-xs text-neutral-400 dark:text-neutral-500">{event.accountEmail}</div>
+                                  ) : null}
                                 </div>
                               </button>
                             ))}

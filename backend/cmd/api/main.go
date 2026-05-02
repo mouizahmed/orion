@@ -72,6 +72,8 @@ func main() {
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
 	oauthTokenRepo := repository.NewOAuthTokenRepository(db)
+	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
+	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
@@ -117,6 +119,7 @@ func main() {
 
 	// Initialize handlers
 	oauthHandler := handlers.NewOAuthHandler(userRepo, oauthTokenRepo, redisClient)
+	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	b2Client, err := storage.NewB2Client()
@@ -129,7 +132,7 @@ func main() {
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
-	calendarHandler := handlers.NewCalendarHandler(oauthTokenRepo)
+	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
@@ -163,12 +166,22 @@ func main() {
 		auth.POST("/complete", oauthHandler.CompleteAuth) // Complete auth with one-time code
 	}
 
+	integrations := router.Group("/integrations")
+	{
+		integrations.GET("/oauth/callback", integrationOAuthHandler.HandleCallback)
+	}
+
 	// Authenticated API routes
 	authenticated := api.Group("/")
 	authenticated.Use(middleware.FirebaseAuthMiddleware())
 	{
 		// Auth routes (require Firebase auth)
 		authenticated.POST("/auth/logout", oauthHandler.Logout)
+
+		// Integration connection routes
+		authenticated.POST("/integrations/connections/start", integrationOAuthHandler.StartConnection)
+		authenticated.GET("/integrations/connections", integrationOAuthHandler.ListConnections)
+		authenticated.DELETE("/integrations/connections/:connectionID", integrationOAuthHandler.DisconnectConnection)
 
 		// User routes
 		authenticated.GET("/user/me", userHandler.GetCurrentUser)
@@ -205,6 +218,7 @@ func main() {
 		// Calendar routes
 		authenticated.GET("/calendar/calendars", calendarHandler.GetCalendars)
 		authenticated.GET("/calendar/upcoming", calendarHandler.GetUpcomingEvents)
+		authenticated.PATCH("/calendar/connections/:connectionID/calendars/:calendarID", calendarHandler.UpdateCalendarVisibility)
 
 		// Chat routes
 		authenticated.POST("/chat/conversations", chatHandler.CreateConversation)

@@ -41,12 +41,26 @@ type RecordingSettings = {
 
 type ConnectedCalendar = {
   id: string
+  connection_id: string
+  account_email?: string
   name: string
   provider: string
   color?: string
   background_color?: string
+  foreground_color?: string
   primary: boolean
   selected: boolean
+  visible: boolean
+  access_role?: string
+}
+
+type IntegrationConnection = {
+  id: string
+  provider: 'google' | 'microsoft' | 'notion'
+  provider_email?: string
+  display_name?: string
+  status: 'active' | 'needs_reconnect' | 'disconnected'
+  connected_at: string
 }
 
 type ShortcutGroup = {
@@ -108,6 +122,38 @@ const billingPlans = [
     ],
   },
 ]
+
+function clearCalendarCaches(userID?: string) {
+  if (!userID) return
+  localStorage.removeItem(`calendar_events_${userID}`)
+  window.dispatchEvent(new Event('dashboard-calendar-refresh'))
+}
+
+function accountLabel(connection: IntegrationConnection) {
+  return connection.provider_email || connection.display_name || `${connection.provider} account`
+}
+
+function providerLabel(provider: IntegrationConnection['provider'] | ConnectedCalendar['provider']) {
+  switch (provider) {
+    case 'google':
+      return 'Google Calendar'
+    case 'microsoft':
+      return 'Microsoft Outlook'
+    case 'notion':
+      return 'Notion'
+    default:
+      return provider
+  }
+}
+
+function groupCalendarsByConnection(calendars: ConnectedCalendar[]) {
+  return calendars.reduce<Record<string, ConnectedCalendar[]>>((groups, calendar) => {
+    const key = calendar.connection_id
+    groups[key] = groups[key] || []
+    groups[key].push(calendar)
+    return groups
+  }, {})
+}
 
 const sectionMeta: Record<DashboardSettingsSection, { title: string; icon: typeof User }> = {
   account: { title: 'Account', icon: User },
@@ -174,14 +220,28 @@ function SettingRow({
   )
 }
 
-function ToggleSwitch({ enabled }: { enabled: boolean }) {
+function ToggleSwitch({
+  enabled,
+  onClick,
+  disabled = false,
+  ariaLabel,
+}: {
+  enabled: boolean
+  onClick?: () => void
+  disabled?: boolean
+  ariaLabel?: string
+}) {
   return (
     <button
       type="button"
       aria-pressed={enabled}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={onClick}
       className={[
         'relative h-5 w-9 shrink-0 rounded-full transition-colors',
         enabled ? 'bg-[#7c3aed] dark:bg-[#9f73f2]' : 'bg-neutral-300 dark:bg-white/25',
+        disabled ? 'cursor-not-allowed opacity-60' : '',
       ].join(' ')}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
@@ -384,9 +444,11 @@ export default function DashboardSettingsPage({
   const [updatingAction, setUpdatingAction] = useState<ShortcutAction | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [profileImageFailed, setProfileImageFailed] = useState(false)
+  const [calendarConnections, setCalendarConnections] = useState<IntegrationConnection[]>([])
   const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
   const [isLoadingCalendars, setIsLoadingCalendars] = useState(false)
   const [calendarError, setCalendarError] = useState<string | null>(null)
+  const [calendarAction, setCalendarAction] = useState<string | null>(null)
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>({
     storageLocation: 'server',
     localRecordingsPath: '',
@@ -403,53 +465,80 @@ export default function DashboardSettingsPage({
     setProfileImageFailed(false)
   }, [user?.picture])
 
+  const loadCalendarSettings = useCallback(async () => {
+    if (!user) return
+    setIsLoadingCalendars(true)
+    setCalendarError(null)
+
+    try {
+      const currentUser = auth.currentUser
+      if (!currentUser) throw new Error('Not authenticated')
+
+      const idToken = await currentUser.getIdToken()
+      const headers = {
+        Accept: 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      }
+
+      const [connectionsResponse, calendarsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/integrations/connections`, { headers }),
+        fetch(`${API_BASE_URL}/calendar/calendars`, { headers }),
+      ])
+
+      if (!connectionsResponse.ok) {
+        throw new Error(`Failed to fetch calendar accounts: ${connectionsResponse.status}`)
+      }
+      if (!calendarsResponse.ok) {
+        throw new Error(`Failed to fetch calendars: ${calendarsResponse.status}`)
+      }
+
+      const [connectionsData, calendarsData] = await Promise.all([
+        connectionsResponse.json(),
+        calendarsResponse.json(),
+      ])
+
+      setCalendarConnections(
+        connectionsData.status === 'success' && Array.isArray(connectionsData.connections)
+          ? connectionsData.connections
+          : [],
+      )
+      setConnectedCalendars(
+        calendarsData.status === 'success' && Array.isArray(calendarsData.calendars)
+          ? calendarsData.calendars
+          : [],
+      )
+    } catch (loadError) {
+      setCalendarConnections([])
+      setConnectedCalendars([])
+      setCalendarError(loadError instanceof Error ? loadError.message : 'Failed to load calendar settings')
+    } finally {
+      setIsLoadingCalendars(false)
+    }
+  }, [user])
+
   useEffect(() => {
     if (selectedSection !== 'calendar' || !user) return
-    let isSubscribed = true
+    void loadCalendarSettings()
+  }, [loadCalendarSettings, selectedSection, user])
 
-    async function loadCalendars() {
-      setIsLoadingCalendars(true)
-      setCalendarError(null)
+  useEffect(() => {
+    if (!window.electronAPI?.onIntegrationConnectionCompleted) return
 
-      try {
-        const currentUser = auth.currentUser
-        if (!currentUser) throw new Error('Not authenticated')
+    return window.electronAPI.onIntegrationConnectionCompleted((event) => {
+      if (event.provider && event.provider !== 'google') return
+      if (event.feature && event.feature !== 'calendar') return
 
-        const idToken = await currentUser.getIdToken()
-        const response = await fetch(`${API_BASE_URL}/calendar/calendars`, {
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${idToken}`,
-          },
-        })
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch calendars: ${response.status}`)
-        }
-
-        const data = await response.json()
-        if (!isSubscribed) return
-
-        if (data.status === 'success' && Array.isArray(data.calendars)) {
-          setConnectedCalendars(data.calendars)
-        } else {
-          setConnectedCalendars([])
-        }
-      } catch (loadError) {
-        if (!isSubscribed) return
-        setConnectedCalendars([])
-        setCalendarError(loadError instanceof Error ? loadError.message : 'Failed to load calendars')
-      } finally {
-        if (isSubscribed) setIsLoadingCalendars(false)
+      if (!event.success) {
+        setCalendarError(event.error || 'Calendar connection failed')
+        return
       }
-    }
 
-    void loadCalendars()
-
-    return () => {
-      isSubscribed = false
-    }
-  }, [selectedSection, user])
+      clearCalendarCaches(user?.id)
+      if (selectedSection === 'calendar') {
+        void loadCalendarSettings()
+      }
+    })
+  }, [loadCalendarSettings, selectedSection, user?.id])
 
   useEffect(() => {
     if (selectedSection !== 'security' || !window.recordingSettings) return
@@ -489,6 +578,110 @@ export default function DashboardSettingsPage({
       console.error('Failed to choose recordings folder', updateError)
     }
   }, [])
+
+  const handleConnectCalendar = useCallback(async () => {
+    const currentUser = auth.currentUser
+    if (!currentUser || !window.electronAPI?.connectIntegration) {
+      setCalendarError('Not authenticated')
+      return
+    }
+
+    setCalendarAction('connect')
+    setCalendarError(null)
+    try {
+      const idToken = await currentUser.getIdToken()
+      const result = await window.electronAPI.connectIntegration('google', 'calendar', idToken)
+      if (!result.success) {
+        throw new Error(result.error)
+      }
+      clearCalendarCaches(user?.id)
+      void loadCalendarSettings()
+    } catch (connectError) {
+      setCalendarError(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
+    } finally {
+      setCalendarAction(null)
+    }
+  }, [loadCalendarSettings, user?.id])
+
+  const handleDisconnectCalendar = useCallback(
+    async (connectionID: string) => {
+      const currentUser = auth.currentUser
+      if (!currentUser || !window.electronAPI?.disconnectIntegration) {
+        setCalendarError('Not authenticated')
+        return
+      }
+
+      setCalendarAction(`disconnect:${connectionID}`)
+      setCalendarError(null)
+      try {
+        const idToken = await currentUser.getIdToken()
+        const result = await window.electronAPI.disconnectIntegration(connectionID, idToken)
+        if (!result.success) {
+          throw new Error(result.error)
+        }
+        clearCalendarCaches(user?.id)
+        await loadCalendarSettings()
+      } catch (disconnectError) {
+        setCalendarError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
+      } finally {
+        setCalendarAction(null)
+      }
+    },
+    [loadCalendarSettings, user?.id],
+  )
+
+  const handleCalendarVisibility = useCallback(
+    async (calendar: ConnectedCalendar, visible: boolean) => {
+      const currentUser = auth.currentUser
+      if (!currentUser) {
+        setCalendarError('Not authenticated')
+        return
+      }
+
+      const actionKey = `toggle:${calendar.connection_id}:${calendar.id}`
+      setCalendarAction(actionKey)
+      setCalendarError(null)
+      setConnectedCalendars((current) =>
+        current.map((item) =>
+          item.connection_id === calendar.connection_id && item.id === calendar.id
+            ? { ...item, visible }
+            : item,
+        ),
+      )
+
+      try {
+        const idToken = await currentUser.getIdToken()
+        const response = await fetch(
+          `${API_BASE_URL}/calendar/connections/${encodeURIComponent(calendar.connection_id)}/calendars/${encodeURIComponent(calendar.id)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ visible }),
+          },
+        )
+        if (!response.ok) {
+          throw new Error(`Failed to update calendar visibility: ${response.status}`)
+        }
+        clearCalendarCaches(user?.id)
+      } catch (visibilityError) {
+        setConnectedCalendars((current) =>
+          current.map((item) =>
+            item.connection_id === calendar.connection_id && item.id === calendar.id
+              ? { ...item, visible: calendar.visible }
+              : item,
+          ),
+        )
+        setCalendarError(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
+      } finally {
+        setCalendarAction(null)
+      }
+    },
+    [user?.id],
+  )
 
   const handleShortcutUpdate = useCallback(
     async (action: ShortcutAction, value: string | null) => {
@@ -557,6 +750,8 @@ export default function DashboardSettingsPage({
     }
   }, [handleShortcutUpdate, recordingAction, shortcutApi, shortcutState])
 
+  const calendarsByConnection = groupCalendarsByConnection(connectedCalendars)
+  const hasCalendarConnections = calendarConnections.length > 0
   const title = sectionMeta[selectedSection].title
 
   return (
@@ -690,6 +885,57 @@ export default function DashboardSettingsPage({
 
         {selectedSection === 'calendar' ? (
           <div className="space-y-3">
+            <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+              <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+                <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Calendar accounts</div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={calendarAction === 'connect'}
+                  onClick={() => void handleConnectCalendar()}
+                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  {hasCalendarConnections ? 'Add calendar account' : 'Connect calendar'}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {isLoadingCalendars ? (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading accounts...</div>
+              ) : calendarConnections.length > 0 ? (
+                calendarConnections.map((connection) => {
+                  const isDisconnecting = calendarAction === `disconnect:${connection.id}`
+                  return (
+                    <div
+                      key={connection.id}
+                      className="flex min-h-14 items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 last:border-b-0 dark:border-white/10"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
+                          {providerLabel(connection.provider)}
+                        </div>
+                        <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                          {accountLabel(connection)}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={Boolean(calendarAction)}
+                        className="border-red-500/25 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-400/20 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200"
+                        onClick={() => void handleDisconnectCalendar(connection.id)}
+                      >
+                        {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                      </Button>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No calendar accounts connected.</div>
+              )}
+            </div>
             <div>
               <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Display</div>
               <div className="flex min-h-16 items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
@@ -716,51 +962,64 @@ export default function DashboardSettingsPage({
                   type="button"
                   className="text-xs font-medium text-[#7c3aed] hover:text-[#6d28d9] dark:text-[#9f73f2] dark:hover:text-[#b79df7]"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                  onClick={() => void loadCalendarSettings()}
                 >
-                  Reset
+                  Refresh
                 </button>
               </div>
               {isLoadingCalendars ? (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading calendars...</div>
               ) : calendarError ? (
                 <div className="px-3 py-4 text-xs text-red-600 dark:text-red-300">{calendarError}</div>
-              ) : connectedCalendars.length > 0 ? (
-                connectedCalendars.map((calendar) => (
-                  <div
-                    key={`${calendar.provider}-${calendar.id}`}
-                    className="flex min-h-12 items-center justify-between gap-3 px-3 py-2"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="h-3 w-3 shrink-0 rounded-sm bg-neutral-300 dark:bg-white/25"
-                        style={calendar.color || calendar.background_color ? { backgroundColor: calendar.color || calendar.background_color } : undefined}
-                      />
-                      <span className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                        {calendar.name || calendar.id}
-                      </span>
+              ) : connectedCalendars.length > 0 && calendarConnections.length > 0 ? (
+                calendarConnections.map((connection) => {
+                  const calendars = calendarsByConnection[connection.id] || []
+                  if (calendars.length === 0) return null
+                  return (
+                    <div key={connection.id} className="border-b border-neutral-200 last:border-b-0 dark:border-white/10">
+                      <div className="bg-neutral-50/80 px-3 py-2 text-xs font-medium text-neutral-500 dark:bg-white/[0.03] dark:text-neutral-400">
+                        {accountLabel(connection)}
+                      </div>
+                      {calendars.map((calendar) => {
+                        const actionKey = `toggle:${calendar.connection_id}:${calendar.id}`
+                        return (
+                          <div
+                            key={`${calendar.connection_id}-${calendar.id}`}
+                            className="flex min-h-12 items-center justify-between gap-3 px-3 py-2"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span
+                                className="h-3 w-3 shrink-0 rounded-sm bg-neutral-300 dark:bg-white/25"
+                                style={
+                                  calendar.color || calendar.background_color
+                                    ? { backgroundColor: calendar.color || calendar.background_color }
+                                    : undefined
+                                }
+                              />
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
+                                  {calendar.name || calendar.id}
+                                </div>
+                                <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                                  {providerLabel(calendar.provider)}
+                                </div>
+                              </div>
+                            </div>
+                            <ToggleSwitch
+                              enabled={calendar.visible}
+                              disabled={calendarAction === actionKey}
+                              ariaLabel={`${calendar.visible ? 'Hide' : 'Show'} ${calendar.name || calendar.id}`}
+                              onClick={() => void handleCalendarVisibility(calendar, !calendar.visible)}
+                            />
+                          </div>
+                        )
+                      })}
                     </div>
-                    <ToggleSwitch enabled={calendar.selected || calendar.primary} />
-                  </div>
-                ))
+                  )
+                })
               ) : (
-                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No connected calendars found.</div>
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Connect a calendar account to choose visible calendars.</div>
               )}
-            </div>
-            <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
-              <SettingRow
-                label="Disconnect calendar"
-                value="Remove calendar access for this device."
-                action={
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="border-red-500/25 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-400/20 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200"
-                  >
-                    Disconnect
-                  </Button>
-                }
-              />
             </div>
           </div>
         ) : null}

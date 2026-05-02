@@ -23,6 +23,21 @@ type RecordingSettings = {
   localRecordingsPath: string
 }
 
+type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+
+type IntegrationResult = {
+  success: boolean
+  error?: string
+}
+
+type IntegrationConnectionCompletedEvent = {
+  type: 'integration_connection_completed'
+  success: boolean
+  provider?: string
+  feature?: string
+  error?: string
+}
+
 // --------- Expose some API to the Renderer process ---------
 contextBridge.exposeInMainWorld('ipcRenderer', {
   on(...args: Parameters<typeof ipcRenderer.on>) {
@@ -167,6 +182,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // OAuth Authentication
   authenticateWithGoogle: () => ipcRenderer.invoke('auth:google'),
 
+  // Integration connections
+  connectIntegration: (provider: IntegrationProvider, feature: string, idToken: string) =>
+    ipcRenderer.invoke('integration:connect', { provider, feature, idToken }) as Promise<IntegrationResult>,
+  disconnectIntegration: (connectionID: string, idToken: string) =>
+    ipcRenderer.invoke('integration:disconnect', { connectionID, idToken }) as Promise<IntegrationResult>,
+
   // Session Management
   cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
   logout: () => ipcRenderer.invoke('auth:logout'),
@@ -178,7 +199,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.off('auth-session-updated', listener)
     }
-  }
+  },
+  onIntegrationConnectionCompleted: (callback: (data: IntegrationConnectionCompletedEvent) => void) => {
+    const listener = (_event: IpcRendererEvent, data: IntegrationConnectionCompletedEvent) => callback(data)
+    ipcRenderer.on('integration:connection-completed', listener)
+    return () => {
+      ipcRenderer.off('integration:connection-completed', listener)
+    }
+  },
 })
 
 // Expose environment info
