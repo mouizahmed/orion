@@ -1,0 +1,75 @@
+import type { DesktopApi } from './types'
+
+function missingApi(name: string): never {
+  throw new Error(`${name} is not available in this desktop environment`)
+}
+
+export const electronDesktopApi: DesktopApi = {
+  platform: {
+    current: () => window.env?.platform ?? 'win32',
+  },
+  appEvents: {
+    onMainProcessMessage: (callback) => window.appEvents?.onMainProcessMessage?.(callback) ?? (() => undefined),
+  },
+  window: {
+    startDrag: (...args) => window.windowControl?.startDrag?.(...args),
+    moveDrag: (...args) => window.windowControl?.moveDrag?.(...args),
+    setIgnoreMouseEvents: (...args) => window.windowControl?.setIgnoreMouseEvents?.(...args),
+    toggleVisibility: () => window.windowControl?.toggleVisibility?.(),
+    setWindowHeight: (...args) => window.windowControl?.setWindowHeight?.(...args),
+    setWindowSize: (...args) => window.windowControl?.setWindowSize?.(...args),
+    setVisibleOverlayBounds: (...args) => window.windowControl?.setVisibleOverlayBounds?.(...args),
+    onDragOffset: (callback) => window.windowControl?.onDragOffset?.(callback),
+    onFocusInput: (callback) => window.windowControl?.onFocusInput?.(callback),
+    onToggleNotepadFocus: (callback) => window.windowControl?.onToggleNotepadFocus?.(callback) ?? (() => undefined),
+    onToggleOverlayPanel: (callback) => window.windowControl?.onToggleOverlayPanel?.(callback) ?? (() => undefined),
+    blurOverlay: () => window.windowControl?.blurOverlay?.(),
+    minimize: () => window.windowControl?.minimize?.(),
+    close: () => window.windowControl?.close?.(),
+  },
+  dashboard: {
+    open: (noteId) => window.dashboard?.open?.(noteId),
+    close: () => window.dashboard?.close?.(),
+    onSelectNote: (callback) => window.dashboard?.onSelectNote?.(callback) ?? (() => undefined),
+  },
+  attachments: {
+    pickFiles: () => window.attachments?.pickFiles?.() ?? missingApi('attachments.pickFiles'),
+  },
+  shortcuts: {
+    isAvailable: () => Boolean(window.shortcutControl),
+    getAll: () => window.shortcutControl?.getAll?.() ?? missingApi('shortcutControl.getAll'),
+    update: (action, shortcut) =>
+      window.shortcutControl?.update?.(action, shortcut) ?? missingApi('shortcutControl.update'),
+  },
+  recordingSettings: {
+    isAvailable: () => Boolean(window.recordingSettings),
+    get: () => window.recordingSettings?.get?.() ?? missingApi('recordingSettings.get'),
+    update: (settings) => window.recordingSettings?.update?.(settings) ?? missingApi('recordingSettings.update'),
+    pickLocalPath: () =>
+      window.recordingSettings?.pickLocalPath?.() ?? missingApi('recordingSettings.pickLocalPath'),
+  },
+  audio: {
+    getDesktopSourceId: () => window.audioCapture?.getDesktopSourceId?.() ?? missingApi('audioCapture.getDesktopSourceId'),
+    startSystemAudioStream: () =>
+      window.audioCapture?.startSystemAudioStream?.() ?? missingApi('audioCapture.startSystemAudioStream'),
+    stopSystemAudioStream: () => window.audioCapture?.stopSystemAudioStream?.(),
+    onSystemAudioChunk: (callback) => window.audioCapture?.onSystemAudioChunk?.(callback) ?? (() => undefined),
+  },
+  auth: {
+    loginWithGoogle: () => window.electronAPI?.authenticateWithGoogle?.() ?? missingApi('electronAPI.authenticateWithGoogle'),
+    cancel: () => window.electronAPI?.cancelAuthentication?.() ?? missingApi('electronAPI.cancelAuthentication'),
+    logout: () => window.electronAPI?.logout?.() ?? missingApi('electronAPI.logout'),
+    notifyStateChanged: (isAuthenticated) => window.electronAPI?.notifyStateChanged?.(isAuthenticated),
+    onSessionUpdated: (callback) => window.electronAPI?.onAuthSessionUpdated?.(callback) ?? (() => undefined),
+  },
+  integrations: {
+    connect: (provider, feature, idToken) =>
+      window.electronAPI?.connectIntegration?.(provider, feature, idToken) ??
+      missingApi('electronAPI.connectIntegration'),
+    disconnect: (connectionID, idToken) =>
+      window.electronAPI?.disconnectIntegration?.(connectionID, idToken) ??
+      missingApi('electronAPI.disconnectIntegration'),
+    onConnectionCompleted: (callback) =>
+      window.electronAPI?.onIntegrationConnectionCompleted?.(callback) ?? (() => undefined),
+  },
+}

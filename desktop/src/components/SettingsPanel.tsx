@@ -5,26 +5,10 @@ import {
   useEffect,
   useState,
 } from 'react'
+import { desktopApi, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 
 type SettingsPanelProps = {
   onLogout: () => void
-}
-
-type ShortcutAction =
-  | 'toggleVisibility'
-  | 'focusNotepad'
-  | 'toggleNotepad'
-  | 'toggleTranscript'
-  | 'toggleAsk'
-  | 'toggleInsights'
-  | 'moveUp'
-  | 'moveDown'
-  | 'moveLeft'
-  | 'moveRight'
-
-type ShortcutState = {
-  current: Record<ShortcutAction, string>
-  defaults: Record<ShortcutAction, string>
 }
 
 type ShortcutGroup = {
@@ -169,8 +153,8 @@ function formatShortcut(event: KeyboardEvent) {
 export default function SettingsPanel({
   onLogout,
 }: SettingsPanelProps) {
-  const shortcutApi = typeof window !== 'undefined' ? window.shortcutControl : undefined
-  const canManageShortcuts = Boolean(shortcutApi)
+  const shortcutApi = desktopApi.shortcuts
+  const canManageShortcuts = shortcutApi.isAvailable()
 
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(() => canManageShortcuts)
@@ -180,7 +164,7 @@ export default function SettingsPanel({
 
   const handleShortcutUpdate = useCallback(
     async (action: ShortcutAction, value: string | null) => {
-      if (!shortcutApi) return
+      if (!canManageShortcuts) return
       setUpdatingAction(action)
       try {
         const state = await shortcutApi.update(action, value)
@@ -197,11 +181,11 @@ export default function SettingsPanel({
         setUpdatingAction(null)
       }
     },
-    [shortcutApi],
+    [canManageShortcuts, shortcutApi],
   )
 
   useEffect(() => {
-    if (!shortcutApi) return
+    if (!canManageShortcuts) return
     let isSubscribed = true
     setIsLoadingShortcuts(true)
 
@@ -230,10 +214,10 @@ export default function SettingsPanel({
     return () => {
       isSubscribed = false
     }
-  }, [shortcutApi])
+  }, [canManageShortcuts, shortcutApi])
 
   useEffect(() => {
-    if (!shortcutApi || !recordingAction) return
+    if (!canManageShortcuts || !recordingAction) return
 
     const action = recordingAction
 
@@ -272,7 +256,7 @@ export default function SettingsPanel({
       window.removeEventListener('keydown', handleKeyDown, true)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [shortcutApi, recordingAction, shortcutState, handleShortcutUpdate])
+  }, [canManageShortcuts, recordingAction, shortcutState, handleShortcutUpdate])
 
   const handleRecordToggle = useCallback(
     (action: ShortcutAction) => {

@@ -7,13 +7,14 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useWindowState } from '@/hooks/useWindowState'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { searchAll } from '@/lib/search-client'
+import { desktopApi } from '@/lib/desktop-api'
 
 export default function DashboardTopBar({
   onBackToOverlay,
 }: {
   onBackToOverlay: () => void
 }) {
-  const isMacOS = window.env?.platform === 'darwin'
+  const isMacOS = desktopApi.platform.current() === 'darwin'
   const { isMaximized } = useWindowState()
   const {
     folders,

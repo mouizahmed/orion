@@ -9,6 +9,7 @@ import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { DashboardNotesProvider } from '@/contexts/DashboardNotesContext'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import { desktopApi } from '@/lib/desktop-api'
 
 function SidebarNoteAutoClose() {
   const { selectedId } = useDashboardNotes()
@@ -47,15 +48,14 @@ function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null
   }, [initialNoteId, notes, selectNote])
 
   useEffect(() => {
-    const handler = (_event: unknown, payload?: { noteId?: string }) => {
+    const unsubscribe = desktopApi.dashboard.onSelectNote((payload) => {
       const noteId = typeof payload?.noteId === 'string' ? payload.noteId : ''
       if (!noteId) return
       selectNote(noteId)
-    }
+    })
 
-    window.ipcRenderer?.on('dashboard:select-note', handler)
     return () => {
-      window.ipcRenderer?.off('dashboard:select-note', handler)
+      unsubscribe()
     }
   }, [selectNote])
 
@@ -71,7 +71,7 @@ function DashboardContent() {
 
   useEffect(() => {
     if (!isLoading && !user) {
-      window.dashboard?.close?.()
+      desktopApi.dashboard.close()
     }
   }, [isLoading, user])
 
@@ -97,7 +97,7 @@ function DashboardContent() {
       <SidebarNoteAutoClose />
       <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
-          <DashboardTopBar onBackToOverlay={() => window.dashboard?.close?.()} />
+          <DashboardTopBar onBackToOverlay={() => desktopApi.dashboard.close()} />
 
           <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen ? 'gap-2' : ''}`}>
             <DashboardSidebar

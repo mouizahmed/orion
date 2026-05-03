@@ -12,32 +12,11 @@ import {
 } from '@/components/ui/dashboard-panel'
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
+import { desktopApi, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
-
-type ShortcutAction =
-  | 'toggleVisibility'
-  | 'focusNotepad'
-  | 'toggleNotepad'
-  | 'toggleTranscript'
-  | 'toggleAsk'
-  | 'toggleInsights'
-  | 'moveUp'
-  | 'moveDown'
-  | 'moveLeft'
-  | 'moveRight'
-
-type ShortcutState = {
-  current: Record<ShortcutAction, string>
-  defaults: Record<ShortcutAction, string>
-}
-
-type RecordingSettings = {
-  storageLocation: 'server' | 'local'
-  localRecordingsPath: string
-}
 
 type ConnectedCalendar = {
   id: string
@@ -436,8 +415,8 @@ export default function DashboardSettingsPage({
   selectedSection: DashboardSettingsSection
 }) {
   const { user, logout } = useAuth()
-  const shortcutApi = typeof window !== 'undefined' ? window.shortcutControl : undefined
-  const canManageShortcuts = Boolean(shortcutApi)
+  const shortcutApi = desktopApi.shortcuts
+  const canManageShortcuts = shortcutApi.isAvailable()
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
   const [recordingAction, setRecordingAction] = useState<ShortcutAction | null>(null)
@@ -522,9 +501,7 @@ export default function DashboardSettingsPage({
   }, [loadCalendarSettings, selectedSection, user])
 
   useEffect(() => {
-    if (!window.electronAPI?.onIntegrationConnectionCompleted) return
-
-    return window.electronAPI.onIntegrationConnectionCompleted((event) => {
+    return desktopApi.integrations.onConnectionCompleted((event) => {
       if (event.provider && event.provider !== 'google') return
       if (event.feature && event.feature !== 'calendar') return
 
@@ -541,9 +518,9 @@ export default function DashboardSettingsPage({
   }, [loadCalendarSettings, selectedSection, user?.id])
 
   useEffect(() => {
-    if (selectedSection !== 'security' || !window.recordingSettings) return
+    if (selectedSection !== 'security' || !desktopApi.recordingSettings.isAvailable()) return
     let isSubscribed = true
-    window.recordingSettings
+    desktopApi.recordingSettings
       .get()
       .then((settings) => {
         if (isSubscribed) setRecordingSettings(settings)
@@ -557,12 +534,12 @@ export default function DashboardSettingsPage({
   }, [selectedSection])
 
   const updateRecordingSettings = useCallback(async (settings: Partial<RecordingSettings>) => {
-    if (!window.recordingSettings) {
+    if (!desktopApi.recordingSettings.isAvailable()) {
       setRecordingSettings((current) => ({ ...current, ...settings }))
       return
     }
     try {
-      const next = await window.recordingSettings.update(settings)
+      const next = await desktopApi.recordingSettings.update(settings)
       setRecordingSettings(next)
     } catch (updateError) {
       console.error('Failed to update recording settings', updateError)
@@ -570,9 +547,9 @@ export default function DashboardSettingsPage({
   }, [])
 
   const chooseLocalRecordingsPath = useCallback(async () => {
-    if (!window.recordingSettings) return
+    if (!desktopApi.recordingSettings.isAvailable()) return
     try {
-      const next = await window.recordingSettings.pickLocalPath()
+      const next = await desktopApi.recordingSettings.pickLocalPath()
       setRecordingSettings(next)
     } catch (updateError) {
       console.error('Failed to choose recordings folder', updateError)
@@ -581,7 +558,7 @@ export default function DashboardSettingsPage({
 
   const handleConnectCalendar = useCallback(async () => {
     const currentUser = auth.currentUser
-    if (!currentUser || !window.electronAPI?.connectIntegration) {
+    if (!currentUser) {
       setCalendarError('Not authenticated')
       return
     }
@@ -590,7 +567,7 @@ export default function DashboardSettingsPage({
     setCalendarError(null)
     try {
       const idToken = await currentUser.getIdToken()
-      const result = await window.electronAPI.connectIntegration('google', 'calendar', idToken)
+      const result = await desktopApi.integrations.connect('google', 'calendar', idToken)
       if (!result.success) {
         throw new Error(result.error)
       }
@@ -606,7 +583,7 @@ export default function DashboardSettingsPage({
   const handleDisconnectCalendar = useCallback(
     async (connectionID: string) => {
       const currentUser = auth.currentUser
-      if (!currentUser || !window.electronAPI?.disconnectIntegration) {
+      if (!currentUser) {
         setCalendarError('Not authenticated')
         return
       }
@@ -615,7 +592,7 @@ export default function DashboardSettingsPage({
       setCalendarError(null)
       try {
         const idToken = await currentUser.getIdToken()
-        const result = await window.electronAPI.disconnectIntegration(connectionID, idToken)
+        const result = await desktopApi.integrations.disconnect(connectionID, idToken)
         if (!result.success) {
           throw new Error(result.error)
         }
@@ -685,7 +662,7 @@ export default function DashboardSettingsPage({
 
   const handleShortcutUpdate = useCallback(
     async (action: ShortcutAction, value: string | null) => {
-      if (!shortcutApi) return
+      if (!canManageShortcuts) return
       setUpdatingAction(action)
       try {
         const state = await shortcutApi.update(action, value)
@@ -697,11 +674,11 @@ export default function DashboardSettingsPage({
         setUpdatingAction(null)
       }
     },
-    [shortcutApi],
+    [canManageShortcuts, shortcutApi],
   )
 
   useEffect(() => {
-    if (!shortcutApi || selectedSection !== 'shortcuts') return
+    if (!canManageShortcuts || selectedSection !== 'shortcuts') return
     let isSubscribed = true
     setIsLoadingShortcuts(true)
     shortcutApi
@@ -721,10 +698,10 @@ export default function DashboardSettingsPage({
     return () => {
       isSubscribed = false
     }
-  }, [selectedSection, shortcutApi])
+  }, [canManageShortcuts, selectedSection, shortcutApi])
 
   useEffect(() => {
-    if (!shortcutApi || !recordingAction) return
+    if (!canManageShortcuts || !recordingAction) return
     const action = recordingAction
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -748,7 +725,7 @@ export default function DashboardSettingsPage({
       window.removeEventListener('keydown', handleKeyDown, true)
       window.removeEventListener('blur', handleWindowBlur)
     }
-  }, [handleShortcutUpdate, recordingAction, shortcutApi, shortcutState])
+  }, [canManageShortcuts, handleShortcutUpdate, recordingAction, shortcutState])
 
   const calendarsByConnection = groupCalendarsByConnection(connectedCalendars)
   const hasCalendarConnections = calendarConnections.length > 0

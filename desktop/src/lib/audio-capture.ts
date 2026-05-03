@@ -1,3 +1,5 @@
+import { desktopApi } from '@/lib/desktop-api'
+
 export type AudioChunkCallback = (pcmBuffer: ArrayBuffer) => void
 
 export interface AudioCaptureHandle {
@@ -67,7 +69,7 @@ export async function startMicCapture(onChunk: AudioChunkCallback): Promise<Audi
  * - macOS: IPC to Swift helper binary, receives PCM chunks via IPC events
  */
 export async function startSystemAudioCapture(onChunk: AudioChunkCallback): Promise<AudioCaptureHandle> {
-  const platform = window.env?.platform
+  const platform = desktopApi.platform.current()
 
   try {
     if (platform === 'darwin') {
@@ -133,21 +135,16 @@ async function startWindowsSystemCapture(onChunk: AudioChunkCallback): Promise<A
  * macOS: spawn Swift helper via IPC, receive PCM chunks via IPC events
  */
 async function startMacOSSystemCapture(onChunk: AudioChunkCallback): Promise<AudioCaptureHandle> {
-  const audioCapture = window.audioCapture
-  if (!audioCapture) {
-    throw new Error('audioCapture bridge not available')
-  }
+  await desktopApi.audio.startSystemAudioStream()
 
-  await audioCapture.startSystemAudioStream()
-
-  const cleanup = audioCapture.onSystemAudioChunk((buffer: ArrayBuffer) => {
+  const cleanup = desktopApi.audio.onSystemAudioChunk((buffer: ArrayBuffer) => {
     onChunk(buffer)
   })
 
   return {
     stop() {
       cleanup()
-      audioCapture.stopSystemAudioStream()
+      desktopApi.audio.stopSystemAudioStream()
     },
     mute() {
       // For macOS, we handle muting at the Deepgram level (fill silence)

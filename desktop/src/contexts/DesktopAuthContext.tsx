@@ -10,8 +10,8 @@ import {
 } from 'react'
 import { auth, signInWithCustomToken } from '@/config/firebase'
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
+import { desktopApi, type AuthResult } from '@/lib/desktop-api'
 
-type AuthResult = Awaited<ReturnType<typeof window.electronAPI.authenticateWithGoogle>>
 
 export interface DesktopAuthActions {
   authError: string | null
@@ -30,7 +30,7 @@ function useLogoutActions() {
   const logout = useCallback(async () => {
     try {
       await signOutLocal()
-      await window.electronAPI.logout()
+      await desktopApi.auth.logout()
     } catch (error) {
       console.error('Logout error:', error)
     }
@@ -65,20 +65,18 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
     setAuthError(error)
 
     if (notifyMain && wasPending) {
-      void window.electronAPI.cancelAuthentication()
+      void desktopApi.auth.cancel()
     }
   }, [clearAuthTimeout])
 
   useEffect(() => {
     if (isLoading) return
 
-    window.ipcRenderer?.send('auth:state-changed', {
-      isAuthenticated: Boolean(user),
-    })
+    desktopApi.auth.notifyStateChanged(Boolean(user))
   }, [isLoading, user])
 
   useEffect(() => {
-    const removeListener = window.electronAPI.onAuthSessionUpdated((_event, data) => {
+    const removeListener = desktopApi.auth.onSessionUpdated((data) => {
       clearAuthTimeout()
 
       if (!pendingAuthRef.current) {
@@ -136,7 +134,7 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
   }, [clearAuthTimeout, resetPendingAuth])
 
   const loginWithGoogle = useCallback(
-    () => handleOAuthLogin('google', window.electronAPI.authenticateWithGoogle),
+    () => handleOAuthLogin('google', desktopApi.auth.loginWithGoogle),
     [handleOAuthLogin],
   )
 

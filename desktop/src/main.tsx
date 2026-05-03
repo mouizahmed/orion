@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import DashboardApp from './DashboardApp.tsx'
 import './index.css'
+import { desktopApi } from './lib/desktop-api'
 
 function syncSystemThemeToDom() {
   if (typeof window === 'undefined') return
@@ -36,7 +37,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 )
 
-// Use contextBridge
-window.ipcRenderer.on('main-process-message', (_event, message) => {
+desktopApi.appEvents.onMainProcessMessage((message) => {
   console.log(message)
 })

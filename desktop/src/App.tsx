@@ -14,6 +14,7 @@ import './App.css'
 import { createNote } from '@/lib/notes-client'
 import { auth } from '@/config/firebase'
 import { useTranscription } from '@/hooks/useTranscription'
+import { desktopApi } from '@/lib/desktop-api'
 
 const WINDOW_VERTICAL_PADDING = 0
 const MAX_APP_HEIGHT = 900
@@ -92,7 +93,7 @@ function AppContent() {
   })
 
   useEffect(() => {
-    window.windowControl?.onDragOffset((offset) => {
+    desktopApi.window.onDragOffset((offset) => {
       setDragOffset(offset)
     })
   }, [])
@@ -138,12 +139,12 @@ function AppContent() {
   }, [user])
 
   useEffect(() => {
-    const unsubscribe = window.windowControl?.onToggleNotepadFocus?.(() => {
+    const unsubscribe = desktopApi.window.onToggleNotepadFocus(() => {
       if (!meetingActive || !meetingNoteId) return
 
       if (meetingPanel === 'notepad' && meetingPanelRef.current?.isEditorFocused()) {
         meetingPanelRef.current.blurEditor()
-        window.windowControl?.blurOverlay?.()
+        desktopApi.window.blurOverlay()
         return
       }
 
@@ -154,7 +155,7 @@ function AppContent() {
     })
 
     return () => {
-      unsubscribe?.()
+      unsubscribe()
     }
   }, [meetingActive, meetingNoteId, meetingPanel])
 
@@ -172,12 +173,12 @@ function AppContent() {
   }, [meetingActive])
 
   useEffect(() => {
-    const unsubscribe = window.windowControl?.onToggleOverlayPanel?.((panel) => {
+    const unsubscribe = desktopApi.window.onToggleOverlayPanel((panel) => {
       toggleMeetingPanel(panel)
     })
 
     return () => {
-      unsubscribe?.()
+      unsubscribe()
     }
   }, [toggleMeetingPanel])
 
@@ -222,7 +223,7 @@ function AppContent() {
   useEffect(() => {
     const handleGlobalMouseMove = (event: MouseEvent) => {
       if (!isDragging) return
-      window.windowControl?.moveDrag(event.screenX, event.screenY, dragOffset.x, dragOffset.y)
+      desktopApi.window.moveDrag(event.screenX, event.screenY, dragOffset.x, dragOffset.y)
     }
 
     const handleGlobalMouseUp = () => {
@@ -242,7 +243,7 @@ function AppContent() {
 
   const handleMouseDown = (event: ReactMouseEvent<HTMLDivElement>) => {
     setIsDragging(true)
-    window.windowControl?.startDrag(event.screenX, event.screenY)
+    desktopApi.window.startDrag(event.screenX, event.screenY)
   }
 
   const layoutKey: 'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting' = useMemo(() => {
@@ -303,18 +304,14 @@ function AppContent() {
       if (visibleEl) {
         const contentRect = contentEl.getBoundingClientRect()
         const visibleRect = visibleEl.getBoundingClientRect()
-        window.windowControl?.setVisibleOverlayBounds?.({
+        desktopApi.window.setVisibleOverlayBounds({
           offsetX: Math.round(visibleRect.left - contentRect.left),
           offsetY: 0,
           width: Math.ceil(visibleRect.width),
           height: Math.max(1, height),
         })
       }
-      if (typeof window.windowControl?.setWindowSize === 'function') {
-        window.windowControl.setWindowSize(width, height)
-      } else {
-        window.windowControl?.setWindowHeight?.(height)
-      }
+      desktopApi.window.setWindowSize(width, height)
     }
 
     updateHeight()
@@ -467,7 +464,7 @@ function AppContent() {
     const noteId = meetingNoteId
     await endMeeting()
     if (noteId) {
-      window.dashboard?.open?.(noteId)
+      desktopApi.dashboard.open(noteId)
     }
   }
 
@@ -499,14 +496,14 @@ function AppContent() {
       setShowDashboardConfirm(true)
       return
     }
-    window.dashboard?.open?.()
+    desktopApi.dashboard.open()
   }
 
   const handleConfirmOpenDashboard = async () => {
     setShowDashboardConfirm(false)
     const noteId = meetingNoteId
     await endMeeting()
-    window.dashboard?.open?.(noteId ?? undefined)
+    desktopApi.dashboard.open(noteId ?? undefined)
   }
 
   return (

@@ -1,56 +1,21 @@
-// TypeScript declarations for window APIs
+import type {
+  AttachmentResult,
+  AuthResult,
+  AuthSessionUpdateEvent,
+  IntegrationConnectionCompletedEvent,
+  IntegrationProvider,
+  IntegrationResult,
+  MeetingPanel,
+  RecordingSettings,
+  ShortcutAction,
+  ShortcutState,
+  VisibleOverlayBounds,
+} from '@/lib/desktop-api'
 import type { LiveInsight, LiveResponseSuggestion } from './types/live-insight'
 
-// Authentication Result - using discriminated union for type safety
-type AuthResult =
-  | {
-      success: true
-      token?: string // Present for OAuth flows, absent for logout
-    }
-  | {
-      success: false
-      error: string
-    }
-
-type IntegrationProvider = 'google' | 'microsoft' | 'notion'
-
-type IntegrationResult =
-  | {
-      success: true
-    }
-  | {
-      success: false
-      error: string
-    }
-
-type IntegrationConnectionCompletedEvent = {
-  type: 'integration_connection_completed'
-  success: boolean
-  provider?: string
-  feature?: string
-  error?: string
+interface AppEventsControl {
+  onMainProcessMessage: (callback: (message: unknown) => void) => () => void
 }
-
-// IPC Event type for Electron renderer
-interface IpcRendererEvent {
-  preventDefault(): void
-  sender: {
-    send(channel: string, ...args: unknown[]): void
-  }
-}
-
-// Session update event data - using discriminated union for type safety
-type AuthSessionUpdateEvent =
-  | {
-      success: true
-      firebaseToken: string
-      timestamp: string
-    }
-  | {
-      success: false
-      error: string
-      timestamp: string
-    }
 
 interface WindowControl {
   startDrag: (mouseX: number, mouseY: number) => void
@@ -59,7 +24,7 @@ interface WindowControl {
   toggleVisibility: () => void
   setWindowHeight: (height: number) => void
   setWindowSize: (width: number, height: number) => void
-  setVisibleOverlayBounds: (bounds: { offsetX: number; offsetY: number; width: number; height: number }) => void
+  setVisibleOverlayBounds: (bounds: VisibleOverlayBounds) => void
   onDragOffset: (callback: (offset: { x: number; y: number }) => void) => void
   onFocusInput: (callback: () => void) => void
   onToggleNotepadFocus: (callback: () => void) => () => void
@@ -72,25 +37,7 @@ interface WindowControl {
 interface DashboardControl {
   open: (noteId?: string) => void
   close: () => void
-}
-
-type ShortcutAction =
-  | 'moveUp'
-  | 'moveDown'
-  | 'moveLeft'
-  | 'moveRight'
-  | 'toggleVisibility'
-  | 'focusNotepad'
-  | 'toggleNotepad'
-  | 'toggleTranscript'
-  | 'toggleAsk'
-  | 'toggleInsights'
-
-type MeetingPanel = 'notepad' | 'transcript' | 'ask' | 'insights'
-
-type ShortcutState = {
-  current: Record<ShortcutAction, string>
-  defaults: Record<ShortcutAction, string>
+  onSelectNote: (callback: (payload?: { noteId?: string }) => void) => () => void
 }
 
 interface ShortcutControl {
@@ -98,24 +45,10 @@ interface ShortcutControl {
   update: (action: ShortcutAction, shortcut: string | null) => Promise<ShortcutState>
 }
 
-type RecordingSettings = {
-  storageLocation: 'server' | 'local'
-  localRecordingsPath: string
-}
-
 interface RecordingSettingsControl {
   get: () => Promise<RecordingSettings>
   update: (settings: Partial<RecordingSettings>) => Promise<RecordingSettings>
   pickLocalPath: () => Promise<RecordingSettings>
-}
-
-interface AttachmentResult {
-  kind: 'image' | 'file'
-  mimeType: string
-  name: string
-  size: number
-  filePath: string
-  dataUrl?: string
 }
 
 interface AttachmentsControl {
@@ -134,20 +67,8 @@ interface LiveInsightsControl {
   clearResponseSuggestion?: () => void
 }
 
-type NoteRecord = {
-  id: string
-  title: string
-  folderId?: string
-  noteMarkdown: string
-  createdAt: number
-  updatedAt: number
-}
-
 interface ElectronAPI {
-  // OAuth Authentication
   authenticateWithGoogle: () => Promise<AuthResult>
-
-  // Integration connections
   connectIntegration: (
     provider: IntegrationProvider,
     feature: string,
@@ -157,18 +78,10 @@ interface ElectronAPI {
     connectionID: string,
     idToken: string,
   ) => Promise<IntegrationResult>
-
-  // Session Management
   cancelAuthentication: () => Promise<AuthResult>
   logout: () => Promise<AuthResult>
-
-  // Event listeners
-  onAuthSessionUpdated: (
-    callback: (
-      event: IpcRendererEvent,
-      data: AuthSessionUpdateEvent,
-    ) => void,
-  ) => () => void
+  notifyStateChanged: (isAuthenticated: boolean) => void
+  onAuthSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
   onIntegrationConnectionCompleted: (
     callback: (data: IntegrationConnectionCompletedEvent) => void,
   ) => () => void
@@ -183,15 +96,16 @@ interface AudioCaptureControl {
 
 declare global {
   interface Window {
-    windowControl: WindowControl
-    electronAPI: ElectronAPI
+    appEvents?: AppEventsControl
+    windowControl?: WindowControl
+    electronAPI?: ElectronAPI
     shortcutControl?: ShortcutControl
     recordingSettings?: RecordingSettingsControl
     attachments?: AttachmentsControl
     liveInsights?: LiveInsightsControl
     dashboard?: DashboardControl
     audioCapture?: AudioCaptureControl
-    env: {
+    env?: {
       platform: NodeJS.Platform
     }
   }

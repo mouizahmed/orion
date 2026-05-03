@@ -38,27 +38,14 @@ type IntegrationConnectionCompletedEvent = {
   error?: string
 }
 
-// --------- Expose some API to the Renderer process ---------
-contextBridge.exposeInMainWorld('ipcRenderer', {
-  on(...args: Parameters<typeof ipcRenderer.on>) {
-    const [channel, listener] = args
-    return ipcRenderer.on(channel, (event, ...args) => listener(event, ...args))
+contextBridge.exposeInMainWorld('appEvents', {
+  onMainProcessMessage: (callback: (message: unknown) => void) => {
+    const listener = (_event: IpcRendererEvent, message: unknown) => callback(message)
+    ipcRenderer.on('main-process-message', listener)
+    return () => {
+      ipcRenderer.off('main-process-message', listener)
+    }
   },
-  off(...args: Parameters<typeof ipcRenderer.off>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.off(channel, ...omit)
-  },
-  send(...args: Parameters<typeof ipcRenderer.send>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.send(channel, ...omit)
-  },
-  invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-    const [channel, ...omit] = args
-    return ipcRenderer.invoke(channel, ...omit)
-  },
-
-  // You can expose other APTs you need here.
-  // ...
 })
 
 // Expose window control API
@@ -132,6 +119,13 @@ contextBridge.exposeInMainWorld('windowControl', {
 contextBridge.exposeInMainWorld('dashboard', {
   open: (noteId?: string) => ipcRenderer.send('dashboard:open', { noteId }),
   close: () => ipcRenderer.send('dashboard:close'),
+  onSelectNote: (callback: (payload?: { noteId?: string }) => void) => {
+    const listener = (_event: IpcRendererEvent, payload?: { noteId?: string }) => callback(payload)
+    ipcRenderer.on('dashboard:select-note', listener)
+    return () => {
+      ipcRenderer.off('dashboard:select-note', listener)
+    }
+  },
 })
 
 contextBridge.exposeInMainWorld('attachments', {
@@ -191,10 +185,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Session Management
   cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
   logout: () => ipcRenderer.invoke('auth:logout'),
+  notifyStateChanged: (isAuthenticated: boolean) => {
+    ipcRenderer.send('auth:state-changed', { isAuthenticated })
+  },
 
   // Event listeners
-  onAuthSessionUpdated: (callback: (event: IpcRendererEvent, data: unknown) => void) => {
-    const listener = (event: IpcRendererEvent, data: unknown) => callback(event, data)
+  onAuthSessionUpdated: (callback: (data: unknown) => void) => {
+    const listener = (_event: IpcRendererEvent, data: unknown) => callback(data)
     ipcRenderer.on('auth-session-updated', listener)
     return () => {
       ipcRenderer.off('auth-session-updated', listener)

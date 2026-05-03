@@ -2,6 +2,7 @@ import { forwardRef, type ReactNode, useEffect } from 'react'
 import { Minus, X } from 'lucide-react'
 
 import { ONBOARDING_LAYOUT_HEIGHT, type OnboardingLayout } from '@/components/onboarding/types'
+import { desktopApi } from '@/lib/desktop-api'
 
 type OnboardingFrameProps = {
   layout: OnboardingLayout
@@ -33,7 +34,7 @@ export const OnboardingFrame = forwardRef<HTMLDivElement, OnboardingFrameProps>(
           type="button"
           className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white"
           aria-label="Minimize"
-          onClick={() => window.windowControl?.minimize?.()}
+          onClick={() => desktopApi.window.minimize()}
         >
           <Minus className="h-4 w-4" />
         </button>
@@ -41,7 +42,7 @@ export const OnboardingFrame = forwardRef<HTMLDivElement, OnboardingFrameProps>(
           type="button"
           className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-red-500 hover:text-white dark:text-neutral-300"
           aria-label="Close"
-          onClick={() => window.windowControl?.close?.()}
+          onClick={() => desktopApi.window.close()}
         >
           <X className="h-4 w-4" />
         </button>
