@@ -2,6 +2,7 @@ export type AuthResult =
   | {
       success: true
       token?: string
+      expiresInSeconds?: number
     }
   | {
       success: false
@@ -37,6 +38,11 @@ export type IntegrationConnectionCompletedEvent = {
   provider?: string
   feature?: string
   error?: string
+}
+
+export type AuthStateChangedPayload = {
+  isAuthenticated: boolean
+  idToken?: string
 }
 
 export type ShortcutAction =
@@ -134,7 +140,7 @@ export type DesktopApi = {
     loginWithMicrosoft: () => Promise<AuthResult>
     cancel: () => Promise<AuthResult>
     logout: () => Promise<AuthResult>
-    notifyStateChanged: (isAuthenticated: boolean) => void
+    notifyStateChanged: (payload: AuthStateChangedPayload) => void
     onSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
   }
   integrations: {

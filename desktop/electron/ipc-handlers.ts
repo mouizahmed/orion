@@ -40,6 +40,13 @@ function normalizeIdToken(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+export function stopSystemAudioCapture() {
+  if (systemAudioProcess) {
+    systemAudioProcess.kill('SIGTERM')
+    systemAudioProcess = null
+  }
+}
+
 async function readApiError(response: Response, fallback: string): Promise<string> {
   try {
     const body = (await response.json()) as { error?: unknown; message?: unknown }
@@ -447,6 +454,10 @@ export function setupIpcHandlers() {
 
   // Windows: get a desktop source ID for system audio capture via desktopCapturer
   ipcMain.handle('audio:get-desktop-source-id', async () => {
+    if (!isRendererAuthenticated()) {
+      return null
+    }
+
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen'] })
       return sources.length > 0 ? sources[0].id : null
@@ -458,6 +469,10 @@ export function setupIpcHandlers() {
 
   // macOS: start Swift helper for system audio capture
   ipcMain.handle('audio:start-system-capture', async () => {
+    if (!isRendererAuthenticated()) {
+      throw new Error('Not authenticated')
+    }
+
     const win = getWindow()
     if (!win) return
 
@@ -483,6 +498,11 @@ export function setupIpcHandlers() {
       })
 
       systemAudioProcess.stdout?.on('data', (chunk: Buffer) => {
+        if (!isRendererAuthenticated()) {
+          stopSystemAudioCapture()
+          return
+        }
+
         const win = getWindow()
         if (win && !win.isDestroyed()) {
           // Send raw PCM buffer to renderer
@@ -511,10 +531,8 @@ export function setupIpcHandlers() {
 
   // macOS: stop Swift helper
   ipcMain.on('audio:stop-system-capture', () => {
-    if (systemAudioProcess) {
-      systemAudioProcess.kill('SIGTERM')
-      systemAudioProcess = null
-    }
+    if (!isRendererAuthenticated()) return
+    stopSystemAudioCapture()
   })
 
 }

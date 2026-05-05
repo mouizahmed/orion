@@ -103,7 +103,7 @@ func (p *MicrosoftProvider) Exchange(code string) (*NormalizedAuthProfile, error
 		Provider:       models.AuthProviderMicrosoft,
 		ProviderUserID: microsoftUser.ID,
 		Email:          email,
-		EmailVerified:  true,
+		EmailVerified:  false,
 		DisplayName:    microsoftUser.DisplayName,
 		AvatarData:     avatarData,
 		AvatarMimeType: avatarMimeType,

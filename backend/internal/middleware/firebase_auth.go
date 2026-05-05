@@ -34,7 +34,7 @@ func FirebaseAuthMiddleware() gin.HandlerFunc {
 		if len(tokenParts) != 2 || tokenParts[0] != "Bearer" {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error":   "Invalid authorization format",
-				"message": "Authorization header must be in format 'Bearer <token>'. Received: " + authHeader,
+				"message": "Authorization header must be in format 'Bearer <token>'.",
 			})
 			c.Abort()
 			return

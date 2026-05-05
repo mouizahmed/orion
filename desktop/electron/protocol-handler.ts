@@ -1,6 +1,12 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { config } from './config'
+import {
+  completeActiveOAuthTransaction,
+  getActiveOAuthCodeVerifier,
+  isActiveOAuthState,
+  rejectActiveOAuthTransaction,
+} from './auth-handlers'
 
 let authCallbackWindow: BrowserWindow | null = null
 let revealAuthWindow: (() => void) | null = null
@@ -154,8 +160,15 @@ async function handleAuthComplete(parsed: URL) {
   const error = parsed.searchParams.get('error')
   const errorDescription = parsed.searchParams.get('error_description')
   const code = parsed.searchParams.get('code')
+  const state = parsed.searchParams.get('state')
+
+  if (!isActiveOAuthState(state)) {
+    console.warn('Ignoring OAuth callback for inactive state')
+    return
+  }
 
   if (error) {
+    rejectActiveOAuthTransaction(state)
     sendAuthUpdate(false, {
       error:
         errorDescription ||
@@ -166,14 +179,24 @@ async function handleAuthComplete(parsed: URL) {
   }
 
   if (!code) {
+    rejectActiveOAuthTransaction(state)
     sendAuthUpdate(false, {
       error: 'Authentication failed: No authorization code received',
     })
     revealAuthWindow?.()
     return
   }
+  const codeVerifier = getActiveOAuthCodeVerifier(state)
+  if (!codeVerifier) {
+    rejectActiveOAuthTransaction(state)
+    sendAuthUpdate(false, {
+      error: 'Authentication failed: Missing authorization verifier',
+    })
+    revealAuthWindow?.()
+    return
+  }
 
-  await completeAuthenticationWithCode(code)
+  await completeAuthenticationWithCode(code, state, codeVerifier)
 }
 
 function validateOAuthCode(code: string): boolean {
@@ -185,9 +208,10 @@ function validateOAuthCode(code: string): boolean {
   return true
 }
 
-async function completeAuthenticationWithCode(code: string): Promise<void> {
+async function completeAuthenticationWithCode(code: string, state: string, codeVerifier: string): Promise<void> {
   if (!code || !validateOAuthCode(code)) {
     console.warn('Invalid OAuth code format detected')
+    rejectActiveOAuthTransaction(state)
     sendAuthUpdate(false, {
       error: 'Authentication failed: Invalid authorization code format',
     })
@@ -199,11 +223,12 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
     const response = await fetch(`${config.backendUrl}/auth/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ code, state, code_verifier: codeVerifier }),
     })
 
     if (!response.ok) {
       const responseText = await response.text()
+      rejectActiveOAuthTransaction(state)
       sendAuthUpdate(false, {
         error: `Authentication failed (${response.status}): ${responseText}`,
       })
@@ -215,16 +240,19 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
 
     if (authResult.status === 'success' && authResult.user) {
       if (authResult.firebaseToken) {
+        completeActiveOAuthTransaction(state)
         sendAuthUpdate(true, {
           firebaseToken: authResult.firebaseToken,
         })
       } else {
+        rejectActiveOAuthTransaction(state)
         sendAuthUpdate(false, {
           error: 'Authentication completed but no token received',
         })
         revealAuthWindow?.()
       }
     } else {
+      rejectActiveOAuthTransaction(state)
       sendAuthUpdate(false, {
         error:
           authResult.error || 'Authentication was not completed successfully',
@@ -232,6 +260,7 @@ async function completeAuthenticationWithCode(code: string): Promise<void> {
       revealAuthWindow?.()
     }
   } catch (error) {
+    rejectActiveOAuthTransaction(state)
     sendAuthUpdate(false, {
       error: error instanceof Error ? error.message : String(error),
     })

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dashboard-panel'
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
-import { desktopApi, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
+import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -42,6 +42,8 @@ type IntegrationConnection = {
   status: 'active' | 'needs_reconnect' | 'disconnected'
   connected_at: string
 }
+
+type CalendarIntegrationProvider = Extract<IntegrationProvider, 'google' | 'microsoft'>
 
 type ShortcutGroup = {
   title: string
@@ -101,6 +103,15 @@ const billingPlans = [
       'CRM integration',
     ],
   },
+]
+
+const calendarProviderOptions: Array<{
+  provider: CalendarIntegrationProvider
+  label: string
+  icon: string
+}> = [
+  { provider: 'google', label: 'Google Calendar', icon: '/google-calendar-icon.svg' },
+  { provider: 'microsoft', label: 'Outlook', icon: '/microsoft-outlook-icon.svg' },
 ]
 
 function clearCalendarCaches(userID?: string) {
@@ -598,18 +609,18 @@ export default function DashboardSettingsPage({
     }
   }, [])
 
-  const handleConnectCalendar = useCallback(async () => {
+  const handleConnectCalendar = useCallback(async (provider: CalendarIntegrationProvider) => {
     const currentUser = auth.currentUser
     if (!currentUser) {
       setCalendarError('Not authenticated')
       return
     }
 
-    setCalendarAction('connect')
+    setCalendarAction(`connect:${provider}`)
     setCalendarError(null)
     try {
       const idToken = await currentUser.getIdToken()
-      const result = await desktopApi.integrations.connect('google', 'calendar', idToken)
+      const result = await desktopApi.integrations.connect(provider, 'calendar', idToken)
       if (!result.success) {
         throw new Error(result.error)
       }
@@ -770,7 +781,6 @@ export default function DashboardSettingsPage({
   }, [canManageShortcuts, handleShortcutUpdate, recordingAction, shortcutState])
 
   const calendarsByConnection = groupCalendarsByConnection(connectedCalendars)
-  const hasCalendarConnections = calendarConnections.length > 0
   const title = sectionMeta[selectedSection].title
 
   return (
@@ -953,18 +963,27 @@ export default function DashboardSettingsPage({
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
                 <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Calendar accounts</div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={calendarAction === 'connect'}
-                  onClick={() => void handleConnectCalendar()}
-                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  {hasCalendarConnections ? 'Add calendar account' : 'Connect calendar'}
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </Button>
+                <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+                  <Select
+                    value=""
+                    disabled={Boolean(calendarAction)}
+                    onValueChange={(value) => void handleConnectCalendar(value as CalendarIntegrationProvider)}
+                  >
+                    <SelectTrigger size="sm">
+                      <Plus className="h-3.5 w-3.5" />
+                      <SelectValue placeholder="Add" />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {calendarProviderOptions.map((option) => (
+                        <SelectItem key={option.provider} value={option.provider}>
+                          <img src={option.icon} alt="" aria-hidden="true" className="h-4 w-4 shrink-0" />
+                          {option.label}
+                          <ExternalLink className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               {isLoadingCalendars ? (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading accounts...</div>

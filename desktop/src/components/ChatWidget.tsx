@@ -156,7 +156,7 @@ export default function ChatWidget({ variant = 'dashboard' }: ChatWidgetProps) {
       setStreamingThinkingDuration(Math.round((Date.now() - startTime) / 1000))
     }, 1000)
     return () => clearInterval(interval)
-  }, [!!thinkingText])
+  }, [thinkingText])
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim()

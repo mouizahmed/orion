@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -34,13 +35,17 @@ type OAuthHandler struct {
 }
 
 type LoginOAuthState struct {
-	Purpose   string `json:"purpose"`
-	Provider  string `json:"provider"`
-	Platform  string `json:"platform"`
-	IP        string `json:"ip"`
-	UserAgent string `json:"user_agent"`
-	CreatedAt string `json:"created_at"`
+	Purpose             string `json:"purpose"`
+	Provider            string `json:"provider"`
+	Platform            string `json:"platform"`
+	CodeChallenge       string `json:"code_challenge,omitempty"`
+	CodeChallengeMethod string `json:"code_challenge_method,omitempty"`
+	IP                  string `json:"ip"`
+	UserAgent           string `json:"user_agent"`
+	CreatedAt           string `json:"created_at"`
 }
+
+const loginOAuthStateTTL = 10 * time.Minute
 
 func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
@@ -76,6 +81,15 @@ func normalizeOAuthPlatform(platform string) (string, bool) {
 	}
 }
 
+func isWebLoginEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ENABLE_WEB_LOGIN"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 func normalizeLoginProvider(provider string) (models.AuthProvider, bool) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "", string(models.AuthProviderGoogle):
@@ -85,6 +99,31 @@ func normalizeLoginProvider(provider string) (models.AuthProvider, bool) {
 	default:
 		return "", false
 	}
+}
+
+func normalizeCodeChallengeMethod(method string) (string, bool) {
+	if strings.EqualFold(strings.TrimSpace(method), "S256") {
+		return "S256", true
+	}
+	return "", false
+}
+
+func isValidPKCEValue(value string) bool {
+	if len(value) < 43 || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '.' || r == '_' || r == '~' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func codeChallengeFromVerifier(verifier string) string {
+	sum := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
 // isRateLimited checks if the request should be rate limited
@@ -129,6 +168,12 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		})
 		return
 	}
+	if platform == "web" && !isWebLoginEnabled() {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Web login is not enabled",
+		})
+		return
+	}
 
 	state, err := generateSecureState()
 	if err != nil {
@@ -146,17 +191,40 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		})
 		return
 	}
+	codeChallenge := strings.TrimSpace(c.Query("code_challenge"))
+	codeChallengeMethod := strings.TrimSpace(c.Query("code_challenge_method"))
+	if platform == "desktop" || platform == "web" {
+		method, ok := normalizeCodeChallengeMethod(codeChallengeMethod)
+		if !ok || !isValidPKCEValue(codeChallenge) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Missing or invalid auth verifier challenge",
+			})
+			return
+		}
+		codeChallengeMethod = method
+	} else if codeChallenge != "" || codeChallengeMethod != "" {
+		method, ok := normalizeCodeChallengeMethod(codeChallengeMethod)
+		if !ok || !isValidPKCEValue(codeChallenge) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid auth verifier challenge",
+			})
+			return
+		}
+		codeChallengeMethod = method
+	}
 	log.Printf("Started OAuth login flow (provider: %s, platform: %s)", provider, platform)
 
 	ctx := context.Background()
 	key := fmt.Sprintf("oauth_state:%s", state)
 	payload, err := json.Marshal(LoginOAuthState{
-		Purpose:   "app_login",
-		Provider:  string(provider),
-		Platform:  platform,
-		IP:        c.ClientIP(),
-		UserAgent: c.GetHeader("User-Agent"),
-		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Purpose:             "app_login",
+		Provider:            string(provider),
+		Platform:            platform,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
+		IP:                  c.ClientIP(),
+		UserAgent:           c.GetHeader("User-Agent"),
+		CreatedAt:           time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
 		log.Printf("Failed to encode OAuth state payload: %v", err)
@@ -165,7 +233,7 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		})
 		return
 	}
-	if err := h.redisClient.SetEx(ctx, key, payload, 10*time.Minute).Err(); err != nil {
+	if err := h.redisClient.SetEx(ctx, key, payload, loginOAuthStateTTL).Err(); err != nil {
 		log.Printf("Failed to store OAuth state in Redis: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to start authentication",
@@ -184,8 +252,43 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 
 	log.Printf("Redirecting to OAuth provider (provider: %s, platform: %s)", provider, platform)
 
-	// Redirect to OAuth provider
+	if c.Query("response") == "json" {
+		c.JSON(http.StatusOK, gin.H{
+			"auth_url":           authURL,
+			"state":              state,
+			"expires_in_seconds": int(loginOAuthStateTTL.Seconds()),
+		})
+		return
+	}
+
 	c.Redirect(http.StatusFound, authURL)
+}
+
+// CancelOAuth invalidates a pending OAuth login state.
+func (h *OAuthHandler) CancelOAuth(c *gin.Context) {
+	var request struct {
+		State string `json:"state" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": "error",
+			"error":  "Missing or invalid state parameter",
+		})
+		return
+	}
+
+	key := fmt.Sprintf("oauth_state:%s", request.State)
+	if err := h.redisClient.Del(context.Background(), key).Err(); err != nil {
+		log.Printf("Failed to cancel OAuth state: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status": "error",
+			"error":  "Failed to cancel authentication",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
 func (h *OAuthHandler) consumeLoginOAuthState(state string) (*LoginOAuthState, error) {
@@ -216,6 +319,14 @@ func (h *OAuthHandler) consumeLoginOAuthState(state string) (*LoginOAuthState, e
 	if _, ok := normalizeLoginProvider(payload.Provider); !ok {
 		return nil, fmt.Errorf("invalid state provider")
 	}
+	if payload.CodeChallenge != "" || payload.CodeChallengeMethod != "" {
+		if !isValidPKCEValue(payload.CodeChallenge) {
+			return nil, fmt.Errorf("invalid state code challenge")
+		}
+		if _, ok := normalizeCodeChallengeMethod(payload.CodeChallengeMethod); !ok {
+			return nil, fmt.Errorf("invalid state code challenge method")
+		}
+	}
 
 	return &payload, nil
 }
@@ -237,9 +348,9 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		log.Printf("OAuth provider returned error: %s", errorMsg)
 
 		if statePayload, err := h.consumeLoginOAuthState(state); err == nil {
-			h.redirectToFrontendWithError(c, errorParam, errorDesc, statePayload.Platform)
+			h.redirectToFrontendWithError(c, errorParam, errorDesc, statePayload.Platform, state)
 		} else {
-			h.redirectToFrontendWithError(c, errorParam, errorDesc)
+			h.redirectToFrontendWithError(c, errorParam, errorDesc, "", state)
 		}
 		return
 	}
@@ -248,14 +359,14 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	if code == "" || state == "" {
 		errorMsg := "Missing authorization code or state parameter"
 		log.Printf("OAuth callback error: %s", errorMsg)
-		h.redirectToFrontendWithError(c, "invalid_request", errorMsg)
+		h.redirectToFrontendWithError(c, "invalid_request", errorMsg, "", state)
 		return
 	}
 
 	statePayload, err := h.consumeLoginOAuthState(state)
 	if err != nil {
 		log.Printf("OAuth callback rejected due to invalid state: %v", err)
-		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired")
+		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired", "", state)
 		return
 	}
 	callbackPlatform := statePayload.Platform
@@ -264,21 +375,21 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	loginProvider, ok := h.providerRegistry.Get(provider)
 	if !ok {
 		log.Printf("OAuth callback rejected due to unsupported provider in state: %s", provider)
-		h.redirectToFrontendWithError(c, "unsupported_provider", "Authentication provider is not supported", callbackPlatform)
+		h.redirectToFrontendWithError(c, "unsupported_provider", "Authentication provider is not supported", callbackPlatform, state)
 		return
 	}
 
 	profile, err := loginProvider.Exchange(code)
 	if err != nil {
 		log.Printf("Failed to exchange OAuth code with %s: %v", provider, err)
-		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with %s", provider), callbackPlatform)
+		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with %s", provider), callbackPlatform, state)
 		return
 	}
 	// Create or update user in database (returns actual user ID for Firebase)
 	actualUserID, isNewUser, err := h.resolveOrCreateUserIdentity(profile)
 	if err != nil {
 		log.Printf("Failed to create/update user: %v", err)
-		h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform)
+		h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform, state)
 		return
 	}
 	user := oauthUserFromProfile(profile)
@@ -287,7 +398,7 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	firebaseToken, err := h.firebaseClient.CreateCustomToken(actualUserID, nil)
 	if err != nil {
 		log.Printf("Failed to create Firebase token: %v", err)
-		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication token", callbackPlatform)
+		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication token", callbackPlatform, state)
 		return
 	}
 
@@ -300,10 +411,10 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	// Update the user object with the actual ID for session storage
 	user.ID = actualUserID
 
-	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, string(provider), callbackPlatform, isNewUser)
+	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, string(provider), callbackPlatform, state, statePayload.CodeChallenge, statePayload.CodeChallengeMethod, isNewUser)
 	if err != nil {
 		log.Printf("Failed to create one-time auth code: %v", err)
-		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication code", callbackPlatform)
+		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication code", callbackPlatform, state)
 		return
 	}
 
@@ -320,16 +431,21 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 }
 
 // Helper method to redirect to frontend with error
-func (h *OAuthHandler) redirectToFrontendWithError(c *gin.Context, error, errorDescription string, platform ...string) {
+func (h *OAuthHandler) redirectToFrontendWithError(c *gin.Context, error, errorDescription string, values ...string) {
 	callbackPlatform := ""
-	if len(platform) > 0 {
-		callbackPlatform = platform[0]
+	if len(values) > 0 {
+		callbackPlatform = values[0]
+	}
+	state := ""
+	if len(values) > 1 {
+		state = values[1]
 	}
 
 	redirectURL := buildCallbackURL(getFrontendCallbackURL(), map[string]string{
 		"error":             error,
 		"error_description": errorDescription,
 		"platform":          callbackPlatform,
+		"state":             state,
 	})
 
 	log.Printf("Redirecting to auth callback with error")
@@ -378,6 +494,19 @@ func oauthUserFromProfile(profile *authproviders.NormalizedAuthProfile) *auth.OA
 	}
 }
 
+func canAutoLinkOAuthProfileByEmail(profile *authproviders.NormalizedAuthProfile) bool {
+	if profile == nil || !profile.EmailVerified {
+		return false
+	}
+
+	switch profile.Provider {
+	case models.AuthProviderGoogle:
+		return true
+	default:
+		return false
+	}
+}
+
 // CompleteAuth validates and consumes a one-time code
 func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 	// Rate limiting: 10 attempts per minute per IP (most critical endpoint)
@@ -391,19 +520,27 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 	}
 
 	var request struct {
-		Code string `json:"code" binding:"required"`
+		Code         string `json:"code" binding:"required"`
+		State        string `json:"state" binding:"required"`
+		CodeVerifier string `json:"code_verifier"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status": "error",
-			"error":  "Missing or invalid code parameter",
+			"error":  "Missing or invalid code or state parameter",
 		})
 		return
 	}
 
-	// Validate and consume the one-time code
-	oneTimeCode, err := h.codeManager.ValidateAndConsumeCode(request.Code)
+	expectedCodeChallenge := ""
+	if isValidPKCEValue(request.CodeVerifier) {
+		expectedCodeChallenge = codeChallengeFromVerifier(request.CodeVerifier)
+	}
+
+	// Validate and consume the one-time code. Redis only deletes it after state
+	// and any stored verifier challenge both match.
+	oneTimeCode, err := h.codeManager.ValidateAndConsumeCode(request.Code, request.State, expectedCodeChallenge)
 	if err != nil {
 		log.Printf("❌ Invalid one-time code: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -413,7 +550,7 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 		return
 	}
 
-	log.Printf("✅ One-time code validated successfully for user: %s (%s)", oneTimeCode.User.Name, oneTimeCode.User.Email)
+	log.Printf("One-time code validated successfully for user: %s (%s)", oneTimeCode.User.Name, oneTimeCode.User.Email)
 
 	// Return the user data and Firebase token
 	c.JSON(http.StatusOK, gin.H{
@@ -479,11 +616,8 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 	if profile.DisplayName == "" {
 		return "", false, fmt.Errorf("user name is empty - cannot create/update user")
 	}
-	if !profile.EmailVerified {
-		return "", false, fmt.Errorf("user email is not verified")
-	}
 
-	log.Printf("Resolving OAuth identity: provider=%s, provider_user_id=%s, email=%s", profile.Provider, profile.ProviderUserID, profile.Email)
+	log.Printf("Resolving OAuth identity: provider=%s, provider_user_id=%s, email=%s, email_verified=%t", profile.Provider, profile.ProviderUserID, profile.Email, profile.EmailVerified)
 
 	var existingUser *models.User
 	identity, err := h.authIdentityRepo.GetByProviderSubject(profile.Provider, profile.ProviderUserID)
@@ -503,6 +637,9 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 			return "", false, fmt.Errorf("failed to check existing user by email: %w", err)
 		}
 		if existingUserByEmail != nil {
+			if !canAutoLinkOAuthProfileByEmail(profile) {
+				return "", false, fmt.Errorf("account with email already exists; sign in first to link %s", profile.Provider)
+			}
 			log.Printf("Linking OAuth identity by email: provider=%s, email=%s, user_id=%s", profile.Provider, profile.Email, existingUserByEmail.ID)
 			existingUser = existingUserByEmail
 		}
@@ -529,12 +666,15 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 
 		user := &models.User{
 			ID:        existingUser.ID,
-			Email:     profile.Email,
+			Email:     existingUser.Email,
 			Name:      name,
 			AvatarURL: avatarURL,
 			Plan:      existingUser.Plan,
 			Status:    existingUser.Status,
 			UpdatedAt: time.Now(),
+		}
+		if profile.EmailVerified {
+			user.Email = profile.Email
 		}
 
 		log.Printf("Updating existing user %s with OAuth profile data", existingUser.ID)
@@ -543,6 +683,9 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 		}
 		if err := h.upsertAuthIdentityForUserProvider(existingUser.ID, profile); err != nil {
 			return "", false, err
+		}
+		if !profile.EmailVerified {
+			profile.Email = user.Email
 		}
 		return existingUser.ID, false, nil
 	}

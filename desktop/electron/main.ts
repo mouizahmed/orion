@@ -27,7 +27,7 @@ import {
   registerKeyboardShortcuts,
   unregisterKeyboardShortcuts,
 } from './shortcuts'
-import { setupIpcHandlers } from './ipc-handlers'
+import { setupIpcHandlers, stopSystemAudioCapture } from './ipc-handlers'
 import { destroyTray, setupTray } from './tray'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -54,6 +54,11 @@ if (!gotTheLock) {
     if (process.platform === 'win32') {
       session.defaultSession.setDisplayMediaRequestHandler(
         async (_request, callback) => {
+          if (!isRendererAuthenticated()) {
+            callback({})
+            return
+          }
+
           try {
             const sources = await desktopCapturer.getSources({ types: ['screen'] })
             const source = sources[0]
@@ -165,12 +170,14 @@ if (!gotTheLock) {
         registerOverlayShortcuts()
       },
       onSignedOut: () => {
+        stopSystemAudioCapture()
         closeDashboardWindow()
         destroyOverlayWindow()
         showAuthWindow()
         unregisterKeyboardShortcuts()
       },
       onOAuthPending: () => {
+        stopSystemAudioCapture()
         closeDashboardWindow()
         destroyOverlayWindow()
         showAuthWindow()

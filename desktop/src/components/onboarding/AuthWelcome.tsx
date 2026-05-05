@@ -1,6 +1,5 @@
 import { forwardRef, useMemo, useState } from 'react'
-import { SiGoogle } from '@icons-pack/react-simple-icons'
-import { Check, PanelsTopLeft } from 'lucide-react'
+import { Check } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
@@ -13,13 +12,23 @@ const PRIVACY_URL = 'https://orionly.app/privacy'
 
 function TermsAgreement({
   checked,
+  attention,
   onCheckedChange,
+  onAttentionEnd,
 }: {
   checked: boolean
+  attention: boolean
   onCheckedChange: (checked: boolean) => void
+  onAttentionEnd: () => void
 }) {
   return (
-    <label className="mt-3 flex max-w-[440px] cursor-pointer items-start gap-2 text-xs leading-5 text-neutral-500 dark:text-neutral-400 [-webkit-app-region:no-drag]">
+    <label
+      className={[
+        'mt-3 flex max-w-[440px] cursor-pointer items-start gap-2 rounded-lg text-xs leading-5 text-neutral-500 transition-colors dark:text-neutral-400 [-webkit-app-region:no-drag]',
+        attention ? 'animate-[terms-attention_420ms_ease-in-out] text-neutral-800 dark:text-neutral-100' : '',
+      ].join(' ')}
+      onAnimationEnd={onAttentionEnd}
+    >
       <input
         type="checkbox"
         checked={checked}
@@ -60,6 +69,7 @@ function TermsAgreement({
 const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
   const { authError, loginLoading, loginWithGoogle, loginWithMicrosoft, cancelAuth } = useAuth()
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [termsAttention, setTermsAttention] = useState(false)
   const onboardingSteps = useMemo(() => authOnboardingSteps, [])
   const [stepIndex, setStepIndex] = useState(0)
   const step = onboardingSteps[stepIndex]
@@ -79,6 +89,24 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
     void loginWithGoogle()
   }
 
+  const promptTermsAgreement = () => {
+    setTermsAttention(false)
+    window.setTimeout(() => setTermsAttention(true), 0)
+  }
+
+  const handleProviderLogin = (provider: 'google' | 'microsoft') => {
+    if (!acceptedTerms) {
+      promptTermsAgreement()
+      return
+    }
+
+    if (provider === 'google') {
+      void loginWithGoogle()
+      return
+    }
+    void loginWithMicrosoft()
+  }
+
   return (
     <OnboardingFrame ref={ref} layout={layout}>
       <OnboardingShell
@@ -91,7 +119,9 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
             <>
               <TermsAgreement
                 checked={acceptedTerms}
+                attention={termsAttention}
                 onCheckedChange={setAcceptedTerms}
+                onAttentionEnd={() => setTermsAttention(false)}
               />
               {authError ? (
                 <div className="mt-3 max-w-[440px] rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
@@ -133,21 +163,27 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]"
-                    onClick={() => void loginWithGoogle()}
-                    disabled={!acceptedTerms}
+                    className={[
+                      'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
+                      !acceptedTerms ? 'opacity-50' : '',
+                    ].join(' ')}
+                    onClick={() => handleProviderLogin('google')}
+                    aria-disabled={!acceptedTerms}
                   >
-                    <SiGoogle className="h-4 w-4" />
+                    <img src="/google-signin.svg" alt="" aria-hidden="true" className="h-4 w-4" />
                     Google
                   </Button>
                   <Button
                     type="button"
-                    variant="outline"
-                    className="h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]"
-                    onClick={() => void loginWithMicrosoft()}
-                    disabled={!acceptedTerms}
+                    variant="secondary"
+                    className={[
+                      'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
+                      !acceptedTerms ? 'opacity-50' : '',
+                    ].join(' ')}
+                    onClick={() => handleProviderLogin('microsoft')}
+                    aria-disabled={!acceptedTerms}
                   >
-                    <PanelsTopLeft className="h-4 w-4" />
+                    <img src="/microsoft-signin.svg" alt="" aria-hidden="true" className="h-4 w-4" />
                     Microsoft
                   </Button>
                 </div>

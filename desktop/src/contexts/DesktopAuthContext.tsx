@@ -12,6 +12,7 @@ import { auth, signInWithCustomToken } from '@/config/firebase'
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
 import { desktopApi, type AuthResult } from '@/lib/desktop-api'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 export interface DesktopAuthActions {
   authError: string | null
@@ -25,25 +26,48 @@ export interface DesktopAuthActions {
 
 type LoginProvider = 'google' | 'microsoft'
 
+const DEFAULT_AUTH_TIMEOUT_SECONDS = 5 * 60
+
 const DesktopAuthContext = createContext<DesktopAuthActions | undefined>(undefined)
 
+async function revokeBackendSession(idToken: string) {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Backend logout failed: ${response.status}`)
+  }
+}
+
 function useLogoutActions() {
-  const { signOutLocal } = useFirebaseAuth()
+  const { getIdToken, signOutLocal } = useFirebaseAuth()
 
   const logout = useCallback(async () => {
     try {
+      try {
+        const idToken = await getIdToken()
+        await revokeBackendSession(idToken)
+      } catch (error) {
+        console.warn('Backend logout revocation failed:', error)
+      }
+
       await signOutLocal()
       await desktopApi.auth.logout()
     } catch (error) {
       console.error('Logout error:', error)
     }
-  }, [signOutLocal])
+  }, [getIdToken, signOutLocal])
 
   return { logout }
 }
 
 export function DesktopAuthProvider({ children }: { children: ReactNode }) {
-  const { user, isLoading } = useFirebaseAuth()
+  const { user, isLoading, getIdToken } = useFirebaseAuth()
   const { logout } = useLogoutActions()
   const [authError, setAuthError] = useState<string | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
@@ -75,8 +99,29 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (isLoading) return
 
-    desktopApi.auth.notifyStateChanged(Boolean(user))
-  }, [isLoading, user])
+    if (!user) {
+      desktopApi.auth.notifyStateChanged({ isAuthenticated: false })
+      return
+    }
+
+    let cancelled = false
+    void getIdToken()
+      .then((idToken) => {
+        if (!cancelled) {
+          desktopApi.auth.notifyStateChanged({ isAuthenticated: true, idToken })
+        }
+      })
+      .catch((error) => {
+        console.warn('Failed to get auth token for desktop state:', error)
+        if (!cancelled) {
+          desktopApi.auth.notifyStateChanged({ isAuthenticated: false })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [getIdToken, isLoading, user])
 
   useEffect(() => {
     const removeListener = desktopApi.auth.onSessionUpdated((data) => {
@@ -124,9 +169,14 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
         throw new Error(result.error)
       }
 
+      const timeoutSeconds =
+        result.expiresInSeconds && result.expiresInSeconds > 0
+          ? result.expiresInSeconds
+          : DEFAULT_AUTH_TIMEOUT_SECONDS
+
       authTimeoutRef.current = window.setTimeout(() => {
         resetPendingAuth('Authentication timed out. Please try again.', true)
-      }, 5 * 60 * 1000)
+      }, timeoutSeconds * 1000)
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error

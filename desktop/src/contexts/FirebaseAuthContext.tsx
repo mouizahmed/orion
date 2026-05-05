@@ -62,12 +62,23 @@ function toUser(firebaseUser: NonNullable<typeof auth.currentUser>, currentUser?
   }
 }
 
-function mapBackendUser(data: any): User {
+type BackendUserPayload = {
+  id?: unknown
+  email?: unknown
+  name?: unknown
+  avatar_url?: unknown
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function mapBackendUser(data: BackendUserPayload): User {
   return {
-    id: data.id,
-    email: data.email || '',
-    name: data.name || '',
-    picture: data.avatar_url || undefined,
+    id: asString(data.id),
+    email: asString(data.email),
+    name: asString(data.name),
+    picture: asString(data.avatar_url) || undefined,
   }
 }
 

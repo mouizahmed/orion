@@ -47,6 +47,22 @@ func allowedCORSOrigins() []string {
 	return origins
 }
 
+func trustedProxiesFromEnv() []string {
+	raw := os.Getenv("TRUSTED_PROXIES")
+	if raw == "" {
+		return nil
+	}
+
+	proxies := make([]string, 0)
+	for _, proxy := range strings.Split(raw, ",") {
+		proxy = strings.TrimSpace(proxy)
+		if proxy != "" {
+			proxies = append(proxies, proxy)
+		}
+	}
+	return proxies
+}
+
 func main() {
 	err := godotenv.Load("cmd/api/.env")
 	if err != nil {
@@ -140,6 +156,9 @@ func main() {
 
 	// Initialize the router
 	router := gin.Default()
+	if err := router.SetTrustedProxies(trustedProxiesFromEnv()); err != nil {
+		log.Fatalf("Failed to configure trusted proxies: %v", err)
+	}
 
 	// Configure CORS
 	router.Use(cors.New(cors.Config{
@@ -164,6 +183,7 @@ func main() {
 	auth := router.Group("/auth")
 	{
 		auth.GET("/start", oauthHandler.StartOAuth)
+		auth.POST("/cancel", oauthHandler.CancelOAuth)
 		auth.GET("/callback", oauthHandler.HandleCallback)
 		auth.POST("/complete", oauthHandler.CompleteAuth) // Complete auth with one-time code
 	}

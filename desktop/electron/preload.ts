@@ -38,6 +38,11 @@ type IntegrationConnectionCompletedEvent = {
   error?: string
 }
 
+type AuthStateChangedPayload = {
+  isAuthenticated: boolean
+  idToken?: string
+}
+
 contextBridge.exposeInMainWorld('appEvents', {
   onMainProcessMessage: (callback: (message: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, message: unknown) => callback(message)
@@ -186,8 +191,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Session Management
   cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
   logout: () => ipcRenderer.invoke('auth:logout'),
-  notifyStateChanged: (isAuthenticated: boolean) => {
-    ipcRenderer.send('auth:state-changed', { isAuthenticated })
+  notifyStateChanged: (payload: AuthStateChangedPayload) => {
+    ipcRenderer.send('auth:state-changed', payload)
   },
 
   // Event listeners

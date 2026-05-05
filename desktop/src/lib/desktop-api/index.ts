@@ -3,6 +3,7 @@ export type {
   AttachmentResult,
   AuthResult,
   AuthSessionUpdateEvent,
+  AuthStateChangedPayload,
   DesktopApi,
   IntegrationConnectionCompletedEvent,
   IntegrationProvider,

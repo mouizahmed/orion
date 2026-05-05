@@ -99,6 +99,22 @@ body {
   }
 }
 
+@keyframes terms-attention {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15%,
+  45%,
+  75% {
+    transform: translateX(-4px);
+  }
+  30%,
+  60% {
+    transform: translateX(4px);
+  }
+}
+
 /* Desktop-2 style scrollbar (used in dashboard sidebar). */
 .sidebar-scrollbar::-webkit-scrollbar {
   width: 8px;
