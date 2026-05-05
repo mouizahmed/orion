@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
 import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
@@ -30,17 +29,15 @@ export default function RootLayout({
         className={`${figtree.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ClerkProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            forcedTheme="dark"
-            enableSystem={false}
-            disableTransitionOnChange
-          >
-            {children}
-          </ThemeProvider>
-        </ClerkProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          forcedTheme="dark"
+          enableSystem={false}
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
