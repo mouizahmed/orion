@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, Download, ExternalLink, FileText, KeyRound, Keyboard, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User, UserRoundX } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, Download, ExternalLink, FileText, KeyRound, Keyboard, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1045,25 +1045,6 @@ export default function DashboardSettingsPage({
               ) : (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No calendar accounts connected.</div>
               )}
-            </div>
-            <div>
-              <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Display</div>
-              <div className="flex min-h-16 items-center justify-between gap-3 rounded-lg border border-neutral-200 bg-white/60 px-3 py-2 dark:border-white/10 dark:bg-white/[0.03]">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-white/5 dark:text-neutral-400">
-                    <UserRoundX className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                      Show events with no participants
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                      &apos;Coming up&apos; section will include events without participants or a video link
-                    </div>
-                  </div>
-                </div>
-                <ToggleSwitch enabled />
-              </div>
             </div>
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
