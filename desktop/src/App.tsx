@@ -4,7 +4,6 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { DesktopAuthRoot, useAuth } from '@/contexts/AuthContext'
 import CompactOverlayBar from '@/components/CompactOverlayBar'
 import CompactMeetingPanel, { type CompactMeetingPanelHandle } from '@/components/CompactMeetingPanel'
-import SettingsPanel from '@/components/SettingsPanel'
 import TranscriptPanel from '@/components/TranscriptPanel'
 import Welcome from '@/components/Welcome'
 import { Button } from '@/components/ui/button'
@@ -33,19 +32,17 @@ const WELCOME_LAYOUT_WIDTH: Record<WelcomeLayout, number> = {
   large: 1254,
 }
 
-const LAYOUT_WIDTH: Record<'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting', number> = {
+const LAYOUT_WIDTH: Record<'welcome' | 'compact' | 'compactMeeting' | 'expandedMeeting', number> = {
   welcome: WELCOME_LAYOUT_WIDTH.compact,
-  settings: OVERLAY_EXPANDED_WIDTH,
   compact: OVERLAY_COMPACT_WIDTH,
   compactMeeting: OVERLAY_EXPANDED_WIDTH,
   expandedMeeting: OVERLAY_MEETING_COMPACT_WIDTH,
 }
 
 function AppContent() {
-  const { user, isLoading, logout } = useAuth()
+  const { user, isLoading } = useAuth()
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const [activePanel, setActivePanel] = useState<'main' | 'settings'>('main')
   const [meetingPanel, setMeetingPanel] = useState<MeetingPanel | null>(null)
   const [welcomeLayout, setWelcomeLayout] = useState<WelcomeLayout>('compact')
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null)
@@ -63,8 +60,6 @@ function AppContent() {
   const [transcriptionMode, setTranscriptionMode] = useState<'live' | 'notes_only'>('live')
   const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null)
   const [showDashboardConfirm, setShowDashboardConfirm] = useState(false)
-  const [settingsPanelMounted, setSettingsPanelMounted] = useState(false)
-  const [settingsPanelClosing, setSettingsPanelClosing] = useState(false)
   const [notepadFocusRequest, setNotepadFocusRequest] = useState(0)
   const meetingPanelRef = useRef<CompactMeetingPanelHandle>(null)
   const pendingNotepadFocusRef = useRef(false)
@@ -119,11 +114,8 @@ function AppContent() {
     }
 
     pendingNotepadFocusRef.current = false
-    setActivePanel('main')
     setMeetingPanel(null)
     setShowDashboardConfirm(false)
-    setSettingsPanelMounted(false)
-    setSettingsPanelClosing(false)
 
     if (user) return
 
@@ -149,7 +141,6 @@ function AppContent() {
       }
 
       pendingNotepadFocusRef.current = true
-      setActivePanel('main')
       setMeetingPanel('notepad')
       setNotepadFocusRequest((request) => request + 1)
     })
@@ -161,7 +152,6 @@ function AppContent() {
 
   const toggleMeetingPanel = useCallback((panel: MeetingPanel) => {
     if (!meetingActive) return
-    setActivePanel('main')
     setMeetingPanel((current) => {
       const next = current === panel ? null : panel
       if (next === 'notepad') {
@@ -206,7 +196,7 @@ function AppContent() {
   }, [])
 
   useEffect(() => {
-    if (!pendingNotepadFocusRef.current || activePanel !== 'main' || meetingPanel !== 'notepad') {
+    if (!pendingNotepadFocusRef.current || meetingPanel !== 'notepad') {
       return
     }
 
@@ -218,7 +208,7 @@ function AppContent() {
         notepadFocusTimerRef.current = null
       }
     }
-  }, [activePanel, focusNotepadEditorWithRetry, meetingPanel, notepadFocusRequest])
+  }, [focusNotepadEditorWithRetry, meetingPanel, notepadFocusRequest])
 
   useEffect(() => {
     const handleGlobalMouseMove = (event: MouseEvent) => {
@@ -246,16 +236,13 @@ function AppContent() {
     desktopApi.window.startDrag(event.screenX, event.screenY)
   }
 
-  const layoutKey: 'welcome' | 'settings' | 'compact' | 'compactMeeting' | 'expandedMeeting' = useMemo(() => {
+  const layoutKey: 'welcome' | 'compact' | 'compactMeeting' | 'expandedMeeting' = useMemo(() => {
     if (!user) return 'welcome'
-    if (activePanel === 'settings' || settingsPanelMounted) return 'settings'
     if (meetingActive) return meetingPanel ? 'compactMeeting' : 'expandedMeeting'
     return 'compact'
-  }, [activePanel, meetingActive, meetingPanel, settingsPanelMounted, user])
+  }, [meetingActive, meetingPanel, user])
   const [windowLayoutKey, setWindowLayoutKey] = useState(layoutKey)
   const isContentSizedLayout = layoutKey === 'compact' || layoutKey === 'expandedMeeting'
-
-  const shouldRenderSettingsPanel = activePanel === 'settings' || settingsPanelMounted
 
   useEffect(() => {
     if (layoutKey !== 'compact' && layoutKey !== 'expandedMeeting') {
@@ -269,24 +256,6 @@ function AppContent() {
 
     return () => window.clearTimeout(timer)
   }, [layoutKey])
-
-  useEffect(() => {
-    if (activePanel === 'settings') {
-      setSettingsPanelMounted(true)
-      setSettingsPanelClosing(false)
-      return
-    }
-
-    if (!settingsPanelMounted) return
-
-    setSettingsPanelClosing(true)
-    const timer = window.setTimeout(() => {
-      setSettingsPanelMounted(false)
-      setSettingsPanelClosing(false)
-    }, 160)
-
-    return () => window.clearTimeout(timer)
-  }, [activePanel, settingsPanelMounted])
 
   useLayoutEffect(() => {
     if (!contentEl) return
@@ -421,7 +390,6 @@ function AppContent() {
         setMeetingNoteId(`local-meeting-${now.getTime()}`)
         setMeetingActive(true)
         setMeetingPaused(false)
-        setActivePanel('main')
         setMeetingPanel('notepad')
         setMeetingSessionId(null)
         setTranscriptionEnabled(false)
@@ -435,7 +403,6 @@ function AppContent() {
         setMeetingNoteId(created.id)
         setMeetingActive(true)
         setMeetingPaused(false)
-        setActivePanel('main')
         setMeetingPanel('notepad')
         setTranscriptionEnabled(true)
         setTranscriptionMode('live')
@@ -569,38 +536,20 @@ function AppContent() {
               speakerMuted={speakerMuted}
               onToggleSpeakerMuted={() => setSpeakerMuted((v) => !v)}
               onOpenDashboard={handleOpenDashboard}
-              settingsOpen={activePanel === 'settings'}
-              compact={activePanel !== 'settings' && (!meetingActive || meetingPanel === null)}
-              notepadOpen={meetingPanel === 'notepad' && activePanel !== 'settings'}
+              compact={!meetingActive || meetingPanel === null}
+              notepadOpen={meetingPanel === 'notepad'}
               activeMeetingTool={
-                activePanel === 'settings'
-                  ? null
-                  : meetingPanel === 'transcript' || meetingPanel === 'insights' || meetingPanel === 'ask'
-                    ? meetingPanel
-                    : null
+                meetingPanel === 'transcript' || meetingPanel === 'insights' || meetingPanel === 'ask'
+                  ? meetingPanel
+                  : null
               }
               onToggleNotepad={() => toggleMeetingPanel('notepad')}
               onOpenTranscript={() => toggleMeetingPanel('transcript')}
               onOpenInsights={() => toggleMeetingPanel('insights')}
               onOpenAsk={() => toggleMeetingPanel('ask')}
-              onToggleSettings={() =>
-                setActivePanel((current) => (current === 'settings' ? 'main' : 'settings'))
-              }
             />
 
-            {shouldRenderSettingsPanel ? (
-              <div
-                className={cn(
-                  PANEL_UNDER_PILL_CLASSNAME,
-                  'origin-top transition-all duration-150 ease-out',
-                  settingsPanelClosing
-                    ? 'translate-y-[-4px] scale-[0.985] opacity-0'
-                    : 'translate-y-0 scale-100 opacity-100',
-                )}
-              >
-                <SettingsPanel onLogout={logout} />
-              </div>
-            ) : meetingActive && meetingNoteId && meetingPanel === 'notepad' ? (
+            {meetingActive && meetingNoteId && meetingPanel === 'notepad' ? (
               <div className={PANEL_UNDER_PILL_CLASSNAME}>
                 <CompactMeetingPanel
                   ref={meetingPanelRef}

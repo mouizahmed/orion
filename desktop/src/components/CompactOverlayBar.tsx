@@ -1,7 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import {
   Captions,
-  CornerDownLeft,
   Grid3X3,
   MessageCircle,
   Mic,
@@ -9,7 +8,6 @@ import {
   NotebookPen,
   Pause,
   Play,
-  Settings,
   Sparkles,
   Square,
   Volume2,
@@ -30,8 +28,6 @@ type CompactOverlayBarProps = {
   speakerMuted: boolean
   onToggleSpeakerMuted: () => void
   onOpenDashboard: () => void
-  onToggleSettings: () => void
-  settingsOpen?: boolean
   compact?: boolean
   notepadOpen?: boolean
   activeMeetingTool?: 'transcript' | 'insights' | 'ask' | null
@@ -52,8 +48,6 @@ export default function CompactOverlayBar({
   speakerMuted,
   onToggleSpeakerMuted,
   onOpenDashboard,
-  onToggleSettings,
-  settingsOpen = false,
   compact = false,
   notepadOpen = false,
   activeMeetingTool = null,
@@ -262,17 +256,6 @@ export default function CompactOverlayBar({
             <Grid3X3 className="h-4 w-4" />
           </Button>
 
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="relative h-8 w-8 shrink-0 rounded-full border border-neutral-300/55 bg-white/45 p-0 text-neutral-700 hover:bg-white/65 hover:text-neutral-950 dark:border-white/15 dark:bg-zinc-900/55 dark:text-zinc-100 dark:hover:bg-zinc-800/65 dark:hover:text-white"
-            title={settingsOpen ? 'Back' : 'Settings'}
-            aria-label={settingsOpen ? 'Back' : 'Settings'}
-            onClick={onToggleSettings}
-          >
-            {settingsOpen ? <CornerDownLeft className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
-          </Button>
         </div>
       </div>
     </div>
