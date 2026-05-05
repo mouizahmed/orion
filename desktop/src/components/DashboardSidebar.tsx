@@ -65,13 +65,40 @@ export default function DashboardSidebar({
   }, [user?.picture])
 
   useEffect(() => {
-    console.log('Dashboard sidebar user avatar debug', {
-      id: user?.id,
-      email: user?.email,
-      name: user?.name,
-      picture: user?.picture,
-    })
-  }, [user?.email, user?.id, user?.name, user?.picture])
+    if (!user?.picture || !profileImageFailed) return
+
+    const retryProfileImage = () => {
+      setProfileImageFailed(false)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        retryProfileImage()
+      }
+    }
+
+    window.addEventListener('online', retryProfileImage)
+    window.addEventListener('focus', retryProfileImage)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      window.removeEventListener('online', retryProfileImage)
+      window.removeEventListener('focus', retryProfileImage)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [profileImageFailed, user?.picture])
+
+  useEffect(() => {
+    if (!user?.picture || !profileImageFailed) return
+
+    const retryTimer = window.setTimeout(() => {
+      setProfileImageFailed(false)
+    }, 30_000)
+
+    return () => {
+      window.clearTimeout(retryTimer)
+    }
+  }, [profileImageFailed, user?.picture])
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -259,11 +286,7 @@ export default function DashboardSidebar({
                 className="h-5 w-5 shrink-0 rounded-full object-cover"
                 draggable={false}
                 referrerPolicy="no-referrer"
-                onLoad={() => {
-                  console.log('Dashboard sidebar avatar loaded', user.picture)
-                }}
-                onError={(event) => {
-                  console.warn('Dashboard sidebar avatar failed to load', user.picture, event.currentTarget.currentSrc)
+                onError={() => {
                   setProfileImageFailed(true)
                 }}
               />

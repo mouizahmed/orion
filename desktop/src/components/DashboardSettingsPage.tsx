@@ -1306,11 +1306,6 @@ export default function DashboardSettingsPage({
                   value="This will launch Orionly automatically when your system starts."
                   action={<ToggleSwitch enabled />}
                 />
-                <SettingRow
-                  label="Always open shared links in Orionly"
-                  value="When you visit a shared note or folder link in your browser, automatically open it in the desktop app"
-                  action={<ToggleSwitch enabled />}
-                />
               </div>
             </div>
           </div>
