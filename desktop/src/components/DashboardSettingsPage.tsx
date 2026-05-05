@@ -1,7 +1,8 @@
-import { Fragment, useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, Download, ExternalLink, FileText, KeyRound, Keyboard, Lock, LogOut, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User, UserRoundX } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, Download, ExternalLink, FileText, KeyRound, Keyboard, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User, UserRoundX } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { SidebarRowButton } from '@/components/ui/sidebar-button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
@@ -414,8 +415,9 @@ export default function DashboardSettingsPage({
 }: {
   selectedSection: DashboardSettingsSection
 }) {
-  const { user, logout } = useAuth()
+  const { user, logout, updateProfileName, uploadProfileAvatar } = useAuth()
   const shortcutApi = desktopApi.shortcuts
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShortcuts = shortcutApi.isAvailable()
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
@@ -428,6 +430,9 @@ export default function DashboardSettingsPage({
   const [isLoadingCalendars, setIsLoadingCalendars] = useState(false)
   const [calendarError, setCalendarError] = useState<string | null>(null)
   const [calendarAction, setCalendarAction] = useState<string | null>(null)
+  const [profileName, setProfileName] = useState(user?.name || '')
+  const [profileAction, setProfileAction] = useState<'name' | 'avatar' | null>(null)
+  const [profileError, setProfileError] = useState<string | null>(null)
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>({
     storageLocation: 'server',
     localRecordingsPath: '',
@@ -443,6 +448,43 @@ export default function DashboardSettingsPage({
   useEffect(() => {
     setProfileImageFailed(false)
   }, [user?.picture])
+
+  useEffect(() => {
+    setProfileName(user?.name || '')
+  }, [user?.name])
+
+  const trimmedProfileName = profileName.trim()
+  const canSaveProfileName = Boolean(user) && trimmedProfileName !== '' && trimmedProfileName !== (user?.name || '')
+
+  const handleSaveProfileName = useCallback(async () => {
+    if (!canSaveProfileName) return
+    setProfileAction('name')
+    setProfileError(null)
+    try {
+      await updateProfileName(trimmedProfileName)
+    } catch (updateError) {
+      setProfileError(updateError instanceof Error ? updateError.message : 'Failed to update profile')
+    } finally {
+      setProfileAction(null)
+    }
+  }, [canSaveProfileName, trimmedProfileName, updateProfileName])
+
+  const handleAvatarChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    setProfileAction('avatar')
+    setProfileError(null)
+    try {
+      await uploadProfileAvatar(file)
+      setProfileImageFailed(false)
+    } catch (uploadError) {
+      setProfileError(uploadError instanceof Error ? uploadError.message : 'Failed to update avatar')
+    } finally {
+      setProfileAction(null)
+    }
+  }, [uploadProfileAvatar])
 
   const loadCalendarSettings = useCallback(async () => {
     if (!user) return
@@ -743,33 +785,79 @@ export default function DashboardSettingsPage({
           <div className="space-y-3">
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center gap-3 border-b border-neutral-200 px-3 py-3 dark:border-white/10">
-                {user?.picture && !profileImageFailed ? (
-                  <img
-                    src={user.picture}
-                    alt=""
-                    className="h-12 w-12 shrink-0 rounded-full object-cover"
-                    draggable={false}
-                    referrerPolicy="no-referrer"
-                    onError={() => setProfileImageFailed(true)}
+                <div className="shrink-0">
+                  {user?.picture && !profileImageFailed ? (
+                    <img
+                      src={user.picture}
+                      alt=""
+                      className="h-12 w-12 rounded-full object-cover"
+                      draggable={false}
+                      referrerPolicy="no-referrer"
+                      onError={() => setProfileImageFailed(true)}
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">
+                      {initials}
+                    </div>
+                  )}
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/gif,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarChange}
                   />
-                ) : (
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">
-                    {initials}
-                  </div>
-                )}
-                <div className="min-w-0">
+                </div>
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{displayName}</div>
                   <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{user?.email || 'Not signed in'}</div>
+                  {profileError ? (
+                    <div className="mt-1 truncate text-xs text-red-600 dark:text-red-300">{profileError}</div>
+                  ) : null}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!user || profileAction === 'avatar'}
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {profileAction === 'avatar' ? 'Saving' : 'Change photo'}
+                </Button>
               </div>
-              <SettingRow label="Name" value={user?.name || 'Not set'} />
+              <SettingRow
+                label="Name"
+                action={
+                  <div className="flex w-[320px] max-w-[45vw] items-center gap-2">
+                    <Input
+                      value={profileName}
+                      disabled={!user || profileAction === 'name'}
+                      maxLength={120}
+                      onChange={(event) => setProfileName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          void handleSaveProfileName()
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!canSaveProfileName || profileAction === 'name'}
+                      onClick={() => void handleSaveProfileName()}
+                    >
+                      {profileAction === 'name' ? 'Saving' : 'Save'}
+                    </Button>
+                  </div>
+                }
+              />
               <SettingRow label="Email" value={user?.email || 'Not signed in'} />
               <SettingRow
                 label="Session"
                 value="Manage sign-in on this device."
                 action={
                   <Button type="button" variant="outline" size="sm" onClick={logout}>
-                    <LogOut className="h-3.5 w-3.5" />
                     Log out
                   </Button>
                 }

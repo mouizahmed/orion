@@ -57,6 +57,8 @@ export const electronDesktopApi: DesktopApi = {
   },
   auth: {
     loginWithGoogle: () => window.electronAPI?.authenticateWithGoogle?.() ?? missingApi('electronAPI.authenticateWithGoogle'),
+    loginWithMicrosoft: () =>
+      window.electronAPI?.authenticateWithMicrosoft?.() ?? missingApi('electronAPI.authenticateWithMicrosoft'),
     cancel: () => window.electronAPI?.cancelAuthentication?.() ?? missingApi('electronAPI.cancelAuthentication'),
     logout: () => window.electronAPI?.logout?.() ?? missingApi('electronAPI.logout'),
     notifyStateChanged: (isAuthenticated) => window.electronAPI?.notifyStateChanged?.(isAuthenticated),

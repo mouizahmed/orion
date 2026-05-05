@@ -41,7 +41,10 @@ export function useAuth() {
       loginLoading: desktop.loginLoading,
       loginProvider: desktop.loginProvider,
       logout: desktop.logout,
+      updateProfileName: firebase.updateProfileName,
+      uploadProfileAvatar: firebase.uploadProfileAvatar,
       loginWithGoogle: desktop.loginWithGoogle,
+      loginWithMicrosoft: desktop.loginWithMicrosoft,
       cancelAuth: desktop.cancelAuth,
     }),
     [
@@ -50,9 +53,12 @@ export function useAuth() {
       desktop.loginLoading,
       desktop.loginProvider,
       desktop.loginWithGoogle,
+      desktop.loginWithMicrosoft,
       desktop.logout,
       firebase.isAuthenticated,
       firebase.isLoading,
+      firebase.updateProfileName,
+      firebase.uploadProfileAvatar,
       firebase.user,
     ],
   )

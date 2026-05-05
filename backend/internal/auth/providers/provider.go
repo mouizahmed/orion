@@ -20,5 +20,7 @@ type NormalizedAuthProfile struct {
 	EmailVerified  bool
 	DisplayName    string
 	AvatarURL      string
+	AvatarData     []byte
+	AvatarMimeType string
 	RawClaims      map[string]any
 }

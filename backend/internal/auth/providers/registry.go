@@ -17,7 +17,10 @@ func NewRegistry(providers ...AuthProvider) *Registry {
 }
 
 func NewDefaultRegistry() *Registry {
-	return NewRegistry(NewGoogleProvider())
+	return NewRegistry(
+		NewGoogleProvider(),
+		NewMicrosoftProvider(),
+	)
 }
 
 func (r *Registry) Get(provider models.AuthProvider) (AuthProvider, bool) {

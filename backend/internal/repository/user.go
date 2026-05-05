@@ -88,6 +88,44 @@ func (r *UserRepository) UpdateUser(id string, user *models.User) error {
 	return nil
 }
 
+func (r *UserRepository) UpdateName(id string, name string) error {
+	query := `UPDATE users SET name = $2, updated_at = $3 WHERE id = $1 AND deleted_at IS NULL`
+
+	result, err := r.db.Exec(query, id, name, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to update user name: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm user name update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
+func (r *UserRepository) UpdateAvatarURL(id string, avatarURL string) error {
+	query := `UPDATE users SET avatar_url = $2, updated_at = $3 WHERE id = $1 AND deleted_at IS NULL`
+
+	result, err := r.db.Exec(query, id, avatarURL, time.Now())
+	if err != nil {
+		return fmt.Errorf("failed to update user avatar: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm user avatar update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	return nil
+}
+
 // GetUserByEmail finds a user by email address
 func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	query := `SELECT u.id, u.email, u.name, u.avatar_url, u.plan, u.status, u.created_at, u.updated_at, u.deleted_at FROM users u WHERE lower(u.email) = lower($1) AND u.deleted_at IS NULL LIMIT 1`

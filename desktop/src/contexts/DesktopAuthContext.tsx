@@ -16,11 +16,14 @@ import { desktopApi, type AuthResult } from '@/lib/desktop-api'
 export interface DesktopAuthActions {
   authError: string | null
   loginLoading: boolean
-  loginProvider: 'google' | null
+  loginProvider: LoginProvider | null
   logout: () => Promise<void>
   loginWithGoogle: () => Promise<void>
+  loginWithMicrosoft: () => Promise<void>
   cancelAuth: () => void
 }
+
+type LoginProvider = 'google' | 'microsoft'
 
 const DesktopAuthContext = createContext<DesktopAuthActions | undefined>(undefined)
 
@@ -44,7 +47,7 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
   const { logout } = useLogoutActions()
   const [authError, setAuthError] = useState<string | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
-  const [loginProvider, setLoginProvider] = useState<'google' | null>(null)
+  const [loginProvider, setLoginProvider] = useState<LoginProvider | null>(null)
   const authTimeoutRef = useRef<number | null>(null)
   const pendingAuthRef = useRef(false)
 
@@ -79,8 +82,8 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
     const removeListener = desktopApi.auth.onSessionUpdated((data) => {
       clearAuthTimeout()
 
-      if (!pendingAuthRef.current) {
-        console.warn('Ignoring auth callback with no active OAuth flow')
+      if (!pendingAuthRef.current && !data.success) {
+        console.warn('Ignoring failed auth callback with no active OAuth flow')
         return
       }
 
@@ -106,7 +109,7 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
   }, [clearAuthTimeout, resetPendingAuth])
 
   const handleOAuthLogin = useCallback(async (
-    provider: 'google',
+    provider: LoginProvider,
     authFn: () => Promise<AuthResult>,
   ) => {
     clearAuthTimeout()
@@ -137,6 +140,10 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
     () => handleOAuthLogin('google', desktopApi.auth.loginWithGoogle),
     [handleOAuthLogin],
   )
+  const loginWithMicrosoft = useCallback(
+    () => handleOAuthLogin('microsoft', desktopApi.auth.loginWithMicrosoft),
+    [handleOAuthLogin],
+  )
 
   const cancelAuth = useCallback(() => {
     resetPendingAuth(null, true)
@@ -149,9 +156,10 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
       loginProvider,
       logout,
       loginWithGoogle,
+      loginWithMicrosoft,
       cancelAuth,
     }),
-    [authError, cancelAuth, loginLoading, loginProvider, loginWithGoogle, logout],
+    [authError, cancelAuth, loginLoading, loginProvider, loginWithGoogle, loginWithMicrosoft, logout],
   )
 
   return (
@@ -167,6 +175,9 @@ export function DashboardAuthActionsProvider({ children }: { children: ReactNode
   const loginWithGoogle = useCallback(async () => {
     throw new Error('Login is only available in the auth window')
   }, [])
+  const loginWithMicrosoft = useCallback(async () => {
+    throw new Error('Login is only available in the auth window')
+  }, [])
 
   const value = useMemo<DesktopAuthActions>(
     () => ({
@@ -175,9 +186,10 @@ export function DashboardAuthActionsProvider({ children }: { children: ReactNode
       loginProvider: null,
       logout,
       loginWithGoogle,
+      loginWithMicrosoft,
       cancelAuth: () => undefined,
     }),
-    [loginWithGoogle, logout],
+    [loginWithGoogle, loginWithMicrosoft, logout],
   )
 
   return (

@@ -17,6 +17,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/handlers"
 	"github.com/mouizahmed/justscribe-backend/internal/memory"
 	"github.com/mouizahmed/justscribe-backend/internal/middleware"
+	"github.com/mouizahmed/justscribe-backend/internal/profile"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/mouizahmed/justscribe-backend/internal/retrieval"
@@ -97,6 +98,12 @@ func main() {
 
 	toolExecutor := ai.NewToolExecutor(noteRepo, transcriptRepo, folderRepo, db, retriever)
 
+	b2Client, err := storage.NewB2Client()
+	if err != nil {
+		log.Fatalf("Failed to initialize B2 client: %v", err)
+	}
+	avatarService := profile.NewAvatarService(b2Client)
+
 	// Initialize direct Redis client for OAuth codes
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     os.Getenv("REDIS_ADDR"),
@@ -118,15 +125,10 @@ func main() {
 	go w.Start(workerCtx)
 
 	// Initialize handlers
-	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient)
+	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient, avatarService)
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
-	userHandler := handlers.NewUserHandler(userRepo)
+	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
-	b2Client, err := storage.NewB2Client()
-	if err != nil {
-		log.Fatalf("Failed to initialize B2 client: %v", err)
-	}
-
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, aiClient, indexQueue)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
@@ -185,6 +187,8 @@ func main() {
 
 		// User routes
 		authenticated.GET("/user/me", userHandler.GetCurrentUser)
+		authenticated.PATCH("/user/me", userHandler.UpdateCurrentUser)
+		authenticated.POST("/user/me/avatar", userHandler.UploadAvatar)
 
 		// Dashboard routes
 		authenticated.GET("/dashboard/activity", dashboardHandler.ListActivity)

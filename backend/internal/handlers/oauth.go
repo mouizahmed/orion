@@ -18,6 +18,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
 	authproviders "github.com/mouizahmed/justscribe-backend/internal/auth/providers"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
+	"github.com/mouizahmed/justscribe-backend/internal/profile"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 )
@@ -29,6 +30,7 @@ type OAuthHandler struct {
 	codeManager      *auth.CodeManager
 	redisClient      *redis.Client
 	providerRegistry *authproviders.Registry
+	avatarService    *profile.AvatarService
 }
 
 type LoginOAuthState struct {
@@ -40,7 +42,7 @@ type LoginOAuthState struct {
 	CreatedAt string `json:"created_at"`
 }
 
-func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client) *OAuthHandler {
+func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
 	codeManager := auth.NewCodeManager(redisClient)
 
@@ -51,6 +53,7 @@ func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repo
 		codeManager:      codeManager,
 		redisClient:      redisClient,
 		providerRegistry: authproviders.NewDefaultRegistry(),
+		avatarService:    avatarService,
 	}
 }
 
@@ -77,6 +80,8 @@ func normalizeLoginProvider(provider string) (models.AuthProvider, bool) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "", string(models.AuthProviderGoogle):
 		return models.AuthProviderGoogle, true
+	case string(models.AuthProviderMicrosoft):
+		return models.AuthProviderMicrosoft, true
 	default:
 		return "", false
 	}
@@ -504,15 +509,28 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 	}
 
 	if existingUser != nil {
+		name := existingUser.Name
+		if name == "" {
+			name = profile.DisplayName
+		}
+
 		avatarURL := existingUser.AvatarURL
-		if profile.AvatarURL != "" {
+		if (avatarURL == nil || *avatarURL == "") && len(profile.AvatarData) > 0 {
+			if cachedAvatarURL := h.cacheProfileAvatar(existingUser.ID, profile); cachedAvatarURL != "" {
+				profile.AvatarURL = cachedAvatarURL
+				avatarURL = &profile.AvatarURL
+			}
+		} else if profile.AvatarURL != "" {
 			avatarURL = &profile.AvatarURL
+		}
+		if avatarURL != nil {
+			profile.AvatarURL = *avatarURL
 		}
 
 		user := &models.User{
 			ID:        existingUser.ID,
 			Email:     profile.Email,
-			Name:      profile.DisplayName,
+			Name:      name,
 			AvatarURL: avatarURL,
 			Plan:      existingUser.Plan,
 			Status:    existingUser.Status,
@@ -547,6 +565,13 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 	log.Printf("Creating new app user account for %s", profile.Email)
 	if err := h.userRepo.CreateUser(user); err != nil {
 		return "", false, err
+	}
+	if cachedAvatarURL := h.cacheProfileAvatar(user.ID, profile); cachedAvatarURL != "" {
+		profile.AvatarURL = cachedAvatarURL
+		user.AvatarURL = &profile.AvatarURL
+		if err := h.userRepo.UpdateUser(user.ID, user); err != nil {
+			log.Printf("Failed to update cached provider avatar for user %s: %v", user.ID, err)
+		}
 	}
 	if err := h.upsertAuthIdentity(user.ID, profile); err != nil {
 		return "", false, err
@@ -584,6 +609,20 @@ func (h *OAuthHandler) buildAuthIdentity(userID string, profile *authproviders.N
 	}
 
 	return identity
+}
+
+func (h *OAuthHandler) cacheProfileAvatar(userID string, profile *authproviders.NormalizedAuthProfile) string {
+	if h.avatarService == nil || profile == nil || len(profile.AvatarData) == 0 || profile.AvatarMimeType == "" {
+		return ""
+	}
+
+	avatarURL, err := h.avatarService.UploadUserAvatar(userID, profile.AvatarData, profile.AvatarMimeType)
+	if err != nil {
+		log.Printf("auth: failed to cache provider avatar: %v", err)
+		return ""
+	}
+
+	return avatarURL
 }
 
 // renderSuccessPage renders a success page after OAuth completion

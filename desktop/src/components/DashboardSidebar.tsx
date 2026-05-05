@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Home, LogOut, Notebook, Settings, Users } from 'lucide-react'
+import { CalendarDays, Home, Notebook, Settings, Users } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -318,7 +318,6 @@ export default function DashboardSidebar({
                   logout()
                 }}
               >
-                <LogOut size={14} />
                 <span>Log out</span>
               </SidebarMenuItemButton>
             </div>

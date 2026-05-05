@@ -175,6 +175,7 @@ contextBridge.exposeInMainWorld('audioCapture', {
 contextBridge.exposeInMainWorld('electronAPI', {
   // OAuth Authentication
   authenticateWithGoogle: () => ipcRenderer.invoke('auth:google'),
+  authenticateWithMicrosoft: () => ipcRenderer.invoke('auth:microsoft'),
 
   // Integration connections
   connectIntegration: (provider: IntegrationProvider, feature: string, idToken: string) =>

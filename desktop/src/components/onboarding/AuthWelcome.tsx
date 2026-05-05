@@ -58,7 +58,7 @@ function TermsAgreement({
 }
 
 const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
-  const { authError, loginLoading, loginWithGoogle, cancelAuth } = useAuth()
+  const { authError, loginLoading, loginWithGoogle, loginWithMicrosoft, cancelAuth } = useAuth()
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const onboardingSteps = useMemo(() => authOnboardingSteps, [])
   const [stepIndex, setStepIndex] = useState(0)
@@ -144,8 +144,8 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
                     type="button"
                     variant="outline"
                     className="h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]"
-                    disabled
-                    title="Microsoft sign in is coming soon"
+                    onClick={() => void loginWithMicrosoft()}
+                    disabled={!acceptedTerms}
                   >
                     <PanelsTopLeft className="h-4 w-4" />
                     Microsoft

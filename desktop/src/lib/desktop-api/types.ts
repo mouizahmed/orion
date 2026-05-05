@@ -131,6 +131,7 @@ export type DesktopApi = {
   }
   auth: {
     loginWithGoogle: () => Promise<AuthResult>
+    loginWithMicrosoft: () => Promise<AuthResult>
     cancel: () => Promise<AuthResult>
     logout: () => Promise<AuthResult>
     notifyStateChanged: (isAuthenticated: boolean) => void

@@ -69,6 +69,7 @@ interface LiveInsightsControl {
 
 interface ElectronAPI {
   authenticateWithGoogle: () => Promise<AuthResult>
+  authenticateWithMicrosoft: () => Promise<AuthResult>
   connectIntegration: (
     provider: IntegrationProvider,
     feature: string,

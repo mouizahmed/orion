@@ -15,11 +15,13 @@ export function isRendererAuthenticated(): boolean {
   return authPhase === 'signed-in'
 }
 
-async function handleOAuth(provider: 'google', setAuthPhase: (nextPhase: AuthPhase) => void): Promise<void> {
+type LoginProvider = 'google' | 'microsoft'
+
+async function handleOAuth(provider: LoginProvider, setAuthPhase: (nextPhase: AuthPhase) => void): Promise<void> {
   setAuthPhase('oauth-pending')
 
   try {
-    const authUrl = `${config.backendUrl}/auth/start?platform=desktop`
+    const authUrl = `${config.backendUrl}/auth/start?provider=${encodeURIComponent(provider)}&platform=desktop`
     await shell.openExternal(authUrl)
   } catch (error) {
     setAuthPhase('signed-out')
@@ -56,6 +58,17 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
   ipcMain.handle('auth:google', async () => {
     try {
       await handleOAuth('google', setAuthPhase)
+      return { success: true }
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error)
+      return { success: false, error: errorMessage }
+    }
+  })
+
+  ipcMain.handle('auth:microsoft', async () => {
+    try {
+      await handleOAuth('microsoft', setAuthPhase)
       return { success: true }
     } catch (error: unknown) {
       const errorMessage =

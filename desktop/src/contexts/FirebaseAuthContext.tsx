@@ -24,6 +24,8 @@ interface FirebaseAuthContextType {
   isLoading: boolean
   setUser: (user: User | null) => void
   getIdToken: () => Promise<string>
+  updateProfileName: (name: string) => Promise<User>
+  uploadProfileAvatar: (file: File) => Promise<User>
   signOutLocal: () => Promise<void>
 }
 
@@ -60,26 +62,31 @@ function toUser(firebaseUser: NonNullable<typeof auth.currentUser>, currentUser?
   }
 }
 
-async function fetchBackendUser(firebaseUser: NonNullable<typeof auth.currentUser>): Promise<User> {
-  const idToken = await firebaseUser.getIdToken()
-  const response = await fetch(`${API_BASE_URL}/user/me`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch user profile: ${response.status}`)
-  }
-
-  const data = await response.json()
+function mapBackendUser(data: any): User {
   return {
     id: data.id,
     email: data.email || '',
     name: data.name || '',
     picture: data.avatar_url || undefined,
   }
+}
+
+async function readBackendUser(response: Response): Promise<User> {
+  if (!response.ok) {
+    throw new Error(`Profile request failed: ${response.status}`)
+  }
+  const data = await response.json()
+  return mapBackendUser(data)
+}
+
+async function fetchBackendUser(firebaseUser: NonNullable<typeof auth.currentUser>): Promise<User> {
+  const idToken = await firebaseUser.getIdToken()
+  return readBackendUser(await fetch(`${API_BASE_URL}/user/me`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+  }))
 }
 
 export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
@@ -129,6 +136,38 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
     return idToken
   }, [])
 
+  const updateProfileName = useCallback(async (name: string) => {
+    const idToken = await getIdToken()
+    const updatedUser = await readBackendUser(await fetch(`${API_BASE_URL}/user/me`, {
+      method: 'PATCH',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${idToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name }),
+    }))
+    setUser(updatedUser)
+    return updatedUser
+  }, [getIdToken])
+
+  const uploadProfileAvatar = useCallback(async (file: File) => {
+    const idToken = await getIdToken()
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const updatedUser = await readBackendUser(await fetch(`${API_BASE_URL}/user/me/avatar`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: formData,
+    }))
+    setUser(updatedUser)
+    return updatedUser
+  }, [getIdToken])
+
   const signOutLocal = useCallback(async () => {
     clearKnownSessionStorage()
     await auth.signOut()
@@ -142,9 +181,11 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       setUser,
       getIdToken,
+      updateProfileName,
+      uploadProfileAvatar,
       signOutLocal,
     }),
-    [getIdToken, isLoading, signOutLocal, user],
+    [getIdToken, isLoading, signOutLocal, updateProfileName, uploadProfileAvatar, user],
   )
 
   return (
