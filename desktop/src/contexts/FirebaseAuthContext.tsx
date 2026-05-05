@@ -9,6 +9,8 @@ import {
 } from 'react'
 import { auth, authPersistenceReady, onAuthStateChanged } from '@/config/firebase'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+
 export interface User {
   id: string
   email: string
@@ -49,12 +51,34 @@ export function clearKnownSessionStorage() {
   }
 }
 
-function toUser(firebaseUser: NonNullable<typeof auth.currentUser>): User {
+function toUser(firebaseUser: NonNullable<typeof auth.currentUser>, currentUser?: User | null): User {
   return {
     id: firebaseUser.uid,
-    email: firebaseUser.email || '',
-    name: firebaseUser.displayName || '',
-    picture: firebaseUser.photoURL || undefined,
+    email: firebaseUser.email || (currentUser?.id === firebaseUser.uid ? currentUser.email : ''),
+    name: firebaseUser.displayName || (currentUser?.id === firebaseUser.uid ? currentUser.name : ''),
+    picture: firebaseUser.photoURL || (currentUser?.id === firebaseUser.uid ? currentUser.picture : undefined),
+  }
+}
+
+async function fetchBackendUser(firebaseUser: NonNullable<typeof auth.currentUser>): Promise<User> {
+  const idToken = await firebaseUser.getIdToken()
+  const response = await fetch(`${API_BASE_URL}/user/me`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user profile: ${response.status}`)
+  }
+
+  const data = await response.json()
+  return {
+    id: data.id,
+    email: data.email || '',
+    name: data.name || '',
+    picture: data.avatar_url || undefined,
   }
 }
 
@@ -70,8 +94,24 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return
 
       unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-        setUser(firebaseUser ? toUser(firebaseUser) : null)
+        if (!firebaseUser) {
+          setUser(null)
+          setIsLoading(false)
+          return
+        }
+
+        setUser((currentUser) => toUser(firebaseUser, currentUser))
         setIsLoading(false)
+
+        void fetchBackendUser(firebaseUser)
+          .then((backendUser) => {
+            if (!cancelled && auth.currentUser?.uid === backendUser.id) {
+              setUser(backendUser)
+            }
+          })
+          .catch((error) => {
+            console.warn('Failed to hydrate backend user profile', error)
+          })
       })
     })
 

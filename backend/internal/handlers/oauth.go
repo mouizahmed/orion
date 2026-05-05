@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,50 +16,41 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
+	authproviders "github.com/mouizahmed/justscribe-backend/internal/auth/providers"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 type OAuthHandler struct {
-	userRepo       *repository.UserRepository
-	oauthTokenRepo repository.OAuthTokenRepository
-	firebaseClient *auth.FirebaseClient
-	codeManager    *auth.CodeManager
-	redisClient    *redis.Client
-	googleConfig   *oauth2.Config
+	userRepo         *repository.UserRepository
+	authIdentityRepo *repository.UserAuthIdentityRepository
+	firebaseClient   *auth.FirebaseClient
+	codeManager      *auth.CodeManager
+	redisClient      *redis.Client
+	providerRegistry *authproviders.Registry
 }
 
 type LoginOAuthState struct {
 	Purpose   string `json:"purpose"`
+	Provider  string `json:"provider"`
 	Platform  string `json:"platform"`
 	IP        string `json:"ip"`
 	UserAgent string `json:"user_agent"`
 	CreatedAt string `json:"created_at"`
 }
 
-func NewOAuthHandler(userRepo *repository.UserRepository, oauthTokenRepo repository.OAuthTokenRepository, redisClient *redis.Client) *OAuthHandler {
+func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
 	codeManager := auth.NewCodeManager(redisClient)
 
-	// Google OAuth config - redirect to backend first
-	googleConfig := &oauth2.Config{
-		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		Endpoint:     google.Endpoint,
-		Scopes:       []string{"openid", "email", "profile"},
-		RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"), // e.g., http://localhost:8080/auth/callback
-	}
-
 	return &OAuthHandler{
-		userRepo:       userRepo,
-		oauthTokenRepo: oauthTokenRepo,
-		firebaseClient: firebaseClient,
-		codeManager:    codeManager,
-		redisClient:    redisClient,
-		googleConfig:   googleConfig,
+		userRepo:         userRepo,
+		authIdentityRepo: authIdentityRepo,
+		firebaseClient:   firebaseClient,
+		codeManager:      codeManager,
+		redisClient:      redisClient,
+		providerRegistry: authproviders.NewDefaultRegistry(),
 	}
 }
 
@@ -78,6 +68,15 @@ func normalizeOAuthPlatform(platform string) (string, bool) {
 		return "desktop", true
 	case "web":
 		return "web", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeLoginProvider(provider string) (models.AuthProvider, bool) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", string(models.AuthProviderGoogle):
+		return models.AuthProviderGoogle, true
 	default:
 		return "", false
 	}
@@ -135,13 +134,20 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		return
 	}
 
-	provider := "google" // Only Google is supported
+	provider, ok := normalizeLoginProvider(c.Query("provider"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Unsupported provider",
+		})
+		return
+	}
 	log.Printf("Started OAuth login flow (provider: %s, platform: %s)", provider, platform)
 
 	ctx := context.Background()
 	key := fmt.Sprintf("oauth_state:%s", state)
 	payload, err := json.Marshal(LoginOAuthState{
 		Purpose:   "app_login",
+		Provider:  string(provider),
 		Platform:  platform,
 		IP:        c.ClientIP(),
 		UserAgent: c.GetHeader("User-Agent"),
@@ -162,11 +168,14 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		return
 	}
 
-	// Get OAuth URL with offline access for refresh tokens
-	authURL := h.googleConfig.AuthCodeURL(state,
-		oauth2.AccessTypeOffline,
-		oauth2.ApprovalForce,
-		oauth2.SetAuthURLParam("include_granted_scopes", "true"))
+	loginProvider, ok := h.providerRegistry.Get(provider)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Unsupported provider",
+		})
+		return
+	}
+	authURL := loginProvider.AuthCodeURL(state)
 
 	log.Printf("Redirecting to OAuth provider (provider: %s, platform: %s)", provider, platform)
 
@@ -199,6 +208,9 @@ func (h *OAuthHandler) consumeLoginOAuthState(state string) (*LoginOAuthState, e
 	if _, ok := normalizeOAuthPlatform(payload.Platform); !ok {
 		return nil, fmt.Errorf("invalid state platform")
 	}
+	if _, ok := normalizeLoginProvider(payload.Provider); !ok {
+		return nil, fmt.Errorf("invalid state provider")
+	}
 
 	return &payload, nil
 }
@@ -208,7 +220,6 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
 	errorParam := c.Query("error")
-	provider := "google" // Only Google is supported
 
 	// Check for OAuth errors
 	if errorParam != "" {
@@ -243,22 +254,29 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 	callbackPlatform := statePayload.Platform
+	provider, _ := normalizeLoginProvider(statePayload.Provider)
 
-	// Exchange code for token and get user info from Google
-	user, oauthToken, err := h.handleGoogleCallback(code)
-	if err != nil {
-		log.Printf("Failed to get user info from Google: %v", err)
-		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with Google: %v", err), callbackPlatform)
+	loginProvider, ok := h.providerRegistry.Get(provider)
+	if !ok {
+		log.Printf("OAuth callback rejected due to unsupported provider in state: %s", provider)
+		h.redirectToFrontendWithError(c, "unsupported_provider", "Authentication provider is not supported", callbackPlatform)
 		return
 	}
 
+	profile, err := loginProvider.Exchange(code)
+	if err != nil {
+		log.Printf("Failed to exchange OAuth code with %s: %v", provider, err)
+		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with %s", provider), callbackPlatform)
+		return
+	}
 	// Create or update user in database (returns actual user ID for Firebase)
-	actualUserID, isNewUser, err := h.createOrUpdateUser(user)
+	actualUserID, isNewUser, err := h.resolveOrCreateUserIdentity(profile)
 	if err != nil {
 		log.Printf("Failed to create/update user: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform)
 		return
 	}
+	user := oauthUserFromProfile(profile)
 
 	// Create Firebase custom token using the actual user ID (handles account linking)
 	firebaseToken, err := h.firebaseClient.CreateCustomToken(actualUserID, nil)
@@ -274,16 +292,10 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		log.Printf("Failed to create/update Firebase user (continuing anyway): %v", err)
 	}
 
-	// Store OAuth tokens in database
-	err = h.storeOAuthTokens(actualUserID, provider, oauthToken)
-	if err != nil {
-		log.Printf("Failed to store OAuth tokens (continuing anyway): %v", err)
-	}
-
 	// Update the user object with the actual ID for session storage
 	user.ID = actualUserID
 
-	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, provider, callbackPlatform, isNewUser)
+	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, string(provider), callbackPlatform, isNewUser)
 	if err != nil {
 		log.Printf("Failed to create one-time auth code: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication code", callbackPlatform)
@@ -345,6 +357,20 @@ func buildCallbackURL(base string, values map[string]string) string {
 		return base
 	}
 	return base + separator + encoded
+}
+
+func oauthUserFromProfile(profile *authproviders.NormalizedAuthProfile) *auth.OAuthUser {
+	if profile == nil {
+		return nil
+	}
+	return &auth.OAuthUser{
+		ID:           profile.ProviderUserID,
+		Email:        profile.Email,
+		Name:         profile.DisplayName,
+		Picture:      profile.AvatarURL,
+		Provider:     string(profile.Provider),
+		ProviderData: profile.RawClaims,
+	}
 }
 
 // CompleteAuth validates and consumes a one-time code
@@ -434,136 +460,130 @@ func (h *OAuthHandler) Logout(c *gin.Context) {
 	})
 }
 
-// handleGoogleCallback exchanges code for token and gets user info from Google
-func (h *OAuthHandler) handleGoogleCallback(code string) (*auth.OAuthUser, *oauth2.Token, error) {
-	// Exchange authorization code for token
-	token, err := h.googleConfig.Exchange(oauth2.NoContext, code)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
+// resolveOrCreateUserIdentity resolves provider identity to an app-owned user ID.
+func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.NormalizedAuthProfile) (string, bool, error) {
+	if profile == nil {
+		return "", false, fmt.Errorf("auth profile is nil")
 	}
-
-	// Get user info from Google
-	client := h.googleConfig.Client(oauth2.NoContext, token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get user info from Google: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read user info response: %w", err)
-	}
-
-	var googleUser struct {
-		ID      string `json:"id"`
-		Email   string `json:"email"`
-		Name    string `json:"name"`
-		Picture string `json:"picture"`
-	}
-
-	if err := json.Unmarshal(body, &googleUser); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse user info: %w", err)
-	}
-
-	user := &auth.OAuthUser{
-		ID:       googleUser.ID,
-		Email:    googleUser.Email,
-		Name:     googleUser.Name,
-		Picture:  googleUser.Picture,
-		Provider: "google",
-	}
-
-	return user, token, nil
-}
-
-// createOrUpdateUser creates or updates user in the database, returns the actual user ID to use for Firebase
-func (h *OAuthHandler) createOrUpdateUser(oauthUser *auth.OAuthUser) (string, bool, error) {
-	// Validate required fields before creating/updating
-	if oauthUser.ID == "" {
+	if profile.ProviderUserID == "" {
 		return "", false, fmt.Errorf("user ID is empty - cannot create/update user")
 	}
-	if oauthUser.Email == "" {
+	if profile.Email == "" {
 		return "", false, fmt.Errorf("user email is empty - cannot create/update user")
 	}
-	if oauthUser.Name == "" {
+	if profile.DisplayName == "" {
 		return "", false, fmt.Errorf("user name is empty - cannot create/update user")
 	}
-
-	log.Printf("👤 Creating/updating user: ID=%s, Email=%s, Name=%s", oauthUser.ID, oauthUser.Email, oauthUser.Name)
-
-	// First check if a user exists with this email (account linking)
-	existingUserByEmail, err := h.userRepo.GetUserByEmail(oauthUser.Email)
-	if err != nil && err.Error() != "user not found" {
-		return "", false, fmt.Errorf("failed to check existing user by email: %w", err)
+	if !profile.EmailVerified {
+		return "", false, fmt.Errorf("user email is not verified")
 	}
 
-	// Then check if user exists with this OAuth ID
-	existingUserByID, err := h.userRepo.GetUserByID(oauthUser.ID)
-	if err != nil && err.Error() != "user not found" {
-		return "", false, fmt.Errorf("failed to check existing user by ID: %w", err)
-	}
+	log.Printf("Resolving OAuth identity: provider=%s, provider_user_id=%s, email=%s", profile.Provider, profile.ProviderUserID, profile.Email)
 
-	// Determine which user account to use
 	var existingUser *models.User
-	if existingUserByEmail != nil {
-		// Account linking: user exists with this email but different OAuth provider
-		log.Printf("🔗 Account linking detected: Email %s exists with ID %s, linking new OAuth ID %s",
-			oauthUser.Email, existingUserByEmail.ID, oauthUser.ID)
-		existingUser = existingUserByEmail
-	} else if existingUserByID != nil {
-		// Normal case: same OAuth provider login
-		existingUser = existingUserByID
+	identity, err := h.authIdentityRepo.GetByProviderSubject(profile.Provider, profile.ProviderUserID)
+	if err != nil {
+		return "", false, err
+	}
+	if identity != nil {
+		existingUser, err = h.userRepo.GetUserByID(identity.UserID)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to load user for auth identity: %w", err)
+		}
+	}
+
+	if existingUser == nil {
+		existingUserByEmail, err := h.userRepo.GetUserByEmail(profile.Email)
+		if err != nil && err.Error() != "user not found" {
+			return "", false, fmt.Errorf("failed to check existing user by email: %w", err)
+		}
+		if existingUserByEmail != nil {
+			log.Printf("Linking OAuth identity by email: provider=%s, email=%s, user_id=%s", profile.Provider, profile.Email, existingUserByEmail.ID)
+			existingUser = existingUserByEmail
+		}
 	}
 
 	if existingUser != nil {
-		// Update existing user with latest info from OAuth provider
 		avatarURL := existingUser.AvatarURL
-		if oauthUser.Picture != "" {
-			avatarURL = &oauthUser.Picture
+		if profile.AvatarURL != "" {
+			avatarURL = &profile.AvatarURL
 		}
 
 		user := &models.User{
-			ID:        existingUser.ID, // Keep the original account ID
-			Email:     oauthUser.Email,
-			Name:      oauthUser.Name,
+			ID:        existingUser.ID,
+			Email:     profile.Email,
+			Name:      profile.DisplayName,
 			AvatarURL: avatarURL,
-			Plan:      existingUser.Plan,   // Preserve existing plan
-			Status:    existingUser.Status, // Preserve existing status
+			Plan:      existingUser.Plan,
+			Status:    existingUser.Status,
 			UpdatedAt: time.Now(),
 		}
 
-		log.Printf("📝 Updating existing user %s with new OAuth data", existingUser.ID)
-		err := h.userRepo.UpdateUser(existingUser.ID, user)
-		if err != nil {
+		log.Printf("Updating existing user %s with OAuth profile data", existingUser.ID)
+		if err := h.userRepo.UpdateUser(existingUser.ID, user); err != nil {
 			return "", false, err
 		}
-		return existingUser.ID, false, nil // Return the linked account's ID
-	} else {
-		// Create new user
-		var avatarURL *string
-		if oauthUser.Picture != "" {
-			avatarURL = &oauthUser.Picture
-		}
-
-		user := &models.User{
-			ID:        oauthUser.ID,
-			Email:     oauthUser.Email,
-			Name:      oauthUser.Name,
-			AvatarURL: avatarURL,
-			Plan:      models.UserPlanFree,
-			Status:    models.UserStatusActive,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		log.Printf("✨ Creating new user account for %s", oauthUser.Email)
-		err := h.userRepo.CreateUser(user)
-		if err != nil {
+		if err := h.upsertAuthIdentityForUserProvider(existingUser.ID, profile); err != nil {
 			return "", false, err
 		}
-		return oauthUser.ID, true, nil // Return the new account's ID
+		return existingUser.ID, false, nil
 	}
+
+	var avatarURL *string
+	if profile.AvatarURL != "" {
+		avatarURL = &profile.AvatarURL
+	}
+
+	user := &models.User{
+		Email:     profile.Email,
+		Name:      profile.DisplayName,
+		AvatarURL: avatarURL,
+		Plan:      models.UserPlanFree,
+		Status:    models.UserStatusActive,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	log.Printf("Creating new app user account for %s", profile.Email)
+	if err := h.userRepo.CreateUser(user); err != nil {
+		return "", false, err
+	}
+	if err := h.upsertAuthIdentity(user.ID, profile); err != nil {
+		return "", false, err
+	}
+	return user.ID, true, nil
+}
+
+func (h *OAuthHandler) upsertAuthIdentity(userID string, profile *authproviders.NormalizedAuthProfile) error {
+	return h.authIdentityRepo.Upsert(h.buildAuthIdentity(userID, profile))
+}
+
+func (h *OAuthHandler) upsertAuthIdentityForUserProvider(userID string, profile *authproviders.NormalizedAuthProfile) error {
+	return h.authIdentityRepo.UpsertForUserProvider(h.buildAuthIdentity(userID, profile))
+}
+
+func (h *OAuthHandler) buildAuthIdentity(userID string, profile *authproviders.NormalizedAuthProfile) *models.UserAuthIdentity {
+	providerEmail := profile.Email
+	displayName := profile.DisplayName
+	avatarURL := profile.AvatarURL
+
+	rawClaims, _ := json.Marshal(profile.RawClaims)
+
+	identity := &models.UserAuthIdentity{
+		UserID:         userID,
+		Provider:       profile.Provider,
+		ProviderUserID: profile.ProviderUserID,
+		ProviderEmail:  &providerEmail,
+		EmailVerified:  profile.EmailVerified,
+		DisplayName:    &displayName,
+		AvatarURL:      &avatarURL,
+		RawClaims:      rawClaims,
+	}
+	if avatarURL == "" {
+		identity.AvatarURL = nil
+	}
+
+	return identity
 }
 
 // renderSuccessPage renders a success page after OAuth completion
@@ -667,45 +687,4 @@ func (h *OAuthHandler) renderErrorPage(c *gin.Context, title, message string) {
 
 	c.Header("Content-Type", "text/html")
 	c.String(http.StatusOK, html)
-}
-
-// storeOAuthTokens stores OAuth tokens in the database
-func (h *OAuthHandler) storeOAuthTokens(userID, provider string, token *oauth2.Token) error {
-	if token == nil {
-		return fmt.Errorf("token is nil")
-	}
-
-	// Convert scopes array to comma-separated string
-	var scopesStr *string
-	if provider == "google" && len(h.googleConfig.Scopes) > 0 {
-		scopes := strings.Join(h.googleConfig.Scopes, ",")
-		scopesStr = &scopes
-	}
-
-	// Prepare OAuth token model
-	oauthToken := &models.OAuthToken{
-		UserID:      userID,
-		Provider:    provider,
-		AccessToken: token.AccessToken,
-		Scopes:      scopesStr,
-	}
-
-	// Add refresh token if present
-	if token.RefreshToken != "" {
-		oauthToken.RefreshToken = &token.RefreshToken
-	}
-
-	// Add expiry if present and valid
-	if !token.Expiry.IsZero() {
-		oauthToken.ExpiresAt = &token.Expiry
-	}
-
-	// Store in database (upsert operation)
-	err := h.oauthTokenRepo.Create(oauthToken)
-	if err != nil {
-		return fmt.Errorf("failed to store OAuth token: %w", err)
-	}
-
-	log.Printf("🔐 Stored OAuth tokens for user %s (provider: %s)", userID, provider)
-	return nil
 }

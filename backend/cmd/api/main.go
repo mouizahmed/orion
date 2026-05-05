@@ -71,7 +71,7 @@ func main() {
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
-	oauthTokenRepo := repository.NewOAuthTokenRepository(db)
+	authIdentityRepo := repository.NewUserAuthIdentityRepository(db)
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
@@ -118,7 +118,7 @@ func main() {
 	go w.Start(workerCtx)
 
 	// Initialize handlers
-	oauthHandler := handlers.NewOAuthHandler(userRepo, oauthTokenRepo, redisClient)
+	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient)
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)

@@ -18,6 +18,29 @@ func NewUserRepository(db *database.DB) *UserRepository {
 }
 
 func (r *UserRepository) CreateUser(user *models.User) error {
+	if user.ID == "" {
+		query := `
+			INSERT INTO users (email, name, avatar_url, plan, status, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			RETURNING id
+		`
+
+		err := r.db.QueryRow(query,
+			user.Email,
+			user.Name,
+			user.AvatarURL,
+			user.Plan,
+			user.Status,
+			user.CreatedAt,
+			user.UpdatedAt,
+		).Scan(&user.ID)
+		if err != nil {
+			return fmt.Errorf("failed to create user: %w", err)
+		}
+
+		return nil
+	}
+
 	query := `
 		INSERT INTO users (id, email, name, avatar_url, plan, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -67,7 +90,7 @@ func (r *UserRepository) UpdateUser(id string, user *models.User) error {
 
 // GetUserByEmail finds a user by email address
 func (r *UserRepository) GetUserByEmail(email string) (*models.User, error) {
-	query := `SELECT u.id, u.email, u.name, u.avatar_url, u.plan, u.status, u.created_at, u.updated_at, u.deleted_at FROM users u WHERE u.email = $1 AND u.deleted_at IS NULL LIMIT 1`
+	query := `SELECT u.id, u.email, u.name, u.avatar_url, u.plan, u.status, u.created_at, u.updated_at, u.deleted_at FROM users u WHERE lower(u.email) = lower($1) AND u.deleted_at IS NULL LIMIT 1`
 
 	var user models.User
 	err := r.db.QueryRow(query, email).Scan(
