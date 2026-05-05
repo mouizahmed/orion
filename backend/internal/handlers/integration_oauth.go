@@ -22,9 +22,10 @@ import (
 const integrationOAuthStatePrefix = "integration_oauth_state"
 
 type IntegrationOAuthHandler struct {
-	connectionRepo repository.IntegrationConnectionRepository
-	redisClient    *redis.Client
-	googleConfig   *oauth2.Config
+	connectionRepo  repository.IntegrationConnectionRepository
+	redisClient     *redis.Client
+	googleConfig    *oauth2.Config
+	microsoftConfig *oauth2.Config
 }
 
 type IntegrationOAuthState struct {
@@ -60,7 +61,17 @@ func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionR
 			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 			Endpoint:     google.Endpoint,
 			Scopes:       googleIntegrationScopes("calendar"),
-			RedirectURL:  getIntegrationRedirectURL(),
+			RedirectURL:  getIntegrationRedirectURL(string(models.IntegrationProviderGoogle)),
+		},
+		microsoftConfig: &oauth2.Config{
+			ClientID:     os.Getenv("MICROSOFT_CLIENT_ID"),
+			ClientSecret: os.Getenv("MICROSOFT_CLIENT_SECRET"),
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+				TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+			},
+			Scopes:      microsoftIntegrationScopes("calendar"),
+			RedirectURL: getIntegrationRedirectURL(string(models.IntegrationProviderMicrosoft)),
 		},
 	}
 }
@@ -85,7 +96,7 @@ func (h *IntegrationOAuthHandler) StartConnection(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "Unsupported platform"})
 		return
 	}
-	if provider != string(models.IntegrationProviderGoogle) {
+	if provider != string(models.IntegrationProviderGoogle) && provider != string(models.IntegrationProviderMicrosoft) {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "Unsupported provider"})
 		return
 	}
@@ -93,20 +104,6 @@ func (h *IntegrationOAuthHandler) StartConnection(c *gin.Context) {
 	requiredScopes, err := integrationScopes(provider, feature)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": err.Error()})
-		return
-	}
-
-	alreadyConnected, err := h.hasConnectionWithScopes(userID, provider, requiredScopes)
-	if err != nil {
-		log.Printf("Failed to check existing integration connection: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to start connection"})
-		return
-	}
-	if alreadyConnected {
-		c.JSON(http.StatusOK, gin.H{
-			"status":            "success",
-			"already_connected": true,
-		})
 		return
 	}
 
@@ -138,11 +135,8 @@ func (h *IntegrationOAuthHandler) StartConnection(c *gin.Context) {
 		return
 	}
 
-	config := h.oauthConfigForScopes(requiredScopes)
-	authURL := config.AuthCodeURL(state,
-		oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
-		oauth2.SetAuthURLParam("prompt", "consent"))
+	config := h.oauthConfigForProviderAndScopes(provider, requiredScopes)
+	authURL := integrationAuthCodeURL(provider, config, state)
 
 	log.Printf("Started integration OAuth flow (user: %s, provider: %s, feature: %s, platform: %s)", userID, provider, feature, platform)
 	c.JSON(http.StatusOK, gin.H{
@@ -184,21 +178,22 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	config := h.oauthConfigForScopes(scopes)
-	token, googleUser, err := exchangeGoogleIntegrationCode(config, code)
+	config := h.oauthConfigForProviderAndScopes(statePayload.Provider, scopes)
+	token, integrationUser, err := exchangeIntegrationCode(statePayload.Provider, config, code)
 	if err != nil {
-		log.Printf("Failed to complete Google integration OAuth: %v", err)
+		log.Printf("Failed to complete %s integration OAuth: %v", statePayload.Provider, err)
 		h.redirectIntegrationCallback(c, false, statePayload.Provider, statePayload.Feature, statePayload.Platform, "server_error", "Failed to connect calendar account")
 		return
 	}
 
 	scopesStr := grantedScopes(token, scopes)
+	provider := models.IntegrationProvider(statePayload.Provider)
 	connection := &models.IntegrationConnection{
 		UserID:            statePayload.UserID,
-		Provider:          models.IntegrationProviderGoogle,
-		ProviderAccountID: googleUser.ID,
-		ProviderEmail:     stringPtrIfNotEmpty(googleUser.Email),
-		DisplayName:       stringPtrIfNotEmpty(googleUser.Name),
+		Provider:          provider,
+		ProviderAccountID: integrationUser.ID,
+		ProviderEmail:     stringPtrIfNotEmpty(integrationUser.Email),
+		DisplayName:       stringPtrIfNotEmpty(integrationUser.Name),
 		AccessToken:       token.AccessToken,
 		Scopes:            &scopesStr,
 	}
@@ -319,24 +314,31 @@ func (h *IntegrationOAuthHandler) consumeIntegrationOAuthState(state string) (*I
 	return &payload, nil
 }
 
-func (h *IntegrationOAuthHandler) hasConnectionWithScopes(userID, provider string, requiredScopes []string) (bool, error) {
-	connections, err := h.connectionRepo.GetActiveByUserAndProvider(userID, provider)
-	if err != nil {
-		return false, err
+func (h *IntegrationOAuthHandler) oauthConfigForProviderAndScopes(provider string, scopes []string) *oauth2.Config {
+	var config oauth2.Config
+	switch provider {
+	case string(models.IntegrationProviderMicrosoft):
+		config = *h.microsoftConfig
+	default:
+		config = *h.googleConfig
 	}
-	for _, connection := range connections {
-		if connection.Scopes != nil && hasAllScopes(*connection.Scopes, requiredScopes) {
-			return true, nil
-		}
-	}
-	return false, nil
+	config.Scopes = scopes
+	config.RedirectURL = getIntegrationRedirectURL(provider)
+	return &config
 }
 
-func (h *IntegrationOAuthHandler) oauthConfigForScopes(scopes []string) *oauth2.Config {
-	config := *h.googleConfig
-	config.Scopes = scopes
-	config.RedirectURL = getIntegrationRedirectURL()
-	return &config
+func integrationAuthCodeURL(provider string, config *oauth2.Config, state string) string {
+	switch provider {
+	case string(models.IntegrationProviderMicrosoft):
+		return config.AuthCodeURL(state,
+			oauth2.AccessTypeOffline,
+			oauth2.SetAuthURLParam("prompt", "consent"))
+	default:
+		return config.AuthCodeURL(state,
+			oauth2.AccessTypeOffline,
+			oauth2.SetAuthURLParam("include_granted_scopes", "true"),
+			oauth2.SetAuthURLParam("prompt", "consent"))
+	}
 }
 
 func (h *IntegrationOAuthHandler) redirectIntegrationCallback(c *gin.Context, success bool, provider, feature, platform, errorCode, errorDescription string) {
@@ -362,7 +364,31 @@ type googleIntegrationUser struct {
 	Name  string `json:"name"`
 }
 
-func exchangeGoogleIntegrationCode(config *oauth2.Config, code string) (*oauth2.Token, *googleIntegrationUser, error) {
+type microsoftIntegrationUser struct {
+	ID                string `json:"id"`
+	DisplayName       string `json:"displayName"`
+	Mail              string `json:"mail"`
+	UserPrincipalName string `json:"userPrincipalName"`
+}
+
+type integrationUser struct {
+	ID    string
+	Email string
+	Name  string
+}
+
+func exchangeIntegrationCode(provider string, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
+	switch provider {
+	case string(models.IntegrationProviderMicrosoft):
+		return exchangeMicrosoftIntegrationCode(config, code)
+	case string(models.IntegrationProviderGoogle):
+		return exchangeGoogleIntegrationCode(config, code)
+	default:
+		return nil, nil, fmt.Errorf("unsupported provider: %s", provider)
+	}
+}
+
+func exchangeGoogleIntegrationCode(config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
 	token, err := config.Exchange(oauth2.NoContext, code)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
@@ -392,7 +418,54 @@ func exchangeGoogleIntegrationCode(config *oauth2.Config, code string) (*oauth2.
 		return nil, nil, fmt.Errorf("Google user info did not include an account ID")
 	}
 
-	return token, &googleUser, nil
+	return token, &integrationUser{
+		ID:    googleUser.ID,
+		Email: googleUser.Email,
+		Name:  googleUser.Name,
+	}, nil
+}
+
+func exchangeMicrosoftIntegrationCode(config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
+	token, err := config.Exchange(oauth2.NoContext, code)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
+	}
+
+	client := config.Client(oauth2.NoContext, token)
+	resp, err := client.Get("https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get Microsoft user info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, nil, fmt.Errorf("Microsoft user info returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read Microsoft user info: %w", err)
+	}
+
+	var microsoftUser microsoftIntegrationUser
+	if err := json.Unmarshal(body, &microsoftUser); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse Microsoft user info: %w", err)
+	}
+	if microsoftUser.ID == "" {
+		return nil, nil, fmt.Errorf("Microsoft user info did not include an account ID")
+	}
+
+	email := microsoftUser.Mail
+	if email == "" {
+		email = microsoftUser.UserPrincipalName
+	}
+
+	return token, &integrationUser{
+		ID:    microsoftUser.ID,
+		Email: email,
+		Name:  microsoftUser.DisplayName,
+	}, nil
 }
 
 func integrationScopes(provider, feature string) ([]string, error) {
@@ -404,8 +477,24 @@ func integrationScopes(provider, feature string) ([]string, error) {
 		default:
 			return nil, fmt.Errorf("Unsupported Google integration feature")
 		}
+	case string(models.IntegrationProviderMicrosoft):
+		switch feature {
+		case "calendar":
+			return microsoftIntegrationScopes(feature), nil
+		default:
+			return nil, fmt.Errorf("Unsupported Microsoft integration feature")
+		}
 	default:
 		return nil, fmt.Errorf("Unsupported provider")
+	}
+}
+
+func microsoftIntegrationScopes(feature string) []string {
+	switch feature {
+	case "calendar":
+		return []string{"openid", "email", "profile", "offline_access", "User.Read", "Calendars.Read"}
+	default:
+		return []string{"openid", "email", "profile", "offline_access", "User.Read"}
 	}
 }
 
@@ -427,24 +516,17 @@ func grantedScopes(token *oauth2.Token, fallback []string) string {
 	return strings.Join(fallback, " ")
 }
 
-func hasAllScopes(granted string, required []string) bool {
-	available := map[string]bool{}
-	for _, scope := range strings.FieldsFunc(granted, func(r rune) bool {
-		return r == ' ' || r == ','
-	}) {
-		if scope != "" {
-			available[scope] = true
+func getIntegrationRedirectURL(provider string) string {
+	if provider == string(models.IntegrationProviderMicrosoft) {
+		if value := os.Getenv("MICROSOFT_INTEGRATION_REDIRECT_URL"); value != "" {
+			return value
 		}
-	}
-	for _, scope := range required {
-		if !available[scope] {
-			return false
+		if value := os.Getenv("MICROSOFT_REDIRECT_URL"); value != "" {
+			return strings.Replace(value, "/auth/callback", "/integrations/oauth/callback", 1)
 		}
+		return "http://localhost:8080/integrations/oauth/callback"
 	}
-	return true
-}
 
-func getIntegrationRedirectURL() string {
 	if value := os.Getenv("GOOGLE_INTEGRATION_REDIRECT_URL"); value != "" {
 		return value
 	}

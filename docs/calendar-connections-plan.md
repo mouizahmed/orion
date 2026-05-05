@@ -4,7 +4,7 @@
 
 Separate application sign-in from calendar account connection.
 
-Orionly should let users sign in without granting calendar access, then explicitly connect one or more calendar accounts from desktop settings. The first implementation should support Google Calendar, but the data model and API should be ready for multiple Google accounts and future Microsoft Outlook support.
+Orionly should let users sign in without granting calendar access, then explicitly connect one or more Google Calendar and Microsoft Outlook accounts from desktop settings.
 
 ## Current State
 
@@ -38,12 +38,10 @@ Login should not request `calendar.readonly`.
 
 Calendar connection should be a separate OAuth flow started from Settings -> Calendar.
 
-Expected desktop behavior:
+Current desktop behavior:
 
-- If no calendar accounts are connected, show `Connect calendar`.
-- If one or more calendar accounts are connected, show `Add calendar account`.
-- The first provider option is `Google Calendar`.
-- Later provider option: `Microsoft Outlook`.
+- Calendar settings shows an `Add` provider dropdown.
+- Provider options are `Google Calendar` and `Outlook`.
 - Connected accounts are shown separately from individual calendars.
 - Each connected account can be disconnected independently.
 - Individual calendars under a connected account can be shown or hidden.
@@ -114,7 +112,7 @@ create table integration_connections (
 Provider values:
 
 - `google`
-- `microsoft` (later)
+- `microsoft`
 - `notion` (later -- connection represents a workspace/bot install, not a normal email account; use `provider_account_id` for the install/workspace ID and `metadata` for workspace details)
 
 `provider_account_id` is required for all providers. For providers that do not expose a normal user account ID, store the most stable provider-specific installation or workspace identifier instead. This avoids duplicate rows caused by nullable values in the `(user_id, provider, provider_account_id)` unique constraint.
@@ -524,7 +522,7 @@ Update `DashboardSettingsPage.tsx`:
 - Load `/api/integrations/connections`.
 - Load `/api/calendar/calendars`.
 - Group calendars by connection.
-- Add `Connect calendar` or `Add calendar account` button.
+- Add an `Add` provider dropdown for Google Calendar and Outlook.
 - Wire `Disconnect` to `DELETE /api/integrations/connections/:connectionID`.
 - Wire calendar toggles to `PATCH /api/calendar/connections/:connectionID/calendars/:calendarID`.
 - Disable buttons while requests are in flight.
@@ -534,7 +532,9 @@ Suggested UI structure:
 
 ```txt
 Calendar accounts
-  Google - person@company.com
+  Google Calendar - person@company.com
+    Disconnect
+  Microsoft Outlook - person@company.com
     Disconnect
 
 Visible calendars
@@ -582,18 +582,18 @@ They should tolerate:
 
 ### Phase 3: Calendar Reads Prefer New Connections
 
-- Update `calendar.go` to use `integration_connections` filtered by `provider = 'google'`.
+- Update `calendar.go` to use active calendar-capable `integration_connections` for `provider in ('google', 'microsoft')`.
 - Optionally fall back to old `user_oauth_tokens` while migration is in progress.
 
 Fallback behavior:
 
-- If active `integration_connections` exist for `provider = 'google'`, use only those.
+- If active calendar-capable `integration_connections` exist, use only those.
 - If none exist but a legacy Google token exists in `user_oauth_tokens`, optionally surface it as a legacy connection or show a reconnect prompt.
 
 Recommended behavior:
 
 - Do not silently migrate legacy login tokens because users did not explicitly connect calendar under the new model.
-- Show `Connect calendar` and let them grant calendar access intentionally.
+- Show the `Add` dropdown and let them grant calendar access intentionally.
 
 ### Phase 4: Wire Desktop Settings
 
@@ -718,10 +718,11 @@ Backend tests:
 Desktop tests/manual checks:
 
 - New user can sign in without calendar permissions.
-- Empty settings state shows `Connect calendar`.
+- Empty settings state shows the `Add` provider dropdown.
 - Connect opens browser OAuth.
 - Successful connect refreshes settings and upcoming meetings.
 - Multiple Google accounts appear separately.
+- Multiple Outlook accounts appear separately.
 - Disconnect removes one account without affecting the other.
 - Calendar visibility toggle affects upcoming meetings.
 - Calendar page handles no connected calendars.
@@ -742,11 +743,11 @@ Desktop tests/manual checks:
 
 ## Open Decisions
 
-- Legacy `user_oauth_tokens` calendar tokens should be ignored or shown as reconnect prompts. Recommendation below: show `Connect calendar` and do not silently migrate them.
+- Legacy `user_oauth_tokens` calendar tokens should be ignored or shown as reconnect prompts. Recommendation below: show the `Add` dropdown and do not silently migrate them.
 - Provider token revocation during disconnect can be best-effort in the first release. Local disconnect remains authoritative.
 
 ## Recommendation
 
 Use soft disconnect with `status = 'disconnected'` and `disconnected_at`, support `needs_reconnect` immediately, do not silently migrate legacy calendar tokens, and default visible calendars from provider `selected || primary`.
 
-This gives users clear consent, supports multiple accounts, preserves auditability, and keeps the first implementation focused on Google Calendar while avoiding a second schema redesign for Microsoft or multiple Google accounts.
+This gives users clear consent, supports multiple Google and Outlook accounts, preserves auditability, and keeps calendar access separate from app login.

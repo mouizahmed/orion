@@ -391,10 +391,7 @@ export function setupIpcHandlers() {
           }
         }
 
-        const result = (await response.json()) as { auth_url?: unknown; already_connected?: unknown }
-        if (result.already_connected === true) {
-          return { success: true }
-        }
+        const result = (await response.json()) as { auth_url?: unknown }
         if (typeof result.auth_url !== 'string' || result.auth_url.length === 0) {
           return { success: false, error: 'Integration connection did not return an auth URL' }
         }

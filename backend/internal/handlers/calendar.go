@@ -172,7 +172,7 @@ func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
 func (h *CalendarHandler) getCalendars(userID string) ([]*CalendarSource, error) {
 	var allCalendars []*CalendarSource
 
-	connections, err := h.connectionRepo.GetActiveByUserAndProvider(userID, string(models.IntegrationProviderGoogle))
+	connections, err := h.getCalendarConnections(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get calendar connections: %w", err)
 	}
@@ -196,7 +196,7 @@ func (h *CalendarHandler) getCalendars(userID string) ([]*CalendarSource, error)
 			connection = refreshedConnection
 		}
 
-		calendars, err := h.getGoogleCalendars(connection)
+		calendars, err := h.getCalendarsForConnection(connection)
 		if err != nil {
 			log.Printf("calendar: failed to fetch calendars for connection %s: %v", connection.ID, err)
 			continue
@@ -218,7 +218,7 @@ func (h *CalendarHandler) getCalendars(userID string) ([]*CalendarSource, error)
 func (h *CalendarHandler) getUpcomingEvents(userID string, limit int) ([]*CalendarEvent, error) {
 	var allEvents []*CalendarEvent
 
-	connections, err := h.connectionRepo.GetActiveByUserAndProvider(userID, string(models.IntegrationProviderGoogle))
+	connections, err := h.getCalendarConnections(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get calendar connections: %w", err)
 	}
@@ -242,7 +242,7 @@ func (h *CalendarHandler) getUpcomingEvents(userID string, limit int) ([]*Calend
 			connection = refreshedConnection
 		}
 
-		events, err := h.getGoogleCalendarEvents(userID, connection, limit)
+		events, err := h.getCalendarEventsForConnection(userID, connection, limit)
 		if err != nil {
 			log.Printf("calendar: failed to fetch events for connection %s: %v", connection.ID, err)
 			continue
@@ -260,6 +260,44 @@ func (h *CalendarHandler) getUpcomingEvents(userID string, limit int) ([]*Calend
 	}
 
 	return allEvents, nil
+}
+
+func (h *CalendarHandler) getCalendarConnections(userID string) ([]*models.IntegrationConnection, error) {
+	connections, err := h.connectionRepo.GetActiveByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	calendarConnections := make([]*models.IntegrationConnection, 0, len(connections))
+	for _, connection := range connections {
+		switch connection.Provider {
+		case models.IntegrationProviderGoogle, models.IntegrationProviderMicrosoft:
+			calendarConnections = append(calendarConnections, connection)
+		}
+	}
+	return calendarConnections, nil
+}
+
+func (h *CalendarHandler) getCalendarsForConnection(connection *models.IntegrationConnection) ([]*CalendarSource, error) {
+	switch connection.Provider {
+	case models.IntegrationProviderGoogle:
+		return h.getGoogleCalendars(connection)
+	case models.IntegrationProviderMicrosoft:
+		return h.getMicrosoftCalendars(connection)
+	default:
+		return nil, fmt.Errorf("unsupported calendar provider: %s", connection.Provider)
+	}
+}
+
+func (h *CalendarHandler) getCalendarEventsForConnection(userID string, connection *models.IntegrationConnection, limit int) ([]*CalendarEvent, error) {
+	switch connection.Provider {
+	case models.IntegrationProviderGoogle:
+		return h.getGoogleCalendarEvents(userID, connection, limit)
+	case models.IntegrationProviderMicrosoft:
+		return h.getMicrosoftCalendarEvents(userID, connection, limit)
+	default:
+		return nil, fmt.Errorf("unsupported calendar provider: %s", connection.Provider)
+	}
 }
 
 func (h *CalendarHandler) refreshConnectionTokenIfNeeded(userID string, connection *models.IntegrationConnection) error {
@@ -490,21 +528,7 @@ func (h *CalendarHandler) getGoogleCalendarEventsForCalendar(connection *models.
 
 	var events []*CalendarEvent
 	for _, item := range googleResponse.Items {
-		stableEventID := fmt.Sprintf("google:%s:%s:%s", connection.ID, calendar.ID, item.ID)
-		event := &CalendarEvent{
-			ID:           stableEventID,
-			ProviderID:   item.ID,
-			ConnectionID: connection.ID,
-			AccountEmail: stringValue(connection.ProviderEmail),
-			Title:        item.Summary,
-			Location:     item.Location,
-			Description:  item.Description,
-			MeetingLink:  item.HangoutLink,
-			CalendarID:   calendar.ID,
-			CalendarName: calendar.Name,
-			Color:        calendar.Color,
-			Provider:     "google",
-		}
+		event := newCalendarEvent("google", connection, calendar, item.ID, item.Summary, item.Location, item.Description, item.HangoutLink)
 
 		if event.MeetingLink == "" {
 			for _, entryPoint := range item.ConferenceData.EntryPoints {
@@ -515,11 +539,7 @@ func (h *CalendarHandler) getGoogleCalendarEventsForCalendar(connection *models.
 			}
 		}
 
-		if item.Organizer.DisplayName != "" {
-			event.Organizer = item.Organizer.DisplayName
-		} else if item.Organizer.Email != "" {
-			event.Organizer = item.Organizer.Email
-		}
+		event.Organizer = firstNonEmpty(item.Organizer.DisplayName, item.Organizer.Email)
 
 		var attendees []CalendarAttendee
 		for _, attendee := range item.Attendees {
@@ -560,6 +580,262 @@ func (h *CalendarHandler) getGoogleCalendarEventsForCalendar(connection *models.
 	return events, nil
 }
 
+func (h *CalendarHandler) getMicrosoftCalendars(connection *models.IntegrationConnection) ([]*CalendarSource, error) {
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", "https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Microsoft calendars API error: %s", string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var microsoftResponse struct {
+		Value []struct {
+			ID                string `json:"id"`
+			Name              string `json:"name"`
+			Color             string `json:"color"`
+			IsDefaultCalendar bool   `json:"isDefaultCalendar"`
+			CanEdit           bool   `json:"canEdit"`
+		} `json:"value"`
+	}
+
+	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
+		return nil, err
+	}
+
+	calendars := make([]*CalendarSource, 0, len(microsoftResponse.Value))
+	for _, item := range microsoftResponse.Value {
+		color := microsoftCalendarColor(item.Color)
+		calendars = append(calendars, &CalendarSource{
+			ID:              item.ID,
+			ConnectionID:    connection.ID,
+			AccountEmail:    stringValue(connection.ProviderEmail),
+			Name:            item.Name,
+			Provider:        "microsoft",
+			Color:           color,
+			BackgroundColor: color,
+			Primary:         item.IsDefaultCalendar,
+			Selected:        true,
+			Visible:         defaultCalendarVisible(item.IsDefaultCalendar, true),
+			AccessRole:      microsoftCalendarAccessRole(item.CanEdit),
+		})
+	}
+
+	return calendars, nil
+}
+
+func (h *CalendarHandler) getMicrosoftCalendarEvents(userID string, connection *models.IntegrationConnection, limit int) ([]*CalendarEvent, error) {
+	calendars, err := h.getMicrosoftCalendars(connection)
+	if err != nil {
+		return nil, err
+	}
+
+	preferences, err := h.preferenceRepo.GetVisibleCalendarIDs(userID, connection.ID)
+	if err != nil {
+		log.Printf("calendar: failed to fetch preferences for connection %s: %v", connection.ID, err)
+		preferences = map[string]bool{}
+	}
+	applyCalendarVisibility(calendars, preferences)
+
+	var allEvents []*CalendarEvent
+	for _, calendar := range calendars {
+		if !calendar.Visible {
+			continue
+		}
+
+		events, err := h.getMicrosoftCalendarEventsForCalendar(connection, calendar, limit)
+		if err != nil {
+			continue
+		}
+		allEvents = append(allEvents, events...)
+	}
+
+	return allEvents, nil
+}
+
+func (h *CalendarHandler) getMicrosoftCalendarEventsForCalendar(connection *models.IntegrationConnection, calendar *CalendarSource, limit int) ([]*CalendarEvent, error) {
+	client := &http.Client{}
+
+	start := time.Now().UTC()
+	end := start.AddDate(0, 3, 0)
+	values := url.Values{}
+	values.Set("startDateTime", start.Format(time.RFC3339))
+	values.Set("endDateTime", end.Format(time.RFC3339))
+	values.Set("$orderby", "start/dateTime")
+	values.Set("$top", strconv.Itoa(limit))
+	values.Set("$select", "id,subject,start,end,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees")
+
+	calendarID := url.PathEscape(calendar.ID)
+	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView?%s", calendarID, values.Encode())
+
+	req, err := http.NewRequest("GET", requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
+	req.Header.Set("Prefer", `outlook.timezone="UTC"`)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var microsoftResponse struct {
+		Value []struct {
+			ID      string `json:"id"`
+			Subject string `json:"subject"`
+			Start   struct {
+				DateTime string `json:"dateTime"`
+			} `json:"start"`
+			End struct {
+				DateTime string `json:"dateTime"`
+			} `json:"end"`
+			Location struct {
+				DisplayName string `json:"displayName"`
+			} `json:"location"`
+			BodyPreview      string `json:"bodyPreview"`
+			OnlineMeetingURL string `json:"onlineMeetingUrl"`
+			OnlineMeeting    struct {
+				JoinURL string `json:"joinUrl"`
+			} `json:"onlineMeeting"`
+			Organizer struct {
+				EmailAddress struct {
+					Name    string `json:"name"`
+					Address string `json:"address"`
+				} `json:"emailAddress"`
+			} `json:"organizer"`
+			Attendees []struct {
+				EmailAddress struct {
+					Name    string `json:"name"`
+					Address string `json:"address"`
+				} `json:"emailAddress"`
+			} `json:"attendees"`
+		} `json:"value"`
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("Microsoft calendarView API error: %s", string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
+		return nil, err
+	}
+
+	var events []*CalendarEvent
+	for _, item := range microsoftResponse.Value {
+		meetingLink := item.OnlineMeetingURL
+		if meetingLink == "" {
+			meetingLink = item.OnlineMeeting.JoinURL
+		}
+		event := newCalendarEvent("microsoft", connection, calendar, item.ID, item.Subject, item.Location.DisplayName, item.BodyPreview, meetingLink)
+
+		event.Organizer = firstNonEmpty(item.Organizer.EmailAddress.Name, item.Organizer.EmailAddress.Address)
+
+		var attendees []CalendarAttendee
+		for _, attendee := range item.Attendees {
+			if attendee.EmailAddress.Name != "" || attendee.EmailAddress.Address != "" {
+				attendees = append(attendees, CalendarAttendee{
+					Name:  attendee.EmailAddress.Name,
+					Email: attendee.EmailAddress.Address,
+				})
+			}
+		}
+		event.Attendees = attendees
+
+		if startTime, err := parseMicrosoftDateTime(item.Start.DateTime); err == nil {
+			event.Start = startTime
+		}
+		if endTime, err := parseMicrosoftDateTime(item.End.DateTime); err == nil {
+			event.End = endTime
+		}
+
+		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, event.Attendees)
+
+		events = append(events, event)
+	}
+
+	return events, nil
+}
+
+func parseMicrosoftDateTime(value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, fmt.Errorf("missing Microsoft dateTime")
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+
+	layouts := []string{
+		"2006-01-02T15:04:05.9999999",
+		"2006-01-02T15:04:05.999999",
+		"2006-01-02T15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid Microsoft dateTime: %s", value)
+}
+
+func microsoftCalendarAccessRole(canEdit bool) string {
+	if canEdit {
+		return "writer"
+	}
+	return "reader"
+}
+
+func microsoftCalendarColor(value string) string {
+	switch strings.ToLower(value) {
+	case "lightblue":
+		return "#5b9bd5"
+	case "lightgreen":
+		return "#70ad47"
+	case "lightorange":
+		return "#ed7d31"
+	case "lightgray":
+		return "#a5a5a5"
+	case "lightyellow":
+		return "#ffc000"
+	case "lightteal":
+		return "#00a2a5"
+	case "lightpink":
+		return "#ff99cc"
+	case "lightbrown":
+		return "#a0522d"
+	case "lightred":
+		return "#e06666"
+	case "maxcolor":
+		return "#7c3aed"
+	default:
+		return "#2563eb"
+	}
+}
+
 func applyCalendarVisibility(calendars []*CalendarSource, preferences map[string]bool) {
 	for _, calendar := range calendars {
 		if visible, ok := preferences[calendar.ID]; ok {
@@ -572,6 +848,32 @@ func applyCalendarVisibility(calendars []*CalendarSource, preferences map[string
 
 func defaultCalendarVisible(primary, selected bool) bool {
 	return primary || selected
+}
+
+func newCalendarEvent(provider string, connection *models.IntegrationConnection, calendar *CalendarSource, providerID, title, location, description, meetingLink string) *CalendarEvent {
+	return &CalendarEvent{
+		ID:           fmt.Sprintf("%s:%s:%s:%s", provider, connection.ID, calendar.ID, providerID),
+		ProviderID:   providerID,
+		ConnectionID: connection.ID,
+		AccountEmail: stringValue(connection.ProviderEmail),
+		Title:        title,
+		Location:     location,
+		Description:  description,
+		MeetingLink:  meetingLink,
+		CalendarID:   calendar.ID,
+		CalendarName: calendar.Name,
+		Color:        calendar.Color,
+		Provider:     provider,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func stringValue(value *string) string {

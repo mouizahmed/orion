@@ -176,7 +176,7 @@ function getAttendeeLabel(attendee: CalendarAttendee) {
 }
 
 function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
-  const providerLabel = event.provider === 'google' ? 'Google Calendar' : event.provider === 'microsoft' ? 'Microsoft Calendar' : 'Calendar'
+  const providerLabel = event.provider === 'google' ? 'Google Calendar' : event.provider === 'microsoft' ? 'Microsoft Outlook' : 'Calendar'
 
   return {
     id: event.id,

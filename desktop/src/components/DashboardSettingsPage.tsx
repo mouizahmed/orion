@@ -137,6 +137,21 @@ function providerLabel(provider: IntegrationConnection['provider'] | ConnectedCa
   }
 }
 
+function calendarProviderIcon(provider: IntegrationConnection['provider'] | ConnectedCalendar['provider']) {
+  switch (provider) {
+    case 'google':
+      return '/google-calendar-icon.svg'
+    case 'microsoft':
+      return '/microsoft-outlook-icon.svg'
+    default:
+      return null
+  }
+}
+
+function isCalendarProvider(provider: IntegrationConnection['provider']): provider is CalendarIntegrationProvider {
+  return provider === 'google' || provider === 'microsoft'
+}
+
 function groupCalendarsByConnection(calendars: ConnectedCalendar[]) {
   return calendars.reduce<Record<string, ConnectedCalendar[]>>((groups, calendar) => {
     const key = calendar.connection_id
@@ -531,7 +546,7 @@ export default function DashboardSettingsPage({
 
       setCalendarConnections(
         connectionsData.status === 'success' && Array.isArray(connectionsData.connections)
-          ? connectionsData.connections
+          ? connectionsData.connections.filter((connection: IntegrationConnection) => isCalendarProvider(connection.provider))
           : [],
       )
       setConnectedCalendars(
@@ -555,7 +570,7 @@ export default function DashboardSettingsPage({
 
   useEffect(() => {
     return desktopApi.integrations.onConnectionCompleted((event) => {
-      if (event.provider && event.provider !== 'google') return
+      if (event.provider && event.provider !== 'google' && event.provider !== 'microsoft') return
       if (event.feature && event.feature !== 'calendar') return
 
       if (!event.success) {
@@ -990,17 +1005,28 @@ export default function DashboardSettingsPage({
               ) : calendarConnections.length > 0 ? (
                 calendarConnections.map((connection) => {
                   const isDisconnecting = calendarAction === `disconnect:${connection.id}`
+                  const providerIcon = calendarProviderIcon(connection.provider)
                   return (
                     <div
                       key={connection.id}
                       className="flex min-h-14 items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 last:border-b-0 dark:border-white/10"
                     >
-                      <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-                          {providerLabel(connection.provider)}
-                        </div>
-                        <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                          {accountLabel(connection)}
+                      <div className="flex min-w-0 items-center gap-3">
+                        {providerIcon ? (
+                          <img
+                            src={providerIcon}
+                            alt=""
+                            aria-hidden="true"
+                            className="h-5 w-5 shrink-0"
+                          />
+                        ) : null}
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
+                            {providerLabel(connection.provider)}
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
+                            {accountLabel(connection)}
+                          </div>
                         </div>
                       </div>
                       <Button
