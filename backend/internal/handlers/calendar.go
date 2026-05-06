@@ -3,26 +3,23 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
-	"golang.org/x/oauth2"
 )
 
 type CalendarHandler struct {
 	connectionRepo repository.IntegrationConnectionRepository
 	preferenceRepo repository.CalendarPreferenceRepository
+	cacheRepo      repository.CalendarCacheRepository
+	syncService    *calendarservice.Service
 }
 
 type CalendarEvent struct {
@@ -33,6 +30,7 @@ type CalendarEvent struct {
 	Title        string             `json:"title"`
 	Start        time.Time          `json:"start"`
 	End          time.Time          `json:"end"`
+	AllDay       bool               `json:"all_day"`
 	Location     string             `json:"location,omitempty"`
 	Description  string             `json:"description,omitempty"`
 	MeetingLink  string             `json:"meeting_link,omitempty"`
@@ -69,10 +67,20 @@ type updateCalendarVisibilityRequest struct {
 	Visible *bool `json:"visible" binding:"required"`
 }
 
-func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository) *CalendarHandler {
+
+type calendarCacheMetadata struct {
+	Syncing      bool       `json:"syncing"`
+	Stale        bool       `json:"stale"`
+	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
+	LastError    string     `json:"last_error,omitempty"`
+}
+
+func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service) *CalendarHandler {
 	return &CalendarHandler{
 		connectionRepo: connectionRepo,
 		preferenceRepo: preferenceRepo,
+		cacheRepo:      cacheRepo,
+		syncService:    syncService,
 	}
 }
 
@@ -83,15 +91,23 @@ func (h *CalendarHandler) GetCalendars(c *gin.Context) {
 		return
 	}
 
-	calendars, err := h.getCalendars(userID)
+	calendars, err := h.getCachedCalendars(c.Request.Context(), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch calendars"})
 		return
 	}
+	metadata := h.getCacheMetadata(c.Request.Context(), userID, calendarservice.SyncScopeCalendars)
+	if metadata.Stale {
+		h.triggerBackgroundSync(userID, calendarservice.SyncScopeCalendars)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":    "success",
-		"calendars": calendars,
+		"status":         "success",
+		"calendars":      calendars,
+		"syncing":        metadata.Syncing,
+		"stale":          metadata.Stale,
+		"last_synced_at": metadata.LastSyncedAt,
+		"last_error":     metadata.LastError,
 	})
 }
 
@@ -108,16 +124,40 @@ func (h *CalendarHandler) GetUpcomingEvents(c *gin.Context) {
 		limit = 10
 	}
 
-	events, err := h.getUpcomingEvents(userID, limit)
+	events, err := h.getCachedUpcomingEvents(c.Request.Context(), userID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch calendar events"})
 		return
 	}
+	metadata := h.getCacheMetadata(c.Request.Context(), userID, calendarservice.SyncScopeEvents)
+	if metadata.Stale {
+		h.triggerBackgroundSync(userID, calendarservice.SyncScopeEvents)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status": "success",
-		"events": events,
+		"status":         "success",
+		"events":         events,
+		"syncing":        metadata.Syncing,
+		"stale":          metadata.Stale,
+		"last_synced_at": metadata.LastSyncedAt,
+		"last_error":     metadata.LastError,
 	})
+}
+
+func (h *CalendarHandler) Sync(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	if h.syncService == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Calendar sync is unavailable"})
+		return
+	}
+
+	h.triggerBackgroundSync(userID, calendarservice.SyncScopeAll)
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
 func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
@@ -169,751 +209,128 @@ func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
 	})
 }
 
-func (h *CalendarHandler) getCalendars(userID string) ([]*CalendarSource, error) {
-	var allCalendars []*CalendarSource
-
-	connections, err := h.getCalendarConnections(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get calendar connections: %w", err)
-	}
-
-	if len(connections) == 0 {
-		return []*CalendarSource{}, nil
-	}
-
-	for _, connection := range connections {
-		if connection.ExpiresAt != nil && time.Now().After(*connection.ExpiresAt) {
-			err := h.refreshConnectionTokenIfNeeded(userID, connection)
-			if err != nil {
-				log.Printf("calendar: failed to refresh connection %s for user %s: %v", connection.ID, userID, err)
-				continue
-			}
-			refreshedConnection, err := h.connectionRepo.GetByID(userID, connection.ID)
-			if err != nil {
-				log.Printf("calendar: failed to reload refreshed connection %s for user %s: %v", connection.ID, userID, err)
-				continue
-			}
-			connection = refreshedConnection
-		}
-
-		calendars, err := h.getCalendarsForConnection(connection)
-		if err != nil {
-			log.Printf("calendar: failed to fetch calendars for connection %s: %v", connection.ID, err)
-			continue
-		}
-
-		preferences, err := h.preferenceRepo.GetVisibleCalendarIDs(userID, connection.ID)
-		if err != nil {
-			log.Printf("calendar: failed to fetch preferences for connection %s: %v", connection.ID, err)
-			preferences = map[string]bool{}
-		}
-
-		applyCalendarVisibility(calendars, preferences)
-		allCalendars = append(allCalendars, calendars...)
-	}
-
-	return allCalendars, nil
-}
-
-func (h *CalendarHandler) getUpcomingEvents(userID string, limit int) ([]*CalendarEvent, error) {
-	var allEvents []*CalendarEvent
-
-	connections, err := h.getCalendarConnections(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get calendar connections: %w", err)
-	}
-
-	if len(connections) == 0 {
-		return []*CalendarEvent{}, nil
-	}
-
-	for _, connection := range connections {
-		if connection.ExpiresAt != nil && time.Now().After(*connection.ExpiresAt) {
-			err := h.refreshConnectionTokenIfNeeded(userID, connection)
-			if err != nil {
-				log.Printf("calendar: failed to refresh connection %s for user %s: %v", connection.ID, userID, err)
-				continue
-			}
-			refreshedConnection, err := h.connectionRepo.GetByID(userID, connection.ID)
-			if err != nil {
-				log.Printf("calendar: failed to reload refreshed connection %s for user %s: %v", connection.ID, userID, err)
-				continue
-			}
-			connection = refreshedConnection
-		}
-
-		events, err := h.getCalendarEventsForConnection(userID, connection, limit)
-		if err != nil {
-			log.Printf("calendar: failed to fetch events for connection %s: %v", connection.ID, err)
-			continue
-		}
-
-		allEvents = append(allEvents, events...)
-	}
-
-	sort.Slice(allEvents, func(i, j int) bool {
-		return allEvents[i].Start.Before(allEvents[j].Start)
-	})
-
-	if limit > 0 && len(allEvents) > limit {
-		allEvents = allEvents[:limit]
-	}
-
-	return allEvents, nil
-}
-
-func (h *CalendarHandler) getCalendarConnections(userID string) ([]*models.IntegrationConnection, error) {
-	connections, err := h.connectionRepo.GetActiveByUser(userID)
+func (h *CalendarHandler) getCachedCalendars(ctx context.Context, userID string) ([]*CalendarSource, error) {
+	cached, err := h.cacheRepo.ListCalendarSources(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-
-	calendarConnections := make([]*models.IntegrationConnection, 0, len(connections))
-	for _, connection := range connections {
-		switch connection.Provider {
-		case models.IntegrationProviderGoogle, models.IntegrationProviderMicrosoft:
-			calendarConnections = append(calendarConnections, connection)
-		}
-	}
-	return calendarConnections, nil
-}
-
-func (h *CalendarHandler) getCalendarsForConnection(connection *models.IntegrationConnection) ([]*CalendarSource, error) {
-	switch connection.Provider {
-	case models.IntegrationProviderGoogle:
-		return h.getGoogleCalendars(connection)
-	case models.IntegrationProviderMicrosoft:
-		return h.getMicrosoftCalendars(connection)
-	default:
-		return nil, fmt.Errorf("unsupported calendar provider: %s", connection.Provider)
-	}
-}
-
-func (h *CalendarHandler) getCalendarEventsForConnection(userID string, connection *models.IntegrationConnection, limit int) ([]*CalendarEvent, error) {
-	switch connection.Provider {
-	case models.IntegrationProviderGoogle:
-		return h.getGoogleCalendarEvents(userID, connection, limit)
-	case models.IntegrationProviderMicrosoft:
-		return h.getMicrosoftCalendarEvents(userID, connection, limit)
-	default:
-		return nil, fmt.Errorf("unsupported calendar provider: %s", connection.Provider)
-	}
-}
-
-func (h *CalendarHandler) refreshConnectionTokenIfNeeded(userID string, connection *models.IntegrationConnection) error {
-	if connection.RefreshToken == nil {
-		return fmt.Errorf("no refresh token available for %s", connection.Provider)
-	}
-
-	var refreshURL string
-	var clientID, clientSecret string
-
-	switch connection.Provider {
-	case models.IntegrationProviderGoogle:
-		refreshURL = "https://oauth2.googleapis.com/token"
-		clientID = os.Getenv("GOOGLE_CLIENT_ID")
-		clientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
-	case models.IntegrationProviderMicrosoft:
-		refreshURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-		clientID = os.Getenv("MICROSOFT_CLIENT_ID")
-		clientSecret = os.Getenv("MICROSOFT_CLIENT_SECRET")
-	default:
-		return fmt.Errorf("unsupported provider: %s", connection.Provider)
-	}
-
-	oauthToken := &oauth2.Token{
-		AccessToken:  connection.AccessToken,
-		RefreshToken: *connection.RefreshToken,
-		TokenType:    "Bearer",
-	}
-	if connection.ExpiresAt != nil {
-		oauthToken.Expiry = *connection.ExpiresAt
-	}
-
-	config := &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Endpoint: oauth2.Endpoint{
-			TokenURL: refreshURL,
-		},
-	}
-
-	newToken, err := config.TokenSource(context.Background(), oauthToken).Token()
-	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "invalid_grant") {
-			if markErr := h.connectionRepo.MarkNeedsReconnect(userID, connection.ID); markErr != nil {
-				log.Printf("calendar: failed to mark connection %s needs reconnect: %v", connection.ID, markErr)
-			}
-		}
-		return fmt.Errorf("failed to refresh token: %w", err)
-	}
-
-	updates := &models.UpdateIntegrationConnectionTokensRequest{
-		AccessToken: &newToken.AccessToken,
-	}
-
-	if newToken.RefreshToken != "" {
-		updates.RefreshToken = &newToken.RefreshToken
-	}
-
-	if !newToken.Expiry.IsZero() {
-		updates.ExpiresAt = &newToken.Expiry
-	}
-
-	err = h.connectionRepo.UpdateTokens(userID, connection.ID, updates)
-	if err != nil {
-		return fmt.Errorf("failed to update token: %w", err)
-	}
-
-	return nil
-}
-
-func (h *CalendarHandler) getGoogleCalendars(connection *models.IntegrationConnection) ([]*CalendarSource, error) {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://www.googleapis.com/calendar/v3/users/me/calendarList", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Google CalendarList API error: %s", string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var googleResponse struct {
-		Items []struct {
-			ID              string `json:"id"`
-			Summary         string `json:"summary"`
-			BackgroundColor string `json:"backgroundColor"`
-			ForegroundColor string `json:"foregroundColor"`
-			Primary         bool   `json:"primary"`
-			Selected        bool   `json:"selected"`
-			AccessRole      string `json:"accessRole"`
-		} `json:"items"`
-	}
-
-	if err := json.Unmarshal(body, &googleResponse); err != nil {
-		return nil, err
-	}
-
-	calendars := make([]*CalendarSource, 0, len(googleResponse.Items))
-	for _, item := range googleResponse.Items {
+	calendars := make([]*CalendarSource, 0, len(cached))
+	for _, calendar := range cached {
 		calendars = append(calendars, &CalendarSource{
-			ID:              item.ID,
-			ConnectionID:    connection.ID,
-			AccountEmail:    stringValue(connection.ProviderEmail),
-			Name:            item.Summary,
-			Provider:        "google",
-			Color:           item.BackgroundColor,
-			BackgroundColor: item.BackgroundColor,
-			ForegroundColor: item.ForegroundColor,
-			Primary:         item.Primary,
-			Selected:        item.Selected,
-			Visible:         defaultCalendarVisible(item.Primary, item.Selected),
-			AccessRole:      item.AccessRole,
+			ID:              calendar.ID,
+			ConnectionID:    calendar.ConnectionID,
+			AccountEmail:    calendar.AccountEmail,
+			Name:            calendar.Name,
+			Provider:        calendar.Provider,
+			Color:           calendar.Color,
+			BackgroundColor: calendar.BackgroundColor,
+			ForegroundColor: calendar.ForegroundColor,
+			Primary:         calendar.Primary,
+			Selected:        calendar.Selected,
+			Visible:         calendar.Visible,
+			AccessRole:      calendar.AccessRole,
 		})
 	}
-
 	return calendars, nil
 }
 
-func (h *CalendarHandler) getGoogleCalendarEvents(userID string, connection *models.IntegrationConnection, limit int) ([]*CalendarEvent, error) {
-	calendars, err := h.getGoogleCalendars(connection)
+func (h *CalendarHandler) getCachedUpcomingEvents(ctx context.Context, userID string, limit int) ([]*CalendarEvent, error) {
+	cached, err := h.cacheRepo.ListUpcomingEvents(ctx, userID, time.Now(), limit)
 	if err != nil {
 		return nil, err
 	}
-
-	preferences, err := h.preferenceRepo.GetVisibleCalendarIDs(userID, connection.ID)
-	if err != nil {
-		log.Printf("calendar: failed to fetch preferences for connection %s: %v", connection.ID, err)
-		preferences = map[string]bool{}
-	}
-	applyCalendarVisibility(calendars, preferences)
-
-	var allEvents []*CalendarEvent
-	for _, calendar := range calendars {
-		if !calendar.Visible {
-			continue
-		}
-
-		events, err := h.getGoogleCalendarEventsForCalendar(connection, calendar, limit)
-		if err != nil {
-			continue
-		}
-		allEvents = append(allEvents, events...)
-	}
-
-	return allEvents, nil
-}
-
-func (h *CalendarHandler) getGoogleCalendarEventsForCalendar(connection *models.IntegrationConnection, calendar *CalendarSource, limit int) ([]*CalendarEvent, error) {
-	client := &http.Client{}
-
-	timeMin := url.QueryEscape(time.Now().Format(time.RFC3339))
-	calendarID := url.PathEscape(calendar.ID)
-	requestURL := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/%s/events?timeMin=%s&orderBy=startTime&singleEvents=true&maxResults=%d", calendarID, timeMin, limit)
-
-	req, err := http.NewRequest("GET", requestURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var googleResponse struct {
-		Items []struct {
-			ID      string `json:"id"`
-			Summary string `json:"summary"`
-			Start   struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"start"`
-			End struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"end"`
-			Location       string `json:"location"`
-			Description    string `json:"description"`
-			HangoutLink    string `json:"hangoutLink"`
-			ConferenceData struct {
-				EntryPoints []struct {
-					EntryPointType string `json:"entryPointType"`
-					URI            string `json:"uri"`
-				} `json:"entryPoints"`
-			} `json:"conferenceData"`
-			Organizer struct {
-				DisplayName string `json:"displayName"`
-				Email       string `json:"email"`
-			} `json:"organizer"`
-			Attendees []struct {
-				Email       string `json:"email"`
-				DisplayName string `json:"displayName"`
-				Optional    bool   `json:"optional"`
-			} `json:"attendees"`
-		} `json:"items"`
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Google Calendar API error: %s", string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(body, &googleResponse); err != nil {
-		return nil, err
-	}
-
-	var events []*CalendarEvent
-	for _, item := range googleResponse.Items {
-		event := newCalendarEvent("google", connection, calendar, item.ID, item.Summary, item.Location, item.Description, item.HangoutLink)
-
-		if event.MeetingLink == "" {
-			for _, entryPoint := range item.ConferenceData.EntryPoints {
-				if entryPoint.URI != "" && (entryPoint.EntryPointType == "video" || entryPoint.EntryPointType == "hangoutsMeet") {
-					event.MeetingLink = entryPoint.URI
-					break
-				}
-			}
-		}
-
-		event.Organizer = firstNonEmpty(item.Organizer.DisplayName, item.Organizer.Email)
-
+	events := make([]*CalendarEvent, 0, len(cached))
+	for _, event := range cached {
 		var attendees []CalendarAttendee
-		for _, attendee := range item.Attendees {
-			if attendee.DisplayName != "" || attendee.Email != "" {
-				attendees = append(attendees, CalendarAttendee{
-					Name:  attendee.DisplayName,
-					Email: attendee.Email,
-				})
-			}
+		if len(event.AttendeesJSON) > 0 {
+			_ = json.Unmarshal(event.AttendeesJSON, &attendees)
 		}
-		event.Attendees = attendees
-
-		if item.Start.DateTime != "" {
-			if startTime, err := time.Parse(time.RFC3339, item.Start.DateTime); err == nil {
-				event.Start = startTime
-			}
-		} else if item.Start.Date != "" {
-			if startTime, err := time.Parse("2006-01-02", item.Start.Date); err == nil {
-				event.Start = startTime
-			}
-		}
-
-		if item.End.DateTime != "" {
-			if endTime, err := time.Parse(time.RFC3339, item.End.DateTime); err == nil {
-				event.End = endTime
-			}
-		} else if item.End.Date != "" {
-			if endTime, err := time.Parse("2006-01-02", item.End.Date); err == nil {
-				event.End = endTime
-			}
-		}
-
-		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, event.Attendees)
-
-		events = append(events, event)
-	}
-
-	return events, nil
-}
-
-func (h *CalendarHandler) getMicrosoftCalendars(connection *models.IntegrationConnection) ([]*CalendarSource, error) {
-	client := &http.Client{}
-	req, err := http.NewRequest("GET", "https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Microsoft calendars API error: %s", string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var microsoftResponse struct {
-		Value []struct {
-			ID                string `json:"id"`
-			Name              string `json:"name"`
-			Color             string `json:"color"`
-			IsDefaultCalendar bool   `json:"isDefaultCalendar"`
-			CanEdit           bool   `json:"canEdit"`
-		} `json:"value"`
-	}
-
-	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
-		return nil, err
-	}
-
-	calendars := make([]*CalendarSource, 0, len(microsoftResponse.Value))
-	for _, item := range microsoftResponse.Value {
-		color := microsoftCalendarColor(item.Color)
-		calendars = append(calendars, &CalendarSource{
-			ID:              item.ID,
-			ConnectionID:    connection.ID,
-			AccountEmail:    stringValue(connection.ProviderEmail),
-			Name:            item.Name,
-			Provider:        "microsoft",
-			Color:           color,
-			BackgroundColor: color,
-			Primary:         item.IsDefaultCalendar,
-			Selected:        true,
-			Visible:         defaultCalendarVisible(item.IsDefaultCalendar, true),
-			AccessRole:      microsoftCalendarAccessRole(item.CanEdit),
+		events = append(events, &CalendarEvent{
+			ID:           event.ID,
+			ProviderID:   event.ProviderID,
+			ConnectionID: event.ConnectionID,
+			AccountEmail: event.AccountEmail,
+			Title:        event.Title,
+			Start:        event.Start,
+			End:          event.End,
+			AllDay:       event.AllDay,
+			Location:     event.Location,
+			Description:  event.Description,
+			MeetingLink:  event.MeetingLink,
+			CalendarID:   event.CalendarID,
+			CalendarName: event.CalendarName,
+			Color:        event.Color,
+			Organizer:    event.Organizer,
+			Provider:     event.Provider,
+			IsMeeting:    event.IsMeeting,
+			Attendees:    attendees,
 		})
 	}
-
-	return calendars, nil
-}
-
-func (h *CalendarHandler) getMicrosoftCalendarEvents(userID string, connection *models.IntegrationConnection, limit int) ([]*CalendarEvent, error) {
-	calendars, err := h.getMicrosoftCalendars(connection)
-	if err != nil {
-		return nil, err
-	}
-
-	preferences, err := h.preferenceRepo.GetVisibleCalendarIDs(userID, connection.ID)
-	if err != nil {
-		log.Printf("calendar: failed to fetch preferences for connection %s: %v", connection.ID, err)
-		preferences = map[string]bool{}
-	}
-	applyCalendarVisibility(calendars, preferences)
-
-	var allEvents []*CalendarEvent
-	for _, calendar := range calendars {
-		if !calendar.Visible {
-			continue
-		}
-
-		events, err := h.getMicrosoftCalendarEventsForCalendar(connection, calendar, limit)
-		if err != nil {
-			continue
-		}
-		allEvents = append(allEvents, events...)
-	}
-
-	return allEvents, nil
-}
-
-func (h *CalendarHandler) getMicrosoftCalendarEventsForCalendar(connection *models.IntegrationConnection, calendar *CalendarSource, limit int) ([]*CalendarEvent, error) {
-	client := &http.Client{}
-
-	start := time.Now().UTC()
-	end := start.AddDate(0, 3, 0)
-	values := url.Values{}
-	values.Set("startDateTime", start.Format(time.RFC3339))
-	values.Set("endDateTime", end.Format(time.RFC3339))
-	values.Set("$orderby", "start/dateTime")
-	values.Set("$top", strconv.Itoa(limit))
-	values.Set("$select", "id,subject,start,end,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees")
-
-	calendarID := url.PathEscape(calendar.ID)
-	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView?%s", calendarID, values.Encode())
-
-	req, err := http.NewRequest("GET", requestURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-	req.Header.Set("Prefer", `outlook.timezone="UTC"`)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var microsoftResponse struct {
-		Value []struct {
-			ID      string `json:"id"`
-			Subject string `json:"subject"`
-			Start   struct {
-				DateTime string `json:"dateTime"`
-			} `json:"start"`
-			End struct {
-				DateTime string `json:"dateTime"`
-			} `json:"end"`
-			Location struct {
-				DisplayName string `json:"displayName"`
-			} `json:"location"`
-			BodyPreview      string `json:"bodyPreview"`
-			OnlineMeetingURL string `json:"onlineMeetingUrl"`
-			OnlineMeeting    struct {
-				JoinURL string `json:"joinUrl"`
-			} `json:"onlineMeeting"`
-			Organizer struct {
-				EmailAddress struct {
-					Name    string `json:"name"`
-					Address string `json:"address"`
-				} `json:"emailAddress"`
-			} `json:"organizer"`
-			Attendees []struct {
-				EmailAddress struct {
-					Name    string `json:"name"`
-					Address string `json:"address"`
-				} `json:"emailAddress"`
-			} `json:"attendees"`
-		} `json:"value"`
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Microsoft calendarView API error: %s", string(body))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
-		return nil, err
-	}
-
-	var events []*CalendarEvent
-	for _, item := range microsoftResponse.Value {
-		meetingLink := item.OnlineMeetingURL
-		if meetingLink == "" {
-			meetingLink = item.OnlineMeeting.JoinURL
-		}
-		event := newCalendarEvent("microsoft", connection, calendar, item.ID, item.Subject, item.Location.DisplayName, item.BodyPreview, meetingLink)
-
-		event.Organizer = firstNonEmpty(item.Organizer.EmailAddress.Name, item.Organizer.EmailAddress.Address)
-
-		var attendees []CalendarAttendee
-		for _, attendee := range item.Attendees {
-			if attendee.EmailAddress.Name != "" || attendee.EmailAddress.Address != "" {
-				attendees = append(attendees, CalendarAttendee{
-					Name:  attendee.EmailAddress.Name,
-					Email: attendee.EmailAddress.Address,
-				})
-			}
-		}
-		event.Attendees = attendees
-
-		if startTime, err := parseMicrosoftDateTime(item.Start.DateTime); err == nil {
-			event.Start = startTime
-		}
-		if endTime, err := parseMicrosoftDateTime(item.End.DateTime); err == nil {
-			event.End = endTime
-		}
-
-		event.IsMeeting = h.isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, event.Attendees)
-
-		events = append(events, event)
-	}
-
 	return events, nil
 }
 
-func parseMicrosoftDateTime(value string) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, fmt.Errorf("missing Microsoft dateTime")
-	}
-	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-		return parsed, nil
+func (h *CalendarHandler) getCacheMetadata(ctx context.Context, userID string, scope calendarservice.SyncScope) calendarCacheMetadata {
+	metadata := calendarCacheMetadata{Stale: true}
+	if h.cacheRepo == nil {
+		return metadata
 	}
 
-	layouts := []string{
-		"2006-01-02T15:04:05.9999999",
-		"2006-01-02T15:04:05.999999",
-		"2006-01-02T15:04:05",
+	states, err := h.cacheRepo.ListConnectionSyncStates(ctx, userID)
+	if err != nil {
+		log.Printf("calendar: failed to load connection sync states: %v", err)
+		return metadata
 	}
-	for _, layout := range layouts {
-		if parsed, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
-			return parsed, nil
-		}
+	if len(states) == 0 {
+		metadata.Stale = false
+		return metadata
 	}
-	return time.Time{}, fmt.Errorf("invalid Microsoft dateTime: %s", value)
-}
 
-func microsoftCalendarAccessRole(canEdit bool) string {
-	if canEdit {
-		return "writer"
-	}
-	return "reader"
-}
-
-func microsoftCalendarColor(value string) string {
-	switch strings.ToLower(value) {
-	case "lightblue":
-		return "#5b9bd5"
-	case "lightgreen":
-		return "#70ad47"
-	case "lightorange":
-		return "#ed7d31"
-	case "lightgray":
-		return "#a5a5a5"
-	case "lightyellow":
-		return "#ffc000"
-	case "lightteal":
-		return "#00a2a5"
-	case "lightpink":
-		return "#ff99cc"
-	case "lightbrown":
-		return "#a0522d"
-	case "lightred":
-		return "#e06666"
-	case "maxcolor":
-		return "#7c3aed"
-	default:
-		return "#2563eb"
-	}
-}
-
-func applyCalendarVisibility(calendars []*CalendarSource, preferences map[string]bool) {
-	for _, calendar := range calendars {
-		if visible, ok := preferences[calendar.ID]; ok {
-			calendar.Visible = visible
+	now := time.Now()
+	requiredWindowEnd := now.Add(calendarservice.EventWindow)
+	metadata.Stale = false
+	for _, state := range states {
+		if state.Status == "" {
+			metadata.Stale = true
 			continue
 		}
-		calendar.Visible = defaultCalendarVisible(calendar.Primary, calendar.Selected)
-	}
-}
-
-func defaultCalendarVisible(primary, selected bool) bool {
-	return primary || selected
-}
-
-func newCalendarEvent(provider string, connection *models.IntegrationConnection, calendar *CalendarSource, providerID, title, location, description, meetingLink string) *CalendarEvent {
-	return &CalendarEvent{
-		ID:           fmt.Sprintf("%s:%s:%s:%s", provider, connection.ID, calendar.ID, providerID),
-		ProviderID:   providerID,
-		ConnectionID: connection.ID,
-		AccountEmail: stringValue(connection.ProviderEmail),
-		Title:        title,
-		Location:     location,
-		Description:  description,
-		MeetingLink:  meetingLink,
-		CalendarID:   calendar.ID,
-		CalendarName: calendar.Name,
-		Color:        calendar.Color,
-		Provider:     provider,
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
+		if state.Status == "syncing" && state.SyncStartedAt != nil && now.Sub(*state.SyncStartedAt) < 2*time.Minute {
+			metadata.Syncing = true
+		}
+		if state.LastError != nil && metadata.LastError == "" {
+			metadata.LastError = *state.LastError
+		}
+		var lastSynced *time.Time
+		var ttl time.Duration
+		switch scope {
+		case calendarservice.SyncScopeCalendars:
+			lastSynced = state.CalendarLastSyncedAt
+			ttl = calendarservice.CalendarListTTL
+		default:
+			lastSynced = state.EventsLastSyncedAt
+			ttl = calendarservice.EventTTL
+			if state.EventsWindowStart == nil || state.EventsWindowEnd == nil || state.EventsWindowStart.After(now) || state.EventsWindowEnd.Before(requiredWindowEnd) {
+				metadata.Stale = true
+			}
+		}
+		if lastSynced == nil || now.Sub(*lastSynced) > ttl {
+			metadata.Stale = true
+		} else if metadata.LastSyncedAt == nil || lastSynced.After(*metadata.LastSyncedAt) {
+			metadata.LastSyncedAt = lastSynced
 		}
 	}
-	return ""
+	return metadata
 }
 
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
+func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarservice.SyncScope) {
+	if h.syncService == nil {
+		return
 	}
-	return *value
-}
-
-func (h *CalendarHandler) isMeeting(title, description, location, meetingLink string, attendees []CalendarAttendee) bool {
-	if len(attendees) > 1 {
-		return true
-	}
-
-	meetingKeywords := []string{
-		"meeting", "call", "standup", "sync", "review", "interview",
-		"discussion", "conference", "session", "catch up", "check in",
-		"demo", "presentation", "workshop", "training", "scrum",
-		"retrospective", "planning", "1:1", "one-on-one",
-	}
-
-	titleLower := strings.ToLower(title)
-	for _, keyword := range meetingKeywords {
-		if strings.Contains(titleLower, keyword) {
-			return true
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := h.syncService.SyncUser(ctx, userID, scope); err != nil {
+			log.Printf("calendar: background sync failed for user %s: %v", userID, err)
 		}
-	}
-
-	meetingLinkPatterns := []string{
-		"zoom.us", "teams.microsoft.com", "meet.google.com",
-		"webex.com", "gotomeeting.com", "join.me",
-		"whereby.com", "discord.gg", "bluejeans.com",
-	}
-
-	combinedText := strings.ToLower(description + " " + location + " " + meetingLink)
-	for _, pattern := range meetingLinkPatterns {
-		if strings.Contains(combinedText, pattern) {
-			return true
-		}
-	}
-
-	return false
+	}()
 }
+

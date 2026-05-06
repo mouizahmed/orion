@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+const CALENDAR_STALE_REFETCH_DELAY = 2500
 
 export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
 
@@ -444,6 +445,8 @@ export default function DashboardSettingsPage({
   const { user, logout, updateProfileName, uploadProfileAvatar } = useAuth()
   const shortcutApi = desktopApi.shortcuts
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const calendarStaleRefetchTimerRef = useRef<number | null>(null)
+  const calendarStaleRefetchAttemptedRef = useRef(false)
   const canManageShortcuts = shortcutApi.isAvailable()
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
@@ -554,6 +557,16 @@ export default function DashboardSettingsPage({
           ? calendarsData.calendars
           : [],
       )
+      if (!calendarsData.stale && !calendarsData.syncing) {
+        calendarStaleRefetchAttemptedRef.current = false
+      }
+      if ((calendarsData.stale || calendarsData.syncing) && !calendarStaleRefetchAttemptedRef.current && calendarStaleRefetchTimerRef.current === null) {
+        calendarStaleRefetchAttemptedRef.current = true
+        calendarStaleRefetchTimerRef.current = window.setTimeout(() => {
+          calendarStaleRefetchTimerRef.current = null
+          void loadCalendarSettings()
+        }, CALENDAR_STALE_REFETCH_DELAY)
+      }
     } catch (loadError) {
       setCalendarConnections([])
       setConnectedCalendars([])
@@ -562,6 +575,15 @@ export default function DashboardSettingsPage({
       setIsLoadingCalendars(false)
     }
   }, [user])
+
+  useEffect(() => {
+    return () => {
+      if (calendarStaleRefetchTimerRef.current !== null) {
+        window.clearTimeout(calendarStaleRefetchTimerRef.current)
+        calendarStaleRefetchTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (selectedSection !== 'calendar' || !user) return

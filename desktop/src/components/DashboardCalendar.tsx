@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Settings2, Users, X } from 'lucide-react'
 
@@ -13,6 +13,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { cn } from '@/lib/utils'
+import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
@@ -21,6 +22,7 @@ const HOUR_HEIGHT = 44
 const WEEK_TIME_GUTTER = 48
 const START_HOUR = 0
 const END_HOUR = 24
+const STALE_REFETCH_DELAY = 2500
 
 type CalendarView = 'agenda' | 'week' | 'month'
 
@@ -37,6 +39,7 @@ type ServerCalendarEvent = {
   title: string
   start: string
   end: string
+  all_day?: boolean
   location?: string
   description?: string
   meeting_link?: string
@@ -57,6 +60,7 @@ type CalendarEvent = {
   title: string
   start: string
   end: string
+  allDay: boolean
   calendarId: string
   calendarName: string
   color: string
@@ -95,28 +99,8 @@ function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1)
 }
 
-function dateKey(date: Date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-')
-}
-
-function isSameDay(first: Date, second: Date) {
-  return dateKey(first) === dateKey(second)
-}
-
 function isSameMonth(first: Date, second: Date) {
   return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth()
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
 }
 
 function formatHourLabel(hour: number) {
@@ -186,6 +170,7 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
     title: event.title || 'Untitled event',
     start: event.start,
     end: event.end,
+    allDay: event.all_day ?? false,
     calendarId: event.calendar_id || event.provider,
     calendarName: event.calendar_name || providerLabel,
     color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
@@ -207,7 +192,7 @@ function buildMonthGrid(cursorDate: Date) {
 
 function groupEventsByDay(events: CalendarEvent[]) {
   return events.reduce<Record<string, CalendarEvent[]>>((groups, event) => {
-    const key = dateKey(new Date(event.start))
+    const key = eventDateKey(event)
     groups[key] = groups[key] ?? []
     groups[key].push(event)
     return groups
@@ -215,9 +200,22 @@ function groupEventsByDay(events: CalendarEvent[]) {
 }
 
 function getEventsForDay(events: CalendarEvent[], date: Date) {
+  const key = dateKey(date)
   return events
-    .filter((event) => isSameDay(new Date(event.start), date))
+    .filter((event) => eventDateKey(event) === key)
     .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+}
+
+function isAllDay(event: CalendarEvent) {
+  return event.allDay
+}
+
+function eventDateKey(event: CalendarEvent) {
+  if (event.allDay) {
+    const d = new Date(event.start)
+    return [d.getUTCFullYear(), String(d.getUTCMonth() + 1).padStart(2, '0'), String(d.getUTCDate()).padStart(2, '0')].join('-')
+  }
+  return dateKey(new Date(event.start))
 }
 
 function positionWeekEvents(events: CalendarEvent[]) {
@@ -259,7 +257,7 @@ function EventDetail({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{event.title}</div>
-          <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{formatTimeRange(event)}</div>
+          <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{event.allDay ? 'All day' : formatTimeRange(event)}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: event.color }} />
@@ -418,11 +416,24 @@ export function DashboardCalendar({
   const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const staleRefetchTimerRef = useRef<number | null>(null)
+  const pollAttemptsRef = useRef(0)
 
-  const loadEvents = useCallback(async () => {
+  const clearStaleRefetch = useCallback(() => {
+    if (staleRefetchTimerRef.current !== null) {
+      window.clearTimeout(staleRefetchTimerRef.current)
+      staleRefetchTimerRef.current = null
+    }
+    pollAttemptsRef.current = 0
+  }, [])
+
+  const loadEvents = useCallback(async (silent = false) => {
     if (!user) return
-    setLoading(true)
-    setError(null)
+    if (!silent) {
+      clearStaleRefetch()
+      setLoading(true)
+      setError(null)
+    }
 
     try {
       const currentUser = auth.currentUser
@@ -441,25 +452,47 @@ export function DashboardCalendar({
         ? data.events.map((event: ServerCalendarEvent) => normalizeEvent(event))
         : []
       setEvents(nextEvents)
-      setSelectedEvent(null)
-      setSelectedDay(null)
+      if (!silent) {
+        setSelectedEvent(null)
+        setSelectedDay(null)
+      } else {
+        setSelectedEvent((current) => {
+          if (!current) return null
+          const updated = nextEvents.find((e: CalendarEvent) => e.id === current.id)
+          return updated ?? null
+        })
+      }
+      if (!data.stale && !data.syncing) {
+        pollAttemptsRef.current = 0
+      } else if ((data.stale || data.syncing) && pollAttemptsRef.current < 10 && staleRefetchTimerRef.current === null) {
+        const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
+        pollAttemptsRef.current++
+        staleRefetchTimerRef.current = window.setTimeout(() => {
+          staleRefetchTimerRef.current = null
+          void loadEvents(true)
+        }, delay)
+      }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load calendar')
-      setEvents([])
-      setSelectedEvent(null)
-      setSelectedDay(null)
+      if (!silent) {
+        setError(loadError instanceof Error ? loadError.message : 'Failed to load calendar')
+        setEvents([])
+        setSelectedEvent(null)
+        setSelectedDay(null)
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
-  }, [user])
+  }, [user, clearStaleRefetch])
 
   useEffect(() => {
     void loadEvents()
-    window.addEventListener(CALENDAR_REFRESH_EVENT, loadEvents)
+    const handleCalendarRefresh = () => void loadEvents()
+    window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     return () => {
-      window.removeEventListener(CALENDAR_REFRESH_EVENT, loadEvents)
+      clearStaleRefetch()
+      window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     }
-  }, [loadEvents])
+  }, [loadEvents, clearStaleRefetch])
 
   const visibleEvents = useMemo(
     () => showOnlyMeetings ? events.filter((event) => event.isMeeting) : events,
@@ -611,7 +644,7 @@ export function DashboardCalendar({
                                 <span className="h-8 w-1 rounded-full" style={{ backgroundColor: event.color }} />
                                 <div className="min-w-0 flex-1">
                                   <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">{event.title}</div>
-                                  <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{formatTimeRange(event)}</div>
+                                  <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{event.allDay ? 'All day' : formatTimeRange(event)}</div>
                                   {event.accountEmail ? (
                                     <div className="mt-0.5 truncate text-xs text-neutral-400 dark:text-neutral-500">{event.accountEmail}</div>
                                   ) : null}
@@ -633,14 +666,47 @@ export function DashboardCalendar({
                     style={{ gridTemplateColumns: `${WEEK_TIME_GUTTER}px repeat(7, minmax(0, 1fr))` }}
                   >
                     <div className="border-r border-neutral-200 bg-white/95 dark:border-white/10 dark:bg-[#171417]/95" />
-                    {weekDays.map((day) => (
-                      <div key={dateKey(day)} className="px-2 py-2 text-center">
-                        <div className="text-[10px] font-semibold uppercase text-neutral-400">{day.toLocaleDateString('en-US', { weekday: 'short' })}</div>
-                        <div className={cn('mx-auto mt-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold', isSameDay(day, new Date()) ? 'bg-[#7c3aed] text-white dark:bg-[#9f73f2]' : 'text-neutral-700 dark:text-neutral-200')}>
-                          {day.getDate()}
+                    {weekDays.map((day) => {
+                      const allDayEvents = getEventsForDay(visibleEvents, day).filter(isAllDay)
+                      return (
+                        <div key={dateKey(day)} className="px-2 py-2 text-center">
+                          <div className="text-[10px] font-semibold uppercase text-neutral-400">{day.toLocaleDateString('en-US', { weekday: 'short' })}</div>
+                          <div className={cn('mx-auto mt-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold', isSameDay(day, new Date()) ? 'bg-[#7c3aed] text-white dark:bg-[#9f73f2]' : 'text-neutral-700 dark:text-neutral-200')}>
+                            {day.getDate()}
+                          </div>
+                          {allDayEvents.length > 0 && (
+                            <div className="mt-1 space-y-0.5">
+                              {allDayEvents.slice(0, 2).map((event) => (
+                                <button
+                                  key={event.id}
+                                  type="button"
+                                  onClick={() => toggleSelectedEvent(event)}
+                                  className={cn(
+                                    'w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium transition-[box-shadow,outline-color]',
+                                    selectedEvent?.id === event.id && 'outline outline-2 outline-offset-1 outline-neutral-900/25 dark:outline-white/70',
+                                  )}
+                                  style={{
+                                    backgroundColor: event.color,
+                                    color: getReadableTextColor(event.color),
+                                  }}
+                                >
+                                  {event.title}
+                                </button>
+                              ))}
+                              {allDayEvents.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => openDayEvents(day)}
+                                  className="w-full truncate rounded px-1 py-0.5 text-left text-[10px] font-medium text-[#7c3aed] hover:bg-neutral-100 dark:text-[#9f73f2] dark:hover:bg-white/8"
+                                >
+                                  +{allDayEvents.length - 2} more
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                     <div
                       className="grid"
@@ -657,7 +723,7 @@ export function DashboardCalendar({
                         ))}
                       </div>
                       {weekDays.map((day) => {
-                        const dayEvents = positionWeekEvents(getEventsForDay(visibleEvents, day))
+                        const dayEvents = positionWeekEvents(getEventsForDay(visibleEvents, day).filter((e) => !isAllDay(e)))
                         return (
                           <div key={dateKey(day)} className="relative border-r border-neutral-200 last:border-r-0 dark:border-white/10">
                             {hours.slice(0, -1).map((hour) => (
@@ -669,7 +735,7 @@ export function DashboardCalendar({
                                 type="button"
                                 onClick={() => toggleSelectedEvent(event)}
                                 className={cn(
-                                  'absolute overflow-hidden rounded-md border px-2 py-1 text-left text-white shadow-sm transition-[box-shadow,outline-color]',
+                                  'absolute overflow-hidden rounded-md border px-2 py-1 text-left shadow-sm transition-[box-shadow,outline-color]',
                                   selectedEvent?.id === event.id
                                     ? 'border-white outline outline-2 outline-offset-1 outline-neutral-900/25 dark:outline-white/70'
                                     : 'border-white/40',
@@ -684,7 +750,9 @@ export function DashboardCalendar({
                                 }}
                               >
                                 <div className="truncate text-[11px] font-semibold">{event.title}</div>
-                                <div className="truncate text-[10px] opacity-85">{formatTimeRange(event)}</div>
+                                {event.height > 28 && (
+                                  <div className="truncate text-[10px] opacity-85">{formatTimeRange(event)}</div>
+                                )}
                               </button>
                             ))}
                           </div>

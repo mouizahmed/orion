@@ -3,11 +3,15 @@ import { Folder, Grid3X3, RefreshCw, Search } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { auth } from '@/config/firebase'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useWindowState } from '@/hooks/useWindowState'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { searchAll } from '@/lib/search-client'
 import { desktopApi } from '@/lib/desktop-api'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
 
 export default function DashboardTopBar({
   onBackToOverlay,
@@ -27,6 +31,7 @@ export default function DashboardTopBar({
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const searchContainerRef = useRef<HTMLDivElement | null>(null)
+  const calendarRefreshInFlightRef = useRef(false)
 
   const query = searchQuery.trim().toLowerCase()
   const defaultFolders = useMemo(
@@ -216,6 +221,31 @@ export default function DashboardTopBar({
     }
   }
 
+  const handleRefresh = async () => {
+    void refresh()
+    window.dispatchEvent(new Event('dashboard-activity-refresh'))
+    if (calendarRefreshInFlightRef.current) return
+
+    calendarRefreshInFlightRef.current = true
+
+    try {
+      const currentUser = auth.currentUser
+      if (currentUser) {
+        const idToken = await currentUser.getIdToken()
+        await fetch(`${API_BASE_URL}/calendar/sync`, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
+        })
+      }
+    } finally {
+      calendarRefreshInFlightRef.current = false
+      window.dispatchEvent(new Event(CALENDAR_REFRESH_EVENT))
+    }
+  }
+
   return (
     <div
       className="relative flex h-12 w-full items-center justify-between px-2 text-xs"
@@ -356,9 +386,7 @@ export default function DashboardTopBar({
           size="sm"
           className="h-8 rounded-full"
           onClick={() => {
-            void refresh()
-            window.dispatchEvent(new Event('dashboard-calendar-refresh'))
-            window.dispatchEvent(new Event('dashboard-activity-refresh'))
+            void handleRefresh()
           }}
           disabled={isLoading}
           aria-label="Refresh dashboard"

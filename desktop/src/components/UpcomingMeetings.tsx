@@ -4,6 +4,7 @@ import { MapPin, Users } from 'lucide-react'
 
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
+import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -56,29 +57,8 @@ function formatMeetingDate(startTime: string) {
   return { month, day: day.toString() }
 }
 
-function formatTime(startTime: string) {
-  const date = new Date(startTime)
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-}
-
 function formatMeetingTime(startTime: string, endTime: string) {
   return `${formatTime(startTime)}-${formatTime(endTime)}`
-}
-
-function dateKey(date: Date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, '0'),
-    String(date.getDate()).padStart(2, '0'),
-  ].join('-')
-}
-
-function isSameDay(first: Date, second: Date) {
-  return dateKey(first) === dateKey(second)
 }
 
 interface UpcomingMeetingsProps {
@@ -88,6 +68,7 @@ interface UpcomingMeetingsProps {
 const POLL_INTERVAL = 2 * 60 * 1000 // 2 minutes
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
 const CALENDAR_EVENT_OPEN_EVENT = 'dashboard-calendar-event-open'
+const STALE_REFETCH_DELAY = 2500
 
 export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
   const { user } = useAuth()
@@ -95,14 +76,25 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const cancelledRef = useRef(false)
+  const staleRefetchTimerRef = useRef<number | null>(null)
+  const pollAttemptsRef = useRef(0)
 
   const cacheKey = user ? `calendar_events_${user.id}` : null
+
+  const clearStaleRefetch = useCallback(() => {
+    if (staleRefetchTimerRef.current !== null) {
+      window.clearTimeout(staleRefetchTimerRef.current)
+      staleRefetchTimerRef.current = null
+    }
+    pollAttemptsRef.current = 0
+  }, [])
 
   const fetchUpcomingMeetings = useCallback(async (silent: boolean, force = false) => {
     if (!user) return
 
     try {
       if (!silent) {
+        clearStaleRefetch()
         setLoading(true)
         setError(null)
       }
@@ -162,7 +154,21 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
         setMeetings(formattedMeetings)
 
         if (cacheKey) {
-          localStorage.setItem(cacheKey, JSON.stringify({ data: formattedMeetings, timestamp: Date.now() }))
+          localStorage.setItem(cacheKey, JSON.stringify({
+            data: formattedMeetings,
+            timestamp: Date.now(),
+            lastSyncedAt: data.last_synced_at,
+          }))
+        }
+        if (!data.stale && !data.syncing) {
+          pollAttemptsRef.current = 0
+        } else if ((data.stale || data.syncing) && pollAttemptsRef.current < 10 && staleRefetchTimerRef.current === null) {
+          const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
+          pollAttemptsRef.current++
+          staleRefetchTimerRef.current = window.setTimeout(() => {
+            staleRefetchTimerRef.current = null
+            void fetchUpcomingMeetings(true, true)
+          }, delay)
         }
       } else {
         setMeetings([])
@@ -175,7 +181,7 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     } finally {
       if (!cancelledRef.current && !silent) setLoading(false)
     }
-  }, [user, cacheKey])
+  }, [user, cacheKey, clearStaleRefetch])
 
   useEffect(() => {
     cancelledRef.current = false
@@ -194,15 +200,15 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     const handleCalendarRefresh = () => {
       void fetchUpcomingMeetings(false, true)
     }
-
     window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
 
     return () => {
       cancelledRef.current = true
       window.clearInterval(interval)
+      clearStaleRefetch()
       window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     }
-  }, [user, fetchUpcomingMeetings])
+  }, [user, fetchUpcomingMeetings, clearStaleRefetch])
 
   const filteredMeetings = showOnlyMeetings
     ? meetings.filter((m) => m.is_meeting)

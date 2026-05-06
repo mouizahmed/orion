@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mouizahmed/justscribe-backend/internal/ai"
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
+	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/handlers"
 	"github.com/mouizahmed/justscribe-backend/internal/memory"
@@ -91,6 +92,7 @@ func main() {
 	authIdentityRepo := repository.NewUserAuthIdentityRepository(db)
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
+	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
@@ -150,7 +152,8 @@ func main() {
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
-	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo)
+	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, redisClient)
+	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
@@ -242,6 +245,7 @@ func main() {
 		// Calendar routes
 		authenticated.GET("/calendar/calendars", calendarHandler.GetCalendars)
 		authenticated.GET("/calendar/upcoming", calendarHandler.GetUpcomingEvents)
+		authenticated.POST("/calendar/sync", calendarHandler.Sync)
 		authenticated.PATCH("/calendar/connections/:connectionID/calendars/:calendarID", calendarHandler.UpdateCalendarVisibility)
 
 		// Chat routes
