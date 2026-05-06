@@ -8,9 +8,10 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
+  type CSSProperties,
   type ForwardedRef,
 } from 'react'
-import { Camera, Loader2 } from 'lucide-react'
+import { Camera, Loader2, Sparkles } from 'lucide-react'
 import AISelectionPopover from './AISelectionPopover'
 import {
   MDXEditor,
@@ -47,6 +48,9 @@ type MarkdownEditorProps = {
   showToolbar?: boolean
   className?: string
   noteId?: string
+  onEnhance?: () => void
+  isEnhancing?: boolean
+  canEnhance?: boolean
 }
 
 export type MarkdownEditorHandle = {
@@ -55,7 +59,13 @@ export type MarkdownEditorHandle = {
   isFocused: () => boolean
 }
 
-function ToolbarContents() {
+type ToolbarContentsProps = {
+  onEnhance?: () => void
+  isEnhancing?: boolean
+  canEnhance?: boolean
+}
+
+function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true }: ToolbarContentsProps) {
   return (
     <>
       <UndoRedo />
@@ -74,6 +84,23 @@ function ToolbarContents() {
         <InsertTable />
         <InsertThematicBreak />
       </div>
+      {onEnhance ? (
+        <>
+          <Separator />
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onEnhance}
+            disabled={isEnhancing || !canEnhance}
+            title="Enhance note with AI"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-violet-400/25 bg-violet-500/15 px-3 text-xs font-medium leading-none text-violet-700 outline-none transition-colors hover:bg-violet-500/20 hover:text-violet-800 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-300/20 dark:bg-violet-400/15 dark:text-violet-200 dark:hover:bg-violet-400/20 dark:hover:text-violet-100"
+            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          >
+            {isEnhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Enhance
+          </button>
+        </>
+      ) : null}
     </>
   )
 }
@@ -103,7 +130,18 @@ function getImageFiles(dataTransfer: DataTransfer): File[] {
 }
 
 function MarkdownEditorInner(
-  { markdown, onChange, placeholder, theme = 'auto', showToolbar = false, className, noteId }: MarkdownEditorProps,
+  {
+    markdown,
+    onChange,
+    placeholder,
+    theme = 'auto',
+    showToolbar = false,
+    className,
+    noteId,
+    onEnhance,
+    isEnhancing = false,
+    canEnhance = true,
+  }: MarkdownEditorProps,
   ref: ForwardedRef<MarkdownEditorHandle>,
 ) {
   const editorRef = useRef<MDXEditorMethods>(null)
@@ -135,11 +173,19 @@ function MarkdownEditorInner(
     ]
     if (showToolbar) {
       base.push(
-        toolbarPlugin({ toolbarContents: () => <ToolbarContents /> }),
+        toolbarPlugin({
+          toolbarContents: () => (
+            <ToolbarContents
+              onEnhance={onEnhance}
+              isEnhancing={isEnhancing}
+              canEnhance={canEnhance}
+            />
+          ),
+        }),
       )
     }
     return base
-  }, [showToolbar])
+  }, [canEnhance, isEnhancing, onEnhance, showToolbar])
 
   const handleImageFiles = useCallback(async (files: File[]) => {
     const currentNoteId = noteIdRef.current

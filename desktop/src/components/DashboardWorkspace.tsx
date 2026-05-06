@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { CalendarDays, Check, ChevronDown, Folder, Loader2, Sparkles, FileText, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { InfoBanner } from '@/components/ui/info-banner'
@@ -279,6 +279,10 @@ export default function DashboardWorkspace({
     }
   }, [replaceNote, selectedId])
 
+  const handleEditorEnhance = useCallback(() => {
+    void handleEnhance()
+  }, [handleEnhance])
+
   if (mode === 'settings') {
     return (
       <div className="h-full">
@@ -475,34 +479,24 @@ export default function DashboardWorkspace({
             )}
           </div>
 
-          {/* Enhance button */}
-          <button
-            type="button"
-            onClick={() => void handleEnhance()}
-            disabled={isEnhancing || !draftNote.trim()}
-            title="Enhance note with AI"
-            className="flex items-center gap-1.5 rounded-full bg-violet-600 px-3 py-1 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-          >
-            {isEnhancing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-            Enhance
-          </button>
-
           {/* Transcript toggle */}
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => setTranscriptOpen((v) => !v)}
             title={transcriptOpen ? 'Hide transcript' : 'Show transcript'}
-            className={
+            className={cn(
+              'h-8 rounded-full px-3',
               transcriptOpen
-                ? 'flex items-center gap-1.5 rounded-full border border-neutral-300 bg-neutral-200 px-3 py-1 text-xs font-medium text-neutral-950 dark:border-white/12 dark:bg-white/12 dark:text-white'
-                : 'flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white/70 px-3 py-1 text-xs text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white'
-            }
+                ? 'border-neutral-300/70 bg-neutral-200/80 text-neutral-950 hover:bg-neutral-200 dark:border-white/20 dark:bg-white/12 dark:text-white dark:hover:bg-white/16'
+                : 'border-neutral-200 bg-white/70 text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white',
+            )}
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
-            <FileText className="h-3 w-3" />
+            <FileText className="h-3.5 w-3.5" />
             Transcript
-          </button>
+          </Button>
         </div>
 
         {enhanceError ? (
@@ -521,6 +515,9 @@ export default function DashboardWorkspace({
             showToolbar
             className="h-full dashboard-editor"
             noteId={selectedId}
+            onEnhance={handleEditorEnhance}
+            isEnhancing={isEnhancing}
+            canEnhance={Boolean(draftNote.trim())}
           />
         </div>
 
