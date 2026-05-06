@@ -61,16 +61,12 @@ function formatMeetingTime(startTime: string, endTime: string) {
   return `${formatTime(startTime)}-${formatTime(endTime)}`
 }
 
-interface UpcomingMeetingsProps {
-  showOnlyMeetings: boolean
-}
-
 const POLL_INTERVAL = 2 * 60 * 1000 // 2 minutes
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
 const CALENDAR_EVENT_OPEN_EVENT = 'dashboard-calendar-event-open'
 const STALE_REFETCH_DELAY = 2500
 
-export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
+export function UpcomingMeetings() {
   const { user } = useAuth()
   const [meetings, setMeetings] = useState<Meeting[]>([])
   const [loading, setLoading] = useState(true)
@@ -210,12 +206,9 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
     }
   }, [user, fetchUpcomingMeetings, clearStaleRefetch])
 
-  const filteredMeetings = showOnlyMeetings
-    ? meetings.filter((m) => m.is_meeting)
-    : meetings
   const today = new Date()
   const todayKey = dateKey(today)
-  const groupedMeetings = filteredMeetings.reduce<Array<{ key: string; date: Date; meetings: Meeting[] }>>(
+  const groupedMeetings = meetings.reduce<Array<{ key: string; date: Date; meetings: Meeting[] }>>(
     (groups, meeting) => {
       const date = new Date(meeting.start)
       const key = dateKey(date)
@@ -294,9 +287,7 @@ export function UpcomingMeetings({ showOnlyMeetings }: UpcomingMeetingsProps) {
               <div className="min-w-0 flex-1 space-y-0.5">
                 {group.meetings.length === 0 ? (
                   <div className="flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
-                    {isToday
-                      ? showOnlyMeetings ? 'No meetings today' : 'No events today'
-                      : showOnlyMeetings ? 'No meetings' : 'No events'}
+                    {isToday ? 'No meetings today' : 'No meetings'}
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (

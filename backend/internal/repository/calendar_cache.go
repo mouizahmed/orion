@@ -85,6 +85,7 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 			ON p.user_id = e.user_id AND p.connection_id = e.connection_id AND p.calendar_id = e.calendar_id
 		WHERE e.user_id = $1
 			AND e.end_at >= $2
+			AND e.is_meeting = true
 			AND COALESCE(p.visible, s.primary_calendar OR s.selected) = true
 		ORDER BY e.start_at ASC
 		LIMIT $3

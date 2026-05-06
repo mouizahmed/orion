@@ -23,6 +23,7 @@ const WEEK_TIME_GUTTER = 48
 const START_HOUR = 0
 const END_HOUR = 24
 const STALE_REFETCH_DELAY = 2500
+const POLL_INTERVAL = 2 * 60 * 1000
 
 type CalendarView = 'agenda' | 'week' | 'month'
 
@@ -413,7 +414,6 @@ export function DashboardCalendar({
   const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
-  const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const staleRefetchTimerRef = useRef<number | null>(null)
@@ -486,18 +486,17 @@ export function DashboardCalendar({
 
   useEffect(() => {
     void loadEvents()
+    const interval = window.setInterval(() => void loadEvents(true), POLL_INTERVAL)
     const handleCalendarRefresh = () => void loadEvents()
     window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     return () => {
       clearStaleRefetch()
+      window.clearInterval(interval)
       window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
     }
   }, [loadEvents, clearStaleRefetch])
 
-  const visibleEvents = useMemo(
-    () => showOnlyMeetings ? events.filter((event) => event.isMeeting) : events,
-    [events, showOnlyMeetings],
-  )
+  const visibleEvents = events
   const weekDays = useMemo(() => {
     const start = startOfWeek(cursorDate)
     return Array.from({ length: 7 }, (_, index) => addDays(start, index))
@@ -576,18 +575,6 @@ export function DashboardCalendar({
             <Button type="button" variant="secondary" size="sm" onClick={() => setCursorDate(new Date())}>
               Today
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setShowOnlyMeetings((current) => !current)
-                setSelectedEvent(null)
-                setSelectedDay(null)
-              }}
-            >
-              {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
-            </Button>
             <Button type="button" variant="secondary" size="icon-sm" aria-label="Previous" onClick={() => moveRange(-1)}>
               <ChevronLeft className="h-3.5 w-3.5" />
             </Button>
@@ -614,10 +601,8 @@ export function DashboardCalendar({
             ) : visibleEvents.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 text-center dark:border-white/10 dark:bg-white/[0.03]">
                 <CalendarDays className="mb-2 h-5 w-5 text-neutral-400" />
-                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-                  {showOnlyMeetings ? 'No upcoming meetings' : 'No upcoming events'}
-                </p>
-                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">Connected calendar events will appear here.</p>
+                <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No upcoming meetings</p>
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">Connected calendar meetings will appear here.</p>
               </div>
             ) : (
               <div className="h-full min-h-0 overflow-hidden">

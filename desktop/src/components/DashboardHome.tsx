@@ -78,7 +78,6 @@ export default function DashboardHome({
   const { user } = useAuth()
   const { selectNote, openCreateNoteDialog } = useDashboardNotes()
   const activityRequestRef = useRef(0)
-  const [showOnlyMeetings, setShowOnlyMeetings] = useState(false)
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
   const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
@@ -152,18 +151,10 @@ export default function DashboardHome({
               >
                 View calendar
               </Button>
-              <Button
-                onClick={() => setShowOnlyMeetings(!showOnlyMeetings)}
-                variant="secondary"
-                size="sm"
-                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              >
-                {showOnlyMeetings ? 'Show All' : 'Meetings Only'}
-              </Button>
             </div>
           </DashboardPanelHeader>
           <DashboardPanelBody>
-            <UpcomingMeetings showOnlyMeetings={showOnlyMeetings} />
+            <UpcomingMeetings />
           </DashboardPanelBody>
         </DashboardPanel>
       </div>
