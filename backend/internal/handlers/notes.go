@@ -32,15 +32,21 @@ type NotesHandler struct {
 }
 
 type CreateNoteRequest struct {
-	Title        *string `json:"title"`
-	FolderID     *string `json:"folder_id"`
-	NoteMarkdown *string `json:"note_markdown"`
+	Title           *string `json:"title"`
+	FolderID        *string `json:"folder_id"`
+	NoteMarkdown    *string `json:"note_markdown"`
+	ProviderEventID *string `json:"provider_event_id"`
+	ConnectionID    *string `json:"connection_id"`
+	CalendarID      *string `json:"calendar_id"`
 }
 
 type UpdateNoteRequest struct {
-	Title        *string `json:"title"`
-	FolderID     *string `json:"folder_id"`
-	NoteMarkdown *string `json:"note_markdown"`
+	Title           *string `json:"title"`
+	FolderID        *string `json:"folder_id"`
+	NoteMarkdown    *string `json:"note_markdown"`
+	ProviderEventID *string `json:"provider_event_id"`
+	ConnectionID    *string `json:"connection_id"`
+	CalendarID      *string `json:"calendar_id"`
 }
 
 type StopRecordingRequest struct {
@@ -496,10 +502,13 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 	}
 
 	note := &models.Note{
-		UserID:       userID,
-		FolderID:     req.FolderID,
-		Title:        title,
-		NoteMarkdown: derefString(req.NoteMarkdown),
+		UserID:          userID,
+		FolderID:        req.FolderID,
+		Title:           title,
+		NoteMarkdown:    derefString(req.NoteMarkdown),
+		ProviderEventID: req.ProviderEventID,
+		ConnectionID:    req.ConnectionID,
+		CalendarID:      req.CalendarID,
 	}
 
 	if req.FolderID != nil && strings.TrimSpace(*req.FolderID) != "" {
@@ -542,7 +551,7 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 		return
 	}
 
-	if req.Title == nil && req.FolderID == nil && req.NoteMarkdown == nil {
+	if req.Title == nil && req.FolderID == nil && req.NoteMarkdown == nil && req.ProviderEventID == nil && req.ConnectionID == nil && req.CalendarID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
 		return
 	}
@@ -575,6 +584,27 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 	}
 	if req.NoteMarkdown != nil {
 		existing.NoteMarkdown = *req.NoteMarkdown
+	}
+	if req.ProviderEventID != nil {
+		if *req.ProviderEventID == "" {
+			existing.ProviderEventID = nil
+		} else {
+			existing.ProviderEventID = req.ProviderEventID
+		}
+	}
+	if req.ConnectionID != nil {
+		if *req.ConnectionID == "" {
+			existing.ConnectionID = nil
+		} else {
+			existing.ConnectionID = req.ConnectionID
+		}
+	}
+	if req.CalendarID != nil {
+		if *req.CalendarID == "" {
+			existing.CalendarID = nil
+		} else {
+			existing.CalendarID = req.CalendarID
+		}
 	}
 
 	updated, err := h.noteRepo.UpdateNote(existing)
@@ -706,6 +736,80 @@ func (h *NotesHandler) StopRecording(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"session": session,
+	})
+}
+
+func (h *NotesHandler) GetNotesByEvent(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	connectionID := strings.TrimSpace(c.Query("connection_id"))
+	calendarID := strings.TrimSpace(c.Query("calendar_id"))
+	providerEventID := strings.TrimSpace(c.Query("provider_event_id"))
+	if connectionID == "" || calendarID == "" || providerEventID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_id, calendar_id, and provider_event_id are required"})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "20")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 50 {
+		limit = 20
+	}
+
+	cursor := strings.TrimSpace(c.Query("cursor"))
+	var cursorTime *time.Time
+	var cursorID *string
+	if cursor != "" {
+		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
+			return
+		}
+		parts := strings.SplitN(string(decoded), "|", 2)
+		if len(parts) != 2 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
+			return
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, parts[0])
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
+			return
+		}
+		cursorTime = &parsed
+		cursorID = &parts[1]
+	}
+
+	fetchLimit := limit + 1
+	notes, err := h.noteRepo.ListNotesByEvent(userID, connectionID, calendarID, providerEventID, fetchLimit, cursorTime, cursorID)
+	if err != nil {
+		log.Printf("notes: failed to list notes by event for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load notes"})
+		return
+	}
+
+	hasMore := false
+	var nextCursor *string
+	if len(notes) > limit {
+		hasMore = true
+		notes = notes[:limit]
+	}
+	if hasMore && len(notes) > 0 {
+		last := notes[len(notes)-1]
+		rawCursor := fmt.Sprintf("%s|%s", last.CreatedAt.UTC().Format(time.RFC3339Nano), last.ID)
+		encoded := base64.RawURLEncoding.EncodeToString([]byte(rawCursor))
+		nextCursor = &encoded
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"notes": notes,
+		"pagination": gin.H{
+			"has_more":    hasMore,
+			"next_cursor": nextCursor,
+		},
 	})
 }
 

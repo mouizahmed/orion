@@ -16,7 +16,7 @@ import {
   DashboardPanelHeader,
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
-import { DashboardIconTile, DashboardRow } from '@/components/ui/dashboard-row'
+import { NoteRow } from '@/components/NoteRow'
 import { UpcomingMeetings } from '@/components/UpcomingMeetings'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
@@ -253,33 +253,14 @@ export default function DashboardHome({
                   </div>
                   <div className="space-y-0.5">
                     {group.items.map((item) => (
-                      <DashboardRow
+                      <NoteRow
                         key={item.id}
-                        onClick={() => item.noteId ? selectNote(item.noteId) : undefined}
-                        interactive={Boolean(item.noteId)}
-                        className="items-center"
-                      >
-                        <DashboardIconTile className="h-8 w-8">
-                          <FileText className="h-4 w-4" />
-                        </DashboardIconTile>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <span className="block truncate text-xs font-medium leading-4 text-neutral-800 dark:text-neutral-200">
-                                {item.title || 'Untitled'}
-                              </span>
-                              {item.actorLabel ? (
-                                <span className="block truncate text-xs leading-4 text-neutral-500 dark:text-neutral-400">
-                                  {item.actorLabel}
-                                </span>
-                              ) : null}
-                            </div>
-                            <span className="shrink-0 text-xs leading-4 text-neutral-400 dark:text-neutral-500">
-                              {formatActivityTime(item.timestamp)}
-                            </span>
-                          </div>
-                        </div>
-                      </DashboardRow>
+                        variant="card"
+                        title={item.title || 'Untitled'}
+                        onClick={item.noteId ? () => selectNote(item.noteId!) : undefined}
+                        subtitle={item.actorLabel}
+                        timestamp={formatActivityTime(item.timestamp)}
+                      />
                     ))}
                   </div>
                 </div>

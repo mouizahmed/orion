@@ -12,6 +12,10 @@ import {
 } from '@/components/ui/dashboard-panel'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import { listNotesByEvent } from '@/lib/notes-client'
+import type { NoteRecord } from '@/types/note'
+import { NoteRow } from '@/components/NoteRow'
+import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { cn } from '@/lib/utils'
 import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
@@ -245,11 +249,70 @@ function EventDetail({
   event,
   onStartNote,
   onClose,
+  onSelectNote,
 }: {
   event: CalendarEvent
-  onStartNote: () => void
+  onStartNote: (event: CalendarEvent) => Promise<void>
   onClose: () => void
+  onSelectNote?: (id: string) => void
 }) {
+  const { selectNote } = useDashboardNotes()
+  const [linkedNotes, setLinkedNotes] = useState<NoteRecord[]>([])
+  const [linkedNotesLoading, setLinkedNotesLoading] = useState(false)
+  const [linkedNotesLoadingMore, setLinkedNotesLoadingMore] = useState(false)
+  const [linkedNotesHasMore, setLinkedNotesHasMore] = useState(false)
+  const [linkedNotesCursor, setLinkedNotesCursor] = useState<string | undefined>(undefined)
+  const [startingNote, setStartingNote] = useState(false)
+
+  const canLinkNotes = Boolean(event.connectionId && event.calendarId && event.providerId)
+
+  const refreshLinkedNotes = useCallback(async () => {
+    if (!canLinkNotes) return
+    setLinkedNotesLoading(true)
+    try {
+      const result = await listNotesByEvent(event.connectionId!, event.calendarId, event.providerId!)
+      setLinkedNotes(result.notes)
+      setLinkedNotesHasMore(result.hasMore)
+      setLinkedNotesCursor(result.nextCursor)
+    } catch {
+      // silent
+    } finally {
+      setLinkedNotesLoading(false)
+    }
+  }, [canLinkNotes, event.connectionId, event.calendarId, event.providerId])
+
+  const loadMoreLinkedNotes = useCallback(async () => {
+    if (!canLinkNotes || linkedNotesLoadingMore || !linkedNotesHasMore) return
+    setLinkedNotesLoadingMore(true)
+    try {
+      const result = await listNotesByEvent(event.connectionId!, event.calendarId, event.providerId!, linkedNotesCursor)
+      setLinkedNotes((prev) => {
+        const existing = new Set(prev.map((n) => n.id))
+        return [...prev, ...result.notes.filter((n) => !existing.has(n.id))]
+      })
+      setLinkedNotesHasMore(result.hasMore)
+      setLinkedNotesCursor(result.nextCursor)
+    } catch {
+      // silent
+    } finally {
+      setLinkedNotesLoadingMore(false)
+    }
+  }, [canLinkNotes, linkedNotesLoadingMore, linkedNotesHasMore, linkedNotesCursor, event.connectionId, event.calendarId, event.providerId])
+
+  useEffect(() => {
+    void refreshLinkedNotes()
+  }, [refreshLinkedNotes])
+
+  const handleStartNote = async () => {
+    setStartingNote(true)
+    try {
+      await onStartNote(event)
+      await refreshLinkedNotes()
+    } finally {
+      setStartingNote(false)
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col p-1">
       <div className="flex items-start justify-between gap-3">
@@ -318,18 +381,51 @@ function EventDetail({
         </section>
 
         {event.description ? (
-          <section className="flex min-h-0 flex-1 flex-col">
+          <section>
             <div className="mb-2 text-xs font-semibold text-neutral-400">Description</div>
-            <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs leading-5 text-neutral-600 sidebar-scrollbar dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-300">
+            <div className="overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-neutral-200 bg-neutral-50 p-2 text-xs leading-5 text-neutral-600 sidebar-scrollbar dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-300">
               {event.description}
             </div>
+          </section>
+        ) : null}
+
+        {canLinkNotes ? (
+          <section>
+            <div className="mb-2 text-xs font-semibold text-neutral-400">Notes</div>
+            {linkedNotesLoading ? (
+              <div className="space-y-1">
+                {[60, 80].map((w, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+                    <div className="h-3.5 w-3.5 shrink-0 animate-pulse rounded bg-neutral-200 dark:bg-white/15" />
+                    <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-white/15" style={{ width: `${w}%` }} />
+                  </div>
+                ))}
+              </div>
+            ) : linkedNotes.length > 0 ? (
+              <div className="space-y-0.5">
+                {linkedNotes.map((note) => (
+                  <NoteRow
+                    key={note.id}
+                    variant="sidebar"
+                    title={note.title || 'Untitled'}
+                    onClick={() => { selectNote(note.id); onSelectNote?.(note.id) }}
+                  />
+                ))}
+                {linkedNotesHasMore ? (
+                  <LoadMoreButton
+                    isLoading={linkedNotesLoadingMore}
+                    onClick={() => void loadMoreLinkedNotes()}
+                  />
+                ) : null}
+              </div>
+            ) : null}
           </section>
         ) : null}
 
       </div>
 
       <div className="sticky bottom-0 mt-3 flex shrink-0 flex-wrap justify-center gap-1.5 border-t border-neutral-200 pt-3 dark:border-white/10">
-        <Button type="button" variant="secondary" size="sm" onClick={onStartNote}>
+        <Button type="button" variant="secondary" size="sm" disabled={startingNote} onClick={() => void handleStartNote()}>
           Start note
         </Button>
         {event.meetingLink ? (
@@ -398,11 +494,13 @@ function DayEventsDetail({
 
 export function DashboardCalendar({
   onOpenCalendarSettings,
+  onOpenNotes,
 }: {
   onOpenCalendarSettings?: () => void
+  onOpenNotes?: () => void
 }) {
   const { user } = useAuth()
-  const { openCreateNoteDialog } = useDashboardNotes()
+  const { createNewNote, selectNote } = useDashboardNotes()
   const [view, setView] = useState<CalendarView>('week')
   const [cursorDate, setCursorDate] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -525,6 +623,21 @@ export function DashboardCalendar({
   }
   const selectedDayEvents = selectedDay ? getEventsForDay(visibleEvents, selectedDay) : []
   const hasDetailsPanel = Boolean(selectedEvent || selectedDay)
+
+  const handleStartNote = useCallback(async (event: CalendarEvent) => {
+    const created = await createNewNote({
+      title: event.title,
+      eventLink: {
+        providerEventId: event.providerId ?? '',
+        connectionId: event.connectionId ?? '',
+        calendarId: event.calendarId,
+      },
+    })
+    if (created) {
+      selectNote(created.id)
+      onOpenNotes?.()
+    }
+  }, [createNewNote, selectNote, onOpenNotes])
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
@@ -801,8 +914,9 @@ export function DashboardCalendar({
               {selectedEvent ? (
                 <EventDetail
                   event={selectedEvent}
-                  onStartNote={openCreateNoteDialog}
+                  onStartNote={handleStartNote}
                   onClose={() => setSelectedEvent(null)}
+                  onSelectNote={onOpenNotes}
                 />
               ) : selectedDay ? (
                 <DayEventsDetail

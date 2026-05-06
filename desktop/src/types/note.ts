@@ -5,6 +5,9 @@ export type NoteRecord = {
   noteMarkdown: string
   createdAt: number
   updatedAt: number
+  providerEventId?: string
+  connectionId?: string
+  calendarId?: string
 }
 
 export type NoteVersion = {

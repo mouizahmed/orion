@@ -30,7 +30,7 @@ type DashboardNotesContextType = {
   selectNote: (id: string | null) => void
   openCreateNoteDialog: () => void
   refresh: () => Promise<void>
-  createNewNote: (payload?: { title?: string; folderId?: string | null }) => Promise<NoteRecord | null>
+  createNewNote: (payload?: { title?: string; folderId?: string | null; eventLink?: { providerEventId: string; connectionId: string; calendarId: string } }) => Promise<NoteRecord | null>
   deleteById: (noteId: string) => Promise<boolean>
   optimisticPatch: (noteId: string, patch: Patch) => void
   replaceNote: (note: NoteRecord) => void
@@ -274,7 +274,7 @@ export function DashboardNotesProvider({
     [userId],
   )
 
-  const createNewNote = useCallback(async (payload?: { title?: string; folderId?: string | null }) => {
+  const createNewNote = useCallback(async (payload?: { title?: string; folderId?: string | null; eventLink?: { providerEventId: string; connectionId: string; calendarId: string } }) => {
     if (createInFlightRef.current) return null
     try {
       createInFlightRef.current = true
@@ -283,6 +283,9 @@ export function DashboardNotesProvider({
       const created = await createNote(userId, {
         title,
         folderId: folderId ?? undefined,
+        providerEventId: payload?.eventLink?.providerEventId,
+        connectionId: payload?.eventLink?.connectionId,
+        calendarId: payload?.eventLink?.calendarId,
       })
       setNotes((prev) => {
         const existing = prev.find((n) => n.id === created.id)

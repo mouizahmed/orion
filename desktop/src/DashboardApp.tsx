@@ -11,14 +11,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
 
-function SidebarNoteAutoClose() {
-  const { selectedId } = useDashboardNotes()
-  const { setOpen } = useSidebar()
-  useEffect(() => {
-    if (selectedId) setOpen(false)
-  }, [selectedId, setOpen])
-  return null
-}
 
 function useDashboardNoteIdFromUrl() {
   return useMemo(() => {
@@ -94,7 +86,6 @@ function DashboardContent() {
   return (
     <DashboardNotesProvider userId={user.id}>
       <DashboardNoteSelector initialNoteId={initialNoteId} />
-      <SidebarNoteAutoClose />
       <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
           <DashboardTopBar onBackToOverlay={() => desktopApi.dashboard.close()} />
@@ -119,6 +110,7 @@ function DashboardContent() {
                   setSettingsSection('calendar')
                   setViewMode('settings')
                 }}
+                onOpenNotes={() => setViewMode('notes')}
               />
             </div>
           </div>

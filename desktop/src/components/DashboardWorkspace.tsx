@@ -1,10 +1,11 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { Check, Folder, Loader2, Sparkles, FileText, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Folder, Loader2, Sparkles, FileText, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { InfoBanner } from '@/components/ui/info-banner'
 import { updateNote, enhanceNote } from '@/lib/notes-client'
+import { auth } from '@/config/firebase'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
 import SavedTranscriptView from '@/components/SavedTranscriptView'
 import MarkdownEditor from '@/components/MarkdownEditor'
@@ -13,12 +14,24 @@ import DashboardHome from '@/components/DashboardHome'
 import DashboardSettingsPage, { type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+
+type MeetingOption = {
+  providerId: string
+  connectionId: string
+  calendarId: string
+  title: string
+  start: string
+  color: string
+}
+
 type DashboardWorkspaceProps = {
   userId?: string
   mode?: 'notes' | 'calendar' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenCalendar?: () => void
   onOpenCalendarSettings?: () => void
+  onOpenNotes?: () => void
 }
 
 export default function DashboardWorkspace({
@@ -27,6 +40,7 @@ export default function DashboardWorkspace({
   selectedSettingsSection = 'account',
   onOpenCalendar,
   onOpenCalendarSettings,
+  onOpenNotes,
 }: DashboardWorkspaceProps) {
   const { folders, selectedId, selected, optimisticPatch, replaceNote, isLoading } = useDashboardNotes()
 
@@ -43,6 +57,15 @@ export default function DashboardWorkspace({
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([])
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const transcriptLoadedForRef = useRef<string | null>(null)
+
+  const [meetingPickerOpen, setMeetingPickerOpen] = useState(false)
+  const meetingPickerRef = useRef<HTMLDivElement | null>(null)
+  const meetingSearchRef = useRef<HTMLInputElement | null>(null)
+  const meetingSearchTimerRef = useRef<number | null>(null)
+  const [meetingSearch, setMeetingSearch] = useState('')
+  const [meetingResults, setMeetingResults] = useState<MeetingOption[]>([])
+  const [meetingResultsLoading, setMeetingResultsLoading] = useState(false)
+  const [linkingMeeting, setLinkingMeeting] = useState(false)
 
   const saveTimerRef = useRef<number | null>(null)
   const lastLoadedIdRef = useRef<string | null>(null)
@@ -80,16 +103,20 @@ export default function DashboardWorkspace({
     return () => window.removeEventListener('note-updated-by-ai', handler)
   }, [selectedId])
 
-  // Close folder picker on outside click / escape
+  // Close pickers on outside click / escape
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (folderPickerRef.current && !folderPickerRef.current.contains(event.target as Node)) {
         setFolderPickerOpen(false)
       }
+      if (meetingPickerRef.current && !meetingPickerRef.current.contains(event.target as Node)) {
+        setMeetingPickerOpen(false)
+      }
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setFolderPickerOpen(false)
+        setMeetingPickerOpen(false)
       }
     }
 
@@ -100,6 +127,85 @@ export default function DashboardWorkspace({
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  const searchMeetings = useCallback(async (q: string) => {
+    setMeetingResultsLoading(true)
+    try {
+      const currentUser = auth.currentUser
+      if (!currentUser) return
+      const idToken = await currentUser.getIdToken()
+      const url = new URL(`${API_BASE_URL}/calendar/events/search`)
+      url.searchParams.set('limit', '20')
+      if (q.trim()) url.searchParams.set('q', q.trim())
+      const res = await fetch(url.toString(), {
+        headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      })
+      if (!res.ok) return
+      const data = await res.json() as {
+        status: string
+        events?: Array<{
+          id: string
+          provider_id?: string
+          connection_id?: string
+          calendar_id?: string
+          title: string
+          start: string
+          color?: string
+          provider: string
+        }>
+      }
+      if (data.status === 'success' && Array.isArray(data.events)) {
+        setMeetingResults(data.events.map((e) => ({
+          providerId: e.provider_id ?? e.id,
+          connectionId: e.connection_id ?? '',
+          calendarId: e.calendar_id ?? e.provider,
+          title: e.title || 'Untitled event',
+          start: e.start,
+          color: e.color ?? '#9f73f2',
+        })))
+      }
+    } catch {
+      // ignore
+    } finally {
+      setMeetingResultsLoading(false)
+    }
+  }, [])
+
+  const openMeetingPicker = () => {
+    setMeetingSearch('')
+    setMeetingPickerOpen(true)
+    void searchMeetings('')
+    setTimeout(() => meetingSearchRef.current?.focus(), 0)
+  }
+
+  const handleMeetingSearchChange = (q: string) => {
+    setMeetingSearch(q)
+    if (meetingSearchTimerRef.current !== null) window.clearTimeout(meetingSearchTimerRef.current)
+    meetingSearchTimerRef.current = window.setTimeout(() => {
+      meetingSearchTimerRef.current = null
+      void searchMeetings(q)
+    }, 300)
+  }
+
+  const linkedMeeting = selected?.providerEventId
+    ? (meetingResults.find((m) => m.providerId === selected.providerEventId && m.connectionId === selected.connectionId) ?? null)
+    : null
+
+  const handleLinkMeeting = async (meeting: MeetingOption | null) => {
+    if (!selectedId || linkingMeeting) return
+    setLinkingMeeting(true)
+    setMeetingPickerOpen(false)
+    try {
+      const updated = await updateNote(userId, selectedId, {
+        providerEventId: meeting?.providerId ?? '',
+        connectionId: meeting?.connectionId ?? '',
+        calendarId: meeting?.calendarId ?? '',
+      })
+      if (updated) replaceNote(updated)
+    } finally {
+      setLinkingMeeting(false)
+    }
+  }
 
   // Load transcript when sidebar opens
   useEffect(() => {
@@ -184,7 +290,7 @@ export default function DashboardWorkspace({
   if (mode === 'calendar') {
     return (
       <div className="h-full">
-        <DashboardCalendar onOpenCalendarSettings={onOpenCalendarSettings} />
+        <DashboardCalendar onOpenCalendarSettings={onOpenCalendarSettings} onOpenNotes={onOpenNotes} />
       </div>
     )
   }
@@ -282,6 +388,93 @@ export default function DashboardWorkspace({
               </div>
             )}
           </div>
+          {/* Meeting link picker */}
+          <div ref={meetingPickerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!selectedId || linkingMeeting}
+              onClick={() => meetingPickerOpen ? setMeetingPickerOpen(false) : openMeetingPicker()}
+              className="h-8 gap-1.5"
+            >
+              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-w-[140px] truncate">
+                {linkingMeeting
+                  ? 'Saving…'
+                  : !selected?.providerEventId
+                  ? 'Select event'
+                  : linkedMeeting
+                  ? linkedMeeting.title
+                  : meetingResults.length > 0 && !meetingResultsLoading
+                  ? 'No longer linked'
+                  : 'Linked to event'}
+              </span>
+              <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+            </Button>
+            {meetingPickerOpen && (
+              <div className="absolute right-0 top-[calc(100%+4px)] z-30 w-72 rounded-lg border border-neutral-200 bg-white/95 py-1 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100">
+                <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                  <input
+                    ref={meetingSearchRef}
+                    value={meetingSearch}
+                    onChange={(e) => handleMeetingSearchChange(e.target.value)}
+                    placeholder="Search events…"
+                    className="w-full bg-transparent outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+                  />
+                </div>
+                {selected?.providerEventId && !meetingSearch ? (
+                  <>
+                    <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => void handleLinkMeeting(null)}
+                      className="mx-1 h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 text-xs font-normal"
+                    >
+                      <span className="w-3.5"><X className="h-3.5 w-3.5" /></span>
+                      Remove event link
+                    </Button>
+                  </>
+                ) : null}
+                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
+                {meetingResultsLoading ? (
+                  <div className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Searching…
+                  </div>
+                ) : meetingResults.length === 0 ? (
+                  <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                    {meetingSearch.trim() ? 'No matching events' : 'No events found'}
+                  </div>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto sidebar-scrollbar">
+                    {meetingResults.map((meeting) => {
+                      const isLinked = selected?.providerEventId === meeting.providerId && selected?.connectionId === meeting.connectionId
+                      const date = new Date(meeting.start)
+                      const dateLabel = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+                      return (
+                        <Button
+                          key={`${meeting.connectionId}-${meeting.providerId}`}
+                          type="button"
+                          variant="ghost"
+                          onClick={() => void handleLinkMeeting(meeting)}
+                          className="mx-1 h-auto min-h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 py-1.5 text-xs font-normal"
+                        >
+                          <span className="w-3.5 shrink-0">{isLinked ? <Check className="h-3.5 w-3.5" /> : null}</span>
+                          <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meeting.color }} />
+                          <span className="min-w-0 text-left">
+                            <span className="block truncate">{meeting.title}</span>
+                            <span className="block text-[11px] text-neutral-400 dark:text-neutral-500">{dateLabel}</span>
+                          </span>
+                        </Button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Enhance button */}
           <button
             type="button"

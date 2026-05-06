@@ -219,6 +219,7 @@ func main() {
 		// Notes routes
 		authenticated.GET("/search", notesHandler.Search)
 		authenticated.GET("/notes", notesHandler.ListNotes)
+		authenticated.GET("/notes/by-event", notesHandler.GetNotesByEvent)
 		authenticated.GET("/notes/:noteID", notesHandler.GetNote)
 		authenticated.POST("/notes", notesHandler.CreateNote)
 		authenticated.PATCH("/notes/:noteID", notesHandler.UpdateNote)
@@ -245,6 +246,7 @@ func main() {
 		// Calendar routes
 		authenticated.GET("/calendar/calendars", calendarHandler.GetCalendars)
 		authenticated.GET("/calendar/upcoming", calendarHandler.GetUpcomingEvents)
+		authenticated.GET("/calendar/events/search", calendarHandler.SearchEvents)
 		authenticated.POST("/calendar/sync", calendarHandler.Sync)
 		authenticated.PATCH("/calendar/connections/:connectionID/calendars/:calendarID", calendarHandler.UpdateCalendarVisibility)
 

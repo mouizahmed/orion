@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, FilePlus, FileText, Folder, FolderOpen, FolderPlus, Loader2, MoreHorizontal } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal } from 'lucide-react'
 
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { LoadMoreButton } from '@/components/ui/load-more-button'
+import { NoteRow } from '@/components/NoteRow'
 import { cn } from '@/lib/utils'
 import type { FolderRecord } from '@/types/folder'
 import type { NoteRecord } from '@/types/note'
@@ -122,43 +124,19 @@ export function NotesTree({
     const showMove = isMenuOpen && (openMenu as Extract<OpenMenu, { kind: 'note' }>).showMove
 
     return (
-      <div key={n.id} className="relative group/row min-w-0" style={indented ? { paddingLeft: '8px' } : {}}>
-        <div className={cn(
-          'flex items-center rounded-full min-w-0',
-          active ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
-        )}>
-          <SidebarRowButton
-            embedded
-            className="min-w-0 flex-1 rounded-none text-inherit hover:bg-transparent hover:text-inherit"
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => onSelectNote(n.id)}
-            title={n.title || 'Untitled'}
-          >
-            <FileText
-              size={14}
-              className={cn(
-                'flex-shrink-0 text-neutral-500 transition-colors group-hover/row:text-neutral-950 dark:text-neutral-400 dark:group-hover/row:text-white',
-                active && 'text-neutral-950 dark:text-white',
-              )}
-            />
-            {renamingId === n.id ? (
-              <input
-                autoFocus
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void commitRename('note', n.id)
-                  if (e.key === 'Escape') cancelRename()
-                }}
-                onBlur={() => void commitRename('note', n.id)}
-                onClick={(e) => e.stopPropagation()}
-                className="flex-1 min-w-0 bg-transparent outline-none border-b border-violet-400 text-xs"
-              />
-            ) : (
-              <span className="truncate">{n.title || 'Untitled'}</span>
-            )}
-          </SidebarRowButton>
-          {renamingId !== n.id && (
+      <div key={n.id} className="relative">
+        <NoteRow
+          variant="sidebar"
+          title={n.title || 'Untitled'}
+          selected={active}
+          indented={indented}
+          onClick={() => onSelectNote(n.id)}
+          isRenaming={renamingId === n.id}
+          renameValue={renameValue}
+          onRenameChange={setRenameValue}
+          onRenameCommit={() => void commitRename('note', n.id)}
+          onRenameCancel={cancelRename}
+          actions={
             <SidebarIconButton
               revealOnRowHover
               suppressHoverBackground={active}
@@ -171,9 +149,8 @@ export function NotesTree({
             >
               <MoreHorizontal size={14} />
             </SidebarIconButton>
-          )}
-        </div>
-
+          }
+        />
         {isMenuOpen && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
@@ -181,9 +158,7 @@ export function NotesTree({
           >
             {!showMove ? (
               <>
-                <SidebarMenuItemButton
-                  onClick={() => startRename(n.id, n.title || 'Untitled')}
-                >
+                <SidebarMenuItemButton onClick={() => startRename(n.id, n.title || 'Untitled')}>
                   Rename
                 </SidebarMenuItemButton>
                 <SidebarMenuItemButton
@@ -334,26 +309,11 @@ export function NotesTree({
           <div className="mt-1 space-y-1">
             {f.noteIds.map((noteId) => renderNoteRow(noteId, true))}
             {showLoadMore ? (
-              <div style={{ paddingLeft: '8px' }}>
-                <SidebarRowButton
-                  className="text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/10"
-                  style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                  onClick={() => onLoadMore(f.id)}
-                  disabled={pagination?.isLoading}
-                >
-                  {pagination?.isLoading ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      <span>Loading...</span>
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={14} />
-                      <span>Load more</span>
-                    </>
-                  )}
-                </SidebarRowButton>
-              </div>
+              <LoadMoreButton
+                indented
+                isLoading={pagination?.isLoading}
+                onClick={() => onLoadMore(f.id)}
+              />
             ) : null}
           </div>
         ) : null}
@@ -414,26 +374,10 @@ export function NotesTree({
                 {unfiledNoteIds.map((noteId) => renderNoteRow(noteId, false))}
 
                 {!search.trim() && folderPagination['__unfiled__']?.hasMore ? (
-                  <div>
-                    <SidebarRowButton
-                      className="text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-white/10"
-                      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                      onClick={() => onLoadMore(null)}
-                      disabled={folderPagination['__unfiled__']?.isLoading}
-                    >
-                      {folderPagination['__unfiled__']?.isLoading ? (
-                        <>
-                          <Loader2 size={14} className="animate-spin" />
-                          <span>Loading...</span>
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown size={14} />
-                          <span>Load more</span>
-                        </>
-                      )}
-                    </SidebarRowButton>
-                  </div>
+                  <LoadMoreButton
+                    isLoading={folderPagination['__unfiled__']?.isLoading}
+                    onClick={() => onLoadMore(null)}
+                  />
                 ) : null}
               </div>
             )}

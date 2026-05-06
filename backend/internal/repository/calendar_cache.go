@@ -14,6 +14,7 @@ import (
 type CalendarCacheRepository interface {
 	ListCalendarSources(ctx context.Context, userID string) ([]*models.CachedCalendarSource, error)
 	ListUpcomingEvents(ctx context.Context, userID string, now time.Time, limit int) ([]*models.CachedCalendarEvent, error)
+	SearchEvents(ctx context.Context, userID, query string, limit int) ([]*models.CachedCalendarEvent, error)
 	ListConnectionSyncStates(ctx context.Context, userID string) ([]*models.CalendarSyncState, error)
 	UpsertCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) error
 	UpsertCalendarEvents(ctx context.Context, userID string, connection *models.IntegrationConnection, events []*models.CachedCalendarEvent) error
@@ -91,6 +92,65 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 		LIMIT $3
 	`
 	rows, err := r.db.QueryContext(ctx, query, userID, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	events := []*models.CachedCalendarEvent{}
+	for rows.Next() {
+		var event models.CachedCalendarEvent
+		if err := rows.Scan(
+			&event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
+			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
+			&event.Location, &event.Description, &event.MeetingLink,
+			&event.CalendarName, &event.Color, &event.Organizer,
+			&event.IsMeeting, &event.AttendeesJSON,
+		); err != nil {
+			return nil, err
+		}
+		event.ID = fmt.Sprintf("%s:%s:%s:%s", event.Provider, event.ConnectionID, event.CalendarID, event.ProviderID)
+		events = append(events, &event)
+	}
+	return events, rows.Err()
+}
+
+func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, query string, limit int) ([]*models.CachedCalendarEvent, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	pattern := "%" + strings.ReplaceAll(strings.TrimSpace(query), "%", "\\%") + "%"
+	sqlQuery := `
+		SELECT e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
+			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
+			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
+			COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
+			COALESCE(e.organizer, ''), e.is_meeting, e.attendees
+		FROM calendar_events e
+		JOIN calendar_sources s
+			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
+		JOIN integration_connections c
+			ON c.user_id = e.user_id AND c.id = e.connection_id AND c.status = 'active'
+		LEFT JOIN calendar_preferences p
+			ON p.user_id = e.user_id AND p.connection_id = e.connection_id AND p.calendar_id = e.calendar_id
+		WHERE e.user_id = $1
+			AND e.is_meeting = true
+			AND COALESCE(p.visible, s.primary_calendar OR s.selected) = true
+	`
+	args := []interface{}{userID}
+	argPos := 2
+	if strings.TrimSpace(query) != "" {
+		sqlQuery += fmt.Sprintf(" AND e.title ILIKE $%d", argPos)
+		args = append(args, pattern)
+		argPos++
+	}
+	sqlQuery += fmt.Sprintf(`
+		ORDER BY ABS(EXTRACT(EPOCH FROM (e.start_at - NOW()))) ASC
+		LIMIT $%d
+	`, argPos)
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, sqlQuery, args...)
 	if err != nil {
 		return nil, err
 	}

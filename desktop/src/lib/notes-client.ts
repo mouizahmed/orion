@@ -11,6 +11,9 @@ type ApiNote = {
   note_markdown: string
   created_at: string
   updated_at: string
+  provider_event_id?: string | null
+  connection_id?: string | null
+  calendar_id?: string | null
 }
 
 function toNoteRecord(note: ApiNote): NoteRecord {
@@ -21,6 +24,9 @@ function toNoteRecord(note: ApiNote): NoteRecord {
     noteMarkdown: note.note_markdown ?? '',
     createdAt: Date.parse(note.created_at),
     updatedAt: Date.parse(note.updated_at),
+    providerEventId: note.provider_event_id ?? undefined,
+    connectionId: note.connection_id ?? undefined,
+    calendarId: note.calendar_id ?? undefined,
   }
 }
 
@@ -98,7 +104,15 @@ export async function getNote(userId: string | undefined, noteId: string): Promi
 
 export async function createNote(
   userId?: string,
-  initial?: { id?: string; title?: string; folderId?: string | null; noteMarkdown?: string },
+  initial?: {
+    id?: string
+    title?: string
+    folderId?: string | null
+    noteMarkdown?: string
+    providerEventId?: string
+    connectionId?: string
+    calendarId?: string
+  },
 ): Promise<NoteRecord> {
   void userId
   const idToken = await getIdToken()
@@ -113,6 +127,9 @@ export async function createNote(
       title: initial?.title,
       folder_id: initial?.folderId ?? null,
       note_markdown: initial?.noteMarkdown,
+      provider_event_id: initial?.providerEventId,
+      connection_id: initial?.connectionId,
+      calendar_id: initial?.calendarId,
     }),
   })
   if (!payload.note) {
@@ -124,7 +141,14 @@ export async function createNote(
 export async function updateNote(
   userId: string | undefined,
   noteId: string,
-  patch: { title?: string; folderId?: string | null; noteMarkdown?: string },
+  patch: {
+    title?: string
+    folderId?: string | null
+    noteMarkdown?: string
+    providerEventId?: string | null
+    connectionId?: string | null
+    calendarId?: string | null
+  },
 ): Promise<NoteRecord | null> {
   void userId
   const idToken = await getIdToken()
@@ -139,6 +163,9 @@ export async function updateNote(
       title: patch.title,
       folder_id: 'folderId' in patch ? (patch.folderId ?? '') : undefined,
       note_markdown: patch.noteMarkdown,
+      provider_event_id: 'providerEventId' in patch ? (patch.providerEventId ?? '') : undefined,
+      connection_id: 'connectionId' in patch ? (patch.connectionId ?? '') : undefined,
+      calendar_id: 'calendarId' in patch ? (patch.calendarId ?? '') : undefined,
     }),
   })
   return payload.note ? toNoteRecord(payload.note) : null
@@ -207,6 +234,36 @@ export async function uploadNoteImage(noteId: string, file: File): Promise<strin
   if (!res.ok) throw new Error('Upload failed')
   const data = (await res.json()) as { url: string }
   return data.url
+}
+
+export async function listNotesByEvent(
+  connectionId: string,
+  calendarId: string,
+  providerEventId: string,
+  cursor?: string | null,
+  limit = 20,
+): Promise<{ notes: NoteRecord[]; hasMore: boolean; nextCursor?: string }> {
+  const idToken = await getIdToken()
+  const url = new URL(`${API_BASE_URL}/notes/by-event`)
+  url.searchParams.set('connection_id', connectionId)
+  url.searchParams.set('calendar_id', calendarId)
+  url.searchParams.set('provider_event_id', providerEventId)
+  url.searchParams.set('limit', String(limit))
+  if (cursor) url.searchParams.set('cursor', cursor)
+  const payload = await fetchJson<{
+    notes: ApiNote[]
+    pagination?: { has_more?: boolean; next_cursor?: string | null }
+  }>(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+  })
+  return {
+    notes: (payload.notes ?? []).map(toNoteRecord),
+    hasMore: Boolean(payload.pagination?.has_more),
+    nextCursor: payload.pagination?.next_cursor ?? undefined,
+  }
 }
 
 export async function deleteNote(userId: string | undefined, noteId: string): Promise<boolean> {

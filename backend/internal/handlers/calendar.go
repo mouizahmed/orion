@@ -319,6 +319,49 @@ func (h *CalendarHandler) getCacheMetadata(ctx context.Context, userID string, s
 	return metadata
 }
 
+func (h *CalendarHandler) SearchEvents(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	query := strings.TrimSpace(c.Query("q"))
+	limitStr := c.DefaultQuery("limit", "20")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 50 {
+		limit = 20
+	}
+
+	events, err := h.cacheRepo.SearchEvents(c.Request.Context(), userID, query, limit)
+	if err != nil {
+		log.Printf("calendar: failed to search events for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search events"})
+		return
+	}
+
+	result := make([]*CalendarEvent, 0, len(events))
+	for _, event := range events {
+		result = append(result, &CalendarEvent{
+			ID:           event.ID,
+			ProviderID:   event.ProviderID,
+			ConnectionID: event.ConnectionID,
+			AccountEmail: event.AccountEmail,
+			Title:        event.Title,
+			Start:        event.Start,
+			End:          event.End,
+			AllDay:       event.AllDay,
+			CalendarID:   event.CalendarID,
+			CalendarName: event.CalendarName,
+			Color:        event.Color,
+			Organizer:    event.Organizer,
+			Provider:     event.Provider,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success", "events": result})
+}
+
 func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarservice.SyncScope) {
 	if h.syncService == nil {
 		return
