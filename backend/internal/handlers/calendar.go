@@ -39,7 +39,6 @@ type CalendarEvent struct {
 	Color        string             `json:"color,omitempty"`
 	Organizer    string             `json:"organizer,omitempty"`
 	Provider     string             `json:"provider"`
-	IsMeeting    bool               `json:"is_meeting"`
 	Attendees    []CalendarAttendee `json:"attendees,omitempty"`
 }
 
@@ -262,7 +261,6 @@ func (h *CalendarHandler) getCachedUpcomingEvents(ctx context.Context, userID st
 			Color:        event.Color,
 			Organizer:    event.Organizer,
 			Provider:     event.Provider,
-			IsMeeting:    event.IsMeeting,
 			Attendees:    attendees,
 		})
 	}

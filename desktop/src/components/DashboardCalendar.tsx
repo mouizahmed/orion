@@ -49,7 +49,6 @@ type ServerCalendarEvent = {
   color?: string
   organizer?: string
   provider: string
-  is_meeting: boolean
   attendees?: CalendarAttendee[]
 }
 
@@ -71,7 +70,6 @@ type CalendarEvent = {
   description?: string
   organizer?: string
   provider: string
-  isMeeting: boolean
 }
 
 type PositionedEvent = CalendarEvent & {
@@ -181,7 +179,6 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
     description: event.description,
     organizer: event.organizer,
     provider: event.provider,
-    isMeeting: event.is_meeting,
   }
 }
 
@@ -334,9 +331,6 @@ function EventDetail({
       <div className="sticky bottom-0 mt-3 flex shrink-0 flex-wrap justify-center gap-1.5 border-t border-neutral-200 pt-3 dark:border-white/10">
         <Button type="button" variant="secondary" size="sm" onClick={onStartNote}>
           Start note
-        </Button>
-        <Button type="button" variant="secondary" size="sm" disabled>
-          Start transcript
         </Button>
         {event.meetingLink ? (
           <Button type="button" variant="secondary" size="sm" asChild>

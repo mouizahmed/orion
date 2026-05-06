@@ -27,7 +27,6 @@ interface Meeting {
   calendarName?: string
   color?: string
   provider: string
-  is_meeting: boolean
   attendees?: CalendarAttendee[]
 }
 
@@ -46,7 +45,6 @@ interface CalendarEvent {
   calendar_name?: string
   color?: string
   provider: string
-  is_meeting: boolean
   attendees?: CalendarAttendee[]
 }
 
@@ -143,7 +141,6 @@ export function UpcomingMeetings() {
           calendarName: event.calendar_name,
           color: event.color,
           provider: event.provider,
-          is_meeting: event.is_meeting,
           attendees: event.attendees,
         }))
 
@@ -307,11 +304,6 @@ export function UpcomingMeetings() {
                           <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
                             {meeting.title}
                           </span>
-                          {meeting.is_meeting && (
-                            <span className="shrink-0 rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] leading-none text-neutral-600 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
-                              Meeting
-                            </span>
-                          )}
                         </div>
                         <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                           {formatMeetingTime(meeting.start, meeting.end)}
