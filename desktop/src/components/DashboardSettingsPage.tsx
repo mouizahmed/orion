@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
 import { wsClient } from '@/lib/ws-client'
+import { toast } from 'sonner'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -449,16 +450,13 @@ export default function DashboardSettingsPage({
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
   const [recordingAction, setRecordingAction] = useState<ShortcutAction | null>(null)
   const [updatingAction, setUpdatingAction] = useState<ShortcutAction | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [profileImageFailed, setProfileImageFailed] = useState(false)
   const [calendarConnections, setCalendarConnections] = useState<IntegrationConnection[]>([])
   const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
-  const [isLoadingCalendars, setIsLoadingCalendars] = useState(false)
-  const [calendarActionError, setCalendarActionError] = useState<string | null>(null)
+  const [isLoadingCalendars, setIsLoadingCalendars] = useState(true)
   const [calendarAction, setCalendarAction] = useState<string | null>(null)
   const [profileName, setProfileName] = useState(user?.name || '')
   const [profileAction, setProfileAction] = useState<'name' | 'avatar' | null>(null)
-  const [profileError, setProfileError] = useState<string | null>(null)
   const [recordingSettings, setRecordingSettings] = useState<RecordingSettings>({
     storageLocation: 'server',
     localRecordingsPath: '',
@@ -485,11 +483,10 @@ export default function DashboardSettingsPage({
   const handleSaveProfileName = useCallback(async () => {
     if (!canSaveProfileName) return
     setProfileAction('name')
-    setProfileError(null)
     try {
       await updateProfileName(trimmedProfileName)
     } catch (updateError) {
-      setProfileError(updateError instanceof Error ? updateError.message : 'Failed to update profile')
+      toast.error(updateError instanceof Error ? updateError.message : 'Failed to update profile')
     } finally {
       setProfileAction(null)
     }
@@ -501,12 +498,11 @@ export default function DashboardSettingsPage({
     if (!file) return
 
     setProfileAction('avatar')
-    setProfileError(null)
     try {
       await uploadProfileAvatar(file)
       setProfileImageFailed(false)
     } catch (uploadError) {
-      setProfileError(uploadError instanceof Error ? uploadError.message : 'Failed to update avatar')
+      toast.error(uploadError instanceof Error ? uploadError.message : 'Failed to update avatar')
     } finally {
       setProfileAction(null)
     }
@@ -579,7 +575,7 @@ export default function DashboardSettingsPage({
       if (event.feature && event.feature !== 'calendar') return
 
       if (!event.success) {
-        setCalendarActionError(event.error || 'Calendar connection failed')
+        toast.error(event.error || 'Calendar connection failed')
         return
       }
 
@@ -632,12 +628,11 @@ export default function DashboardSettingsPage({
   const handleConnectCalendar = useCallback(async (provider: CalendarIntegrationProvider) => {
     const currentUser = auth.currentUser
     if (!currentUser) {
-      setCalendarActionError('Not authenticated')
+      toast.error('Not authenticated')
       return
     }
 
     setCalendarAction(`connect:${provider}`)
-    setCalendarActionError(null)
     try {
       const idToken = await currentUser.getIdToken()
       const result = await desktopApi.integrations.connect(provider, 'calendar', idToken)
@@ -647,7 +642,7 @@ export default function DashboardSettingsPage({
       refreshCalendarViews()
       void loadCalendarSettings()
     } catch (connectError) {
-      setCalendarActionError(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
+      toast.error(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
     } finally {
       setCalendarAction(null)
     }
@@ -657,12 +652,11 @@ export default function DashboardSettingsPage({
     async (connectionID: string) => {
       const currentUser = auth.currentUser
       if (!currentUser) {
-        setCalendarActionError('Not authenticated')
+        toast.error('Not authenticated')
         return
       }
 
       setCalendarAction(`disconnect:${connectionID}`)
-      setCalendarActionError(null)
       try {
         const idToken = await currentUser.getIdToken()
         const result = await desktopApi.integrations.disconnect(connectionID, idToken)
@@ -672,7 +666,7 @@ export default function DashboardSettingsPage({
         refreshCalendarViews()
         await loadCalendarSettings()
       } catch (disconnectError) {
-        setCalendarActionError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
+        toast.error(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
       } finally {
         setCalendarAction(null)
       }
@@ -684,13 +678,12 @@ export default function DashboardSettingsPage({
     async (calendar: ConnectedCalendar, visible: boolean) => {
       const currentUser = auth.currentUser
       if (!currentUser) {
-        setCalendarActionError('Not authenticated')
+        toast.error('Not authenticated')
         return
       }
 
       const actionKey = `toggle:${calendar.connection_id}:${calendar.id}`
       setCalendarAction(actionKey)
-      setCalendarActionError(null)
       setConnectedCalendars((current) =>
         current.map((item) =>
           item.connection_id === calendar.connection_id && item.id === calendar.id
@@ -725,7 +718,7 @@ export default function DashboardSettingsPage({
               : item,
           ),
         )
-        setCalendarActionError(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
+        toast.error(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
       } finally {
         setCalendarAction(null)
       }
@@ -740,9 +733,8 @@ export default function DashboardSettingsPage({
       try {
         const state = await shortcutApi.update(action, value)
         setShortcutState(state)
-        setError(null)
       } catch (updateError) {
-        setError(updateError instanceof Error ? updateError.message : 'Failed to update shortcut')
+        toast.error(updateError instanceof Error ? updateError.message : 'Failed to update shortcut')
       } finally {
         setUpdatingAction(null)
       }
@@ -759,11 +751,10 @@ export default function DashboardSettingsPage({
       .then((state) => {
         if (!isSubscribed) return
         setShortcutState(state)
-        setError(null)
       })
       .catch((loadError) => {
         if (!isSubscribed) return
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load shortcuts')
+        console.error('Failed to load shortcuts', loadError)
       })
       .finally(() => {
         if (isSubscribed) setIsLoadingShortcuts(false)
@@ -841,9 +832,6 @@ export default function DashboardSettingsPage({
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{displayName}</div>
                   <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{user?.email || 'Not signed in'}</div>
-                  {profileError ? (
-                    <div className="mt-1 truncate text-xs text-red-600 dark:text-red-300">{profileError}</div>
-                  ) : null}
                 </div>
                 <Button
                   type="button"
@@ -915,10 +903,6 @@ export default function DashboardSettingsPage({
             {!canManageShortcuts ? (
               <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-500 dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-400">
                 Keybind controls are only available in the desktop app.
-              </div>
-            ) : error ? (
-              <div className="rounded-lg border border-red-500/30 bg-red-50 p-3 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-200">
-                {error}
               </div>
             ) : null}
 
@@ -1005,9 +989,7 @@ export default function DashboardSettingsPage({
                   </Select>
                 </div>
               </div>
-              {isLoadingCalendars ? (
-                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading accounts...</div>
-              ) : calendarConnections.length > 0 ? (
+              {calendarConnections.length > 0 ? (
                 calendarConnections.map((connection) => {
                   const isDisconnecting = calendarAction === `disconnect:${connection.id}`
                   const providerIcon = calendarProviderIcon(connection.provider)
@@ -1047,11 +1029,10 @@ export default function DashboardSettingsPage({
                     </div>
                   )
                 })
+              ) : isLoadingCalendars ? (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading accounts...</div>
               ) : (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No calendar accounts connected.</div>
-              )}
-              {calendarActionError && (
-                <div className="border-t border-neutral-200 px-3 py-2 text-xs text-red-600 dark:border-white/10 dark:text-red-300">{calendarActionError}</div>
               )}
             </div>
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
@@ -1066,9 +1047,7 @@ export default function DashboardSettingsPage({
                   Refresh
                 </button>
               </div>
-              {isLoadingCalendars ? (
-                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading calendars...</div>
-              ) : connectedCalendars.length > 0 && calendarConnections.length > 0 ? (
+              {connectedCalendars.length > 0 && calendarConnections.length > 0 ? (
                 calendarConnections.map((connection) => {
                   const calendars = calendarsByConnection[connection.id] || []
                   if (calendars.length === 0) return null
@@ -1114,6 +1093,8 @@ export default function DashboardSettingsPage({
                     </div>
                   )
                 })
+              ) : isLoadingCalendars ? (
+                <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading calendars...</div>
               ) : (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Connect a calendar account to choose visible calendars.</div>
               )}

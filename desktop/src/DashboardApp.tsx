@@ -10,6 +10,7 @@ import { DashboardNotesProvider } from '@/contexts/DashboardNotesContext'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
+import { Toaster } from 'sonner'
 
 
 function useDashboardNoteIdFromUrl() {
@@ -129,6 +130,16 @@ export default function DashboardApp() {
           <DashboardContent />
         </SidebarProvider>
       </ChatProvider>
+      <Toaster
+        position="bottom-center"
+        theme="system"
+        toastOptions={{
+          style: {
+            borderRadius: '10px',
+            fontSize: '13px',
+          },
+        }}
+      />
     </DashboardAuthRoot>
   )
 }

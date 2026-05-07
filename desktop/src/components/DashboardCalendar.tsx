@@ -94,20 +94,20 @@ function renderLinkedText(text: string) {
 function getEventCalendarAction(event: CalendarEvent) {
   if (event.provider === 'google') {
     return {
-      label: 'Open in Google Calendar',
+      label: 'Google Calendar',
       icon: '/google-calendar-icon.svg',
     }
   }
 
   if (event.provider === 'microsoft') {
     return {
-      label: 'Open in Outlook Calendar',
+      label: 'Outlook',
       icon: '/microsoft-outlook-icon.svg',
     }
   }
 
   return {
-    label: 'Open in calendar',
+    label: 'Calendar',
     icon: null,
   }
 }
@@ -190,6 +190,11 @@ function EventDetail({
   }, [refreshLinkedNotes])
 
   const handleStartNote = async () => {
+    if (linkedNotes.length > 0) {
+      selectNote(linkedNotes[0].id)
+      onSelectNote?.(linkedNotes[0].id)
+      return
+    }
     setStartingNote(true)
     try {
       await onStartNote(event)
@@ -277,7 +282,7 @@ function EventDetail({
 
         {canLinkNotes ? (
           <section>
-            <div className="mb-2 text-xs font-semibold text-neutral-400">Notes</div>
+            <div className="mb-2 text-xs font-semibold text-neutral-400">Note</div>
             {linkedNotesLoading ? (
               <div className="space-y-1">
                 {[60, 80].map((w, i) => (
@@ -310,30 +315,31 @@ function EventDetail({
 
       </div>
 
-      <div className="sticky bottom-0 mt-3 flex shrink-0 flex-wrap justify-center gap-1.5 border-t border-neutral-200 pt-3 dark:border-white/10">
-        <Button type="button" variant="secondary" size="sm" disabled={startingNote} onClick={() => void handleStartNote()}>
-          Start note
-        </Button>
-        {event.meetingLink ? (
-          <Button type="button" variant="secondary" size="sm" asChild>
-            <a href={event.meetingLink} target="_blank" rel="noreferrer">
-              <ExternalLink className="h-3.5 w-3.5" />
-              Join
-            </a>
-          </Button>
-        ) : null}
-        {event.eventLink ? (
-          <Button type="button" variant="secondary" size="sm" asChild>
-            <a href={event.eventLink} target="_blank" rel="noreferrer">
-              {calendarAction.icon ? (
-                <img src={calendarAction.icon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
-              ) : (
+      <div className="sticky bottom-0 mt-3 flex shrink-0 items-center justify-between border-t border-neutral-200 pt-3 dark:border-white/10">
+        <div className="flex gap-1.5">
+          {event.eventLink ? (
+            <Button type="button" variant="secondary" size="sm" asChild title={calendarAction.label}>
+              <a href={event.eventLink} target="_blank" rel="noreferrer">
+                {calendarAction.icon ? (
+                  <img src={calendarAction.icon} alt={calendarAction.label} className="h-3.5 w-3.5" />
+                ) : (
+                  <ExternalLink className="h-3.5 w-3.5" />
+                )}
+              </a>
+            </Button>
+          ) : null}
+          {event.meetingLink ? (
+            <Button type="button" variant="secondary" size="sm" asChild>
+              <a href={event.meetingLink} target="_blank" rel="noreferrer">
                 <ExternalLink className="h-3.5 w-3.5" />
-              )}
-              {calendarAction.label}
-            </a>
-          </Button>
-        ) : null}
+                Join
+              </a>
+            </Button>
+          ) : null}
+        </div>
+        <Button type="button" variant="secondary" size="sm" disabled={startingNote} onClick={() => void handleStartNote()}>
+          {linkedNotes.length > 0 ? 'Open note' : 'Start note'}
+        </Button>
       </div>
     </div>
   )

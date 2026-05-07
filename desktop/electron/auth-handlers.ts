@@ -69,10 +69,12 @@ async function verifyRendererAuthState(idToken: string): Promise<boolean> {
         Authorization: `Bearer ${idToken}`,
       },
     })
-    return response.ok
-  } catch (error) {
-    console.warn('Main auth state verification failed:', error)
-    return false
+    // Explicit auth rejection — user is not authenticated
+    if (response.status === 401 || response.status === 403) return false
+    return true
+  } catch {
+    // Network error — server unreachable. Trust Firebase auth.
+    return true
   }
 }
 

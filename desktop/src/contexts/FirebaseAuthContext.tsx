@@ -31,10 +31,36 @@ interface FirebaseAuthContextType {
 
 const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(undefined)
 
+const CACHED_USER_KEY = 'orionly:cached-user'
+
+function loadCachedUser(uid: string): User | null {
+  try {
+    const raw = localStorage.getItem(CACHED_USER_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as User & { uid?: string }
+    return parsed.id === uid ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function saveCachedUser(user: User) {
+  try {
+    localStorage.setItem(CACHED_USER_KEY, JSON.stringify(user))
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function clearCachedUser() {
+  localStorage.removeItem(CACHED_USER_KEY)
+}
+
 const LOGOUT_STORAGE_KEYS = [
   'dashboard:selectedNoteId',
   'dashboard:selectedFolderId',
   'chat:activeConversationId',
+  CACHED_USER_KEY,
 ]
 
 const LOGOUT_STORAGE_PREFIXES = ['orionly:local-meeting-']
@@ -53,12 +79,12 @@ export function clearKnownSessionStorage() {
   }
 }
 
-function toUser(firebaseUser: NonNullable<typeof auth.currentUser>, currentUser?: User | null): User {
+function toUser(firebaseUser: NonNullable<typeof auth.currentUser>): User {
   return {
     id: firebaseUser.uid,
-    email: firebaseUser.email || (currentUser?.id === firebaseUser.uid ? currentUser.email : ''),
-    name: firebaseUser.displayName || (currentUser?.id === firebaseUser.uid ? currentUser.name : ''),
-    picture: firebaseUser.photoURL || (currentUser?.id === firebaseUser.uid ? currentUser.picture : undefined),
+    email: firebaseUser.email || '',
+    name: firebaseUser.displayName || '',
+    picture: firebaseUser.photoURL || undefined,
   }
 }
 
@@ -118,12 +144,14 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
           return
         }
 
-        setUser((currentUser) => toUser(firebaseUser, currentUser))
+        const cached = loadCachedUser(firebaseUser.uid)
+        setUser(cached ?? toUser(firebaseUser))
         setIsLoading(false)
 
         void fetchBackendUser(firebaseUser)
           .then((backendUser) => {
             if (!cancelled && auth.currentUser?.uid === backendUser.id) {
+              saveCachedUser(backendUser)
               setUser(backendUser)
             }
           })
@@ -180,6 +208,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
   }, [getIdToken])
 
   const signOutLocal = useCallback(async () => {
+    clearCachedUser()
     clearKnownSessionStorage()
     await auth.signOut()
     setUser(null)

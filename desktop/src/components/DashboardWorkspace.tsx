@@ -5,6 +5,7 @@ import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, X } from '
 import { Button } from '@/components/ui/button'
 import { InfoBanner } from '@/components/ui/info-banner'
 import { updateNote, enhanceNote } from '@/lib/notes-client'
+import { toast } from 'sonner'
 import { auth } from '@/config/firebase'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
 import SavedTranscriptView from '@/components/SavedTranscriptView'
@@ -42,7 +43,7 @@ export default function DashboardWorkspace({
   onOpenCalendarSettings,
   onOpenNotes,
 }: DashboardWorkspaceProps) {
-  const { folders, selectedId, selected, optimisticPatch, replaceNote, isLoading } = useDashboardNotes()
+  const { folders, selectedId, selected, optimisticPatch, replaceNote, evictNote, isLoading } = useDashboardNotes()
 
   const [draftTitle, setDraftTitle] = useState('')
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
@@ -202,6 +203,12 @@ export default function DashboardWorkspace({
         calendarId: meeting?.calendarId ?? '',
       })
       if (updated) replaceNote(updated)
+    } catch (err) {
+      if (err instanceof Error && err.message === 'note not found') {
+        evictNote(selectedId)
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Failed to link event')
+      }
     } finally {
       setLinkingMeeting(false)
     }
@@ -241,6 +248,8 @@ export default function DashboardWorkspace({
         void updateNote(userId, selectedId, patch).then((updated) => {
           if (!updated) return
           replaceNote(updated)
+        }).catch((err: unknown) => {
+          if (err instanceof Error && err.message === 'note not found') evictNote(selectedId)
         })
       }, 400)
     },

@@ -84,7 +84,6 @@ export default function DashboardHome({
   const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
   const [activity, setActivity] = useState<ActivityRecord[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
-  const [activityError, setActivityError] = useState<string | null>(null)
   const {
     events: calendarEvents,
     loading: calendarLoading,
@@ -96,7 +95,6 @@ export default function DashboardHome({
     const requestId = activityRequestRef.current + 1
     activityRequestRef.current = requestId
     setActivityLoading(true)
-    setActivityError(null)
     try {
       const page = await listActivityPage({
         limit: 20,
@@ -106,10 +104,9 @@ export default function DashboardHome({
       })
       if (activityRequestRef.current !== requestId) return
       setActivity(page.activity)
-    } catch (error) {
+    } catch {
       if (activityRequestRef.current !== requestId) return
       setActivity([])
-      setActivityError(error instanceof Error ? error.message : 'Failed to load activity')
     } finally {
       if (activityRequestRef.current === requestId) {
         setActivityLoading(false)

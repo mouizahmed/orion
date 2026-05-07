@@ -32,6 +32,7 @@ type DashboardNotesContextType = {
   refresh: () => Promise<void>
   createNewNote: (payload?: { title?: string; folderId?: string | null; eventLink?: { providerEventId: string; connectionId: string; calendarId: string } }) => Promise<NoteRecord | null>
   deleteById: (noteId: string) => Promise<boolean>
+  evictNote: (noteId: string) => void
   optimisticPatch: (noteId: string, patch: Patch) => void
   replaceNote: (note: NoteRecord) => void
 }
@@ -321,6 +322,15 @@ export function DashboardNotesProvider({
     [notes, userId],
   )
 
+  const evictNote = useCallback((noteId: string) => {
+    setNotes((prev) => prev.filter((n) => n.id !== noteId))
+    setSelectedId((current) => {
+      if (current !== noteId) return current
+      localStorage.removeItem(LS_SELECTED_NOTE)
+      return null
+    })
+  }, [])
+
   const optimisticPatch = useCallback((noteId: string, patch: Patch) => {
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, ...patch, updatedAt: Date.now() } : n)),
@@ -375,6 +385,7 @@ export function DashboardNotesProvider({
       refresh,
       createNewNote,
       deleteById,
+      evictNote,
       optimisticPatch,
       replaceNote,
     }),
@@ -402,6 +413,7 @@ export function DashboardNotesProvider({
       refresh,
       createNewNote,
       deleteById,
+      evictNote,
       optimisticPatch,
       replaceNote,
     ],

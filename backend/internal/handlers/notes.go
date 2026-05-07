@@ -522,6 +522,16 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 		}
 	}
 
+	// If this note is linked to a calendar event, return the existing note rather than
+	// creating a duplicate (one note per event per user).
+	if note.ProviderEventID != nil && note.ConnectionID != nil && note.CalendarID != nil {
+		existing, err := h.noteRepo.ListNotesByEvent(userID, *note.ConnectionID, *note.CalendarID, *note.ProviderEventID, 1, nil, nil)
+		if err == nil && len(existing) > 0 {
+			c.JSON(http.StatusOK, gin.H{"note": existing[0]})
+			return
+		}
+	}
+
 	created, err := h.noteRepo.CreateNote(note)
 	if err != nil {
 		log.Printf("notes: failed to create note for user %s: %v", userID, err)
@@ -609,6 +619,10 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 
 	updated, err := h.noteRepo.UpdateNote(existing)
 	if err != nil {
+		if strings.Contains(err.Error(), "notes_one_per_event_idx") {
+			c.JSON(http.StatusConflict, gin.H{"error": "Another note is already linked to this event"})
+			return
+		}
 		log.Printf("notes: failed to update note %s: %v", noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update note"})
 		return

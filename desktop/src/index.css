@@ -706,3 +706,19 @@ h1 {
   background: rgb(38 38 38 / 1);
   border-color: rgb(64 64 64 / 1);
 }
+
+/* Sonner toast overrides — light mode */
+[data-sonner-toaster] [data-sonner-toast] {
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10) !important;
+}
+
+/* Sonner toast overrides — dark mode */
+.dark [data-sonner-toaster] [data-sonner-toast] {
+  background: #1c1a1e !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.40) !important;
+}
