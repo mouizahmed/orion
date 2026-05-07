@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { CalendarDays, ExternalLink, MapPin, RefreshCw, Settings2, Users, X } from 'lucide-react'
 
@@ -348,13 +348,16 @@ function EventDetail({
 export function DashboardCalendar({
   onOpenCalendarSettings,
   onOpenNotes,
+  initialSelectedEventId,
 }: {
   onOpenCalendarSettings?: () => void
   onOpenNotes?: () => void
+  initialSelectedEventId?: string | null
 }) {
   const { createNewNote, selectNote } = useDashboardNotes()
   const { events, loading, error, syncing } = useCalendarEvents()
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
+  const consumedInitialEventRef = useRef<string | null>(null)
 
   useEffect(() => {
     setSelectedEvent((current) => {
@@ -362,6 +365,17 @@ export function DashboardCalendar({
       return events.find((event) => event.id === current.id) ?? null
     })
   }, [events])
+
+  useEffect(() => {
+    if (!initialSelectedEventId) return
+    if (consumedInitialEventRef.current === initialSelectedEventId) return
+    if (events.length === 0) return
+    const event = events.find((e) => e.id === initialSelectedEventId)
+    if (event) {
+      setSelectedEvent(event)
+      consumedInitialEventRef.current = initialSelectedEventId
+    }
+  }, [initialSelectedEventId, events])
 
   const visibleEvents = events
   const eventsByDay = useMemo(() => groupEventsByDay(visibleEvents), [visibleEvents])

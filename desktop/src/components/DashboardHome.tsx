@@ -73,7 +73,7 @@ export default function DashboardHome({
   onOpenCalendar,
   onOpenCalendarSettings,
 }: {
-  onOpenCalendar?: () => void
+  onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
 }) {
   const { user } = useAuth()
@@ -165,7 +165,11 @@ export default function DashboardHome({
             </div>
           </DashboardPanelHeader>
           <DashboardPanelBody>
-            <UpcomingMeetings events={calendarEvents} loading={calendarLoading} />
+            <UpcomingMeetings
+              events={calendarEvents}
+              loading={calendarLoading}
+              onSelect={onOpenCalendar ? (event) => onOpenCalendar(event.id) : undefined}
+            />
           </DashboardPanelBody>
         </DashboardPanel>
       </div>

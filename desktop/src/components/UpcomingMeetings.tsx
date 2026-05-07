@@ -37,9 +37,11 @@ function formatMeetingTime(event: CalendarEvent) {
 export function UpcomingMeetings({
   events,
   loading,
+  onSelect,
 }: {
   events: CalendarEvent[]
   loading: boolean
+  onSelect?: (event: CalendarEvent) => void
 }) {
   const meetings = events.slice(0, 3)
 
@@ -118,9 +120,11 @@ export function UpcomingMeetings({
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
-                    <div
+                    <button
                       key={meeting.id}
-                      className="block w-full rounded-lg border border-transparent text-left"
+                      type="button"
+                      onClick={() => onSelect?.(meeting)}
+                      className={`block w-full rounded-lg border border-transparent text-left transition-colors ${onSelect ? 'cursor-pointer hover:bg-neutral-100/70 dark:hover:bg-white/[0.06]' : 'cursor-default'}`}
                     >
                       <div
                         className="min-w-0 border-l-2 py-1 pl-3"
@@ -154,7 +158,7 @@ export function UpcomingMeetings({
                           </p>
                         )}
                       </div>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>

@@ -7,7 +7,7 @@ import DashboardSidebar from '@/components/DashboardSidebar'
 import type { DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { SidebarProvider, useSidebar } from '@/components/ui/sidebar'
 import { DashboardNotesProvider } from '@/contexts/DashboardNotesContext'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
 import { Toaster } from 'sonner'
@@ -61,6 +61,18 @@ function DashboardContent() {
   const initialNoteId = useDashboardNoteIdFromUrl()
   const [viewMode, setViewMode] = useState<'notes' | 'calendar' | 'settings'>('notes')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
+  const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
+
+  const handleOpenCalendar = useCallback((eventId?: string) => {
+    setViewMode('calendar')
+    setPendingCalendarEventId(eventId ?? null)
+  }, [])
+
+  useEffect(() => {
+    if (viewMode !== 'calendar') {
+      setPendingCalendarEventId(null)
+    }
+  }, [viewMode])
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -96,7 +108,7 @@ function DashboardContent() {
               mode={viewMode}
               selectedSettingsSection={settingsSection}
               onOpenHome={() => setViewMode('notes')}
-              onOpenCalendar={() => setViewMode('calendar')}
+              onOpenCalendar={handleOpenCalendar}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'notes' : 'settings'))}
               onCloseSettings={() => setViewMode('notes')}
               onSelectSettingsSection={setSettingsSection}
@@ -106,12 +118,13 @@ function DashboardContent() {
                 userId={user.id}
                 mode={viewMode}
                 selectedSettingsSection={settingsSection}
-                onOpenCalendar={() => setViewMode('calendar')}
+                onOpenCalendar={handleOpenCalendar}
                 onOpenCalendarSettings={() => {
                   setSettingsSection('calendar')
                   setViewMode('settings')
                 }}
                 onOpenNotes={() => setViewMode('notes')}
+                initialCalendarEventId={pendingCalendarEventId}
               />
             </div>
           </div>
