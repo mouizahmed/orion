@@ -265,7 +265,7 @@ export function useCalendarEvents() {
         stopSharedWS()
       }
     }
-  }, [user])
+  }, [user?.id])
 
   const refresh = useCallback(() => fetchCalendarEvents(false), [])
 

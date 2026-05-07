@@ -509,12 +509,11 @@ export default function DashboardSettingsPage({
   }, [uploadProfileAvatar])
 
   const loadCalendarSettings = useCallback(async () => {
-    if (!user) return
+    const currentUser = auth.currentUser
+    if (!currentUser) return
     setIsLoadingCalendars(true)
 
     try {
-      const currentUser = auth.currentUser
-      if (!currentUser) throw new Error('Not authenticated')
 
       const idToken = await currentUser.getIdToken()
       const headers = {
@@ -555,19 +554,19 @@ export default function DashboardSettingsPage({
     } finally {
       setIsLoadingCalendars(false)
     }
-  }, [user])
+  }, [])
 
   useEffect(() => {
-    if (selectedSection !== 'calendar' || !user) return
+    if (selectedSection !== 'calendar') return
     return wsClient.subscribe('calendar.sync_status', (data) => {
       if (!data.syncing) void loadCalendarSettings()
     })
-  }, [selectedSection, user, loadCalendarSettings])
+  }, [selectedSection, loadCalendarSettings])
 
   useEffect(() => {
-    if (selectedSection !== 'calendar' || !user) return
+    if (selectedSection !== 'calendar') return
     void loadCalendarSettings()
-  }, [loadCalendarSettings, selectedSection, user])
+  }, [loadCalendarSettings, selectedSection])
 
   useEffect(() => {
     return desktopApi.integrations.onConnectionCompleted((event) => {

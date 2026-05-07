@@ -115,14 +115,13 @@ export default function DashboardHome({
   }, [activityScope, activitySort, activitySortDirection])
 
   useEffect(() => {
-    if (!user) return
     void loadActivity()
 
     window.addEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
     return () => {
       window.removeEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
     }
-  }, [loadActivity, user])
+  }, [loadActivity])
 
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
 
