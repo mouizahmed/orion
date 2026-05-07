@@ -34,6 +34,7 @@ type CalendarEvent struct {
 	Location     string             `json:"location,omitempty"`
 	Description  string             `json:"description,omitempty"`
 	MeetingLink  string             `json:"meeting_link,omitempty"`
+	EventLink    string             `json:"event_link,omitempty"`
 	CalendarID   string             `json:"calendar_id,omitempty"`
 	CalendarName string             `json:"calendar_name,omitempty"`
 	Color        string             `json:"color,omitempty"`
@@ -267,6 +268,7 @@ func (h *CalendarHandler) getCachedUpcomingEvents(ctx context.Context, userID st
 			Location:     event.Location,
 			Description:  event.Description,
 			MeetingLink:  event.MeetingLink,
+			EventLink:    event.EventLink,
 			CalendarID:   event.CalendarID,
 			CalendarName: event.CalendarName,
 			Color:        event.Color,
@@ -362,6 +364,7 @@ func (h *CalendarHandler) SearchEvents(c *gin.Context) {
 			Start:        event.Start,
 			End:          event.End,
 			AllDay:       event.AllDay,
+			EventLink:    event.EventLink,
 			CalendarID:   event.CalendarID,
 			CalendarName: event.CalendarName,
 			Color:        event.Color,

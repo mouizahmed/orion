@@ -107,6 +107,27 @@ function getAttendeeLabel(attendee: CalendarAttendee) {
   return attendee.name || attendee.email || 'Unknown attendee'
 }
 
+function getEventCalendarAction(event: CalendarEvent) {
+  if (event.provider === 'google') {
+    return {
+      label: 'Open in Google Calendar',
+      icon: '/google-calendar-icon.svg',
+    }
+  }
+
+  if (event.provider === 'microsoft') {
+    return {
+      label: 'Open in Outlook Calendar',
+      icon: '/microsoft-outlook-icon.svg',
+    }
+  }
+
+  return {
+    label: 'Open in calendar',
+    icon: null,
+  }
+}
+
 function buildMonthGrid(cursorDate: Date) {
   const first = startOfMonth(cursorDate)
   const gridStart = startOfWeek(first)
@@ -186,6 +207,7 @@ function EventDetail({
   const [startingNote, setStartingNote] = useState(false)
 
   const canLinkNotes = Boolean(event.connectionId && event.calendarId && event.providerId)
+  const calendarAction = getEventCalendarAction(event)
 
   const refreshLinkedNotes = useCallback(async () => {
     if (!canLinkNotes) return
@@ -354,6 +376,18 @@ function EventDetail({
             <a href={event.meetingLink} target="_blank" rel="noreferrer">
               <ExternalLink className="h-3.5 w-3.5" />
               Join
+            </a>
+          </Button>
+        ) : null}
+        {event.eventLink ? (
+          <Button type="button" variant="secondary" size="sm" asChild>
+            <a href={event.eventLink} target="_blank" rel="noreferrer">
+              {calendarAction.icon ? (
+                <img src={calendarAction.icon} alt="" aria-hidden="true" className="h-3.5 w-3.5" />
+              ) : (
+                <ExternalLink className="h-3.5 w-3.5" />
+              )}
+              {calendarAction.label}
             </a>
           </Button>
         ) : null}

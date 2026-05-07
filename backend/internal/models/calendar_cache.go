@@ -30,6 +30,7 @@ type CachedCalendarEvent struct {
 	Location      string
 	Description   string
 	MeetingLink   string
+	EventLink     string
 	CalendarID    string
 	CalendarName  string
 	Color         string

@@ -332,10 +332,11 @@ func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.Inte
 
 	var googleResponse struct {
 		Items []struct {
-			ID      string `json:"id"`
-			Status  string `json:"status"`
-			Summary string `json:"summary"`
-			Start   struct {
+			ID       string `json:"id"`
+			Status   string `json:"status"`
+			Summary  string `json:"summary"`
+			HTMLLink string `json:"htmlLink"`
+			Start    struct {
 				DateTime string `json:"dateTime"`
 				Date     string `json:"date"`
 			} `json:"start"`
@@ -407,6 +408,7 @@ func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.Inte
 			Location:      item.Location,
 			Description:   item.Description,
 			MeetingLink:   meetingLink,
+			EventLink:     item.HTMLLink,
 			Organizer:     firstNonEmpty(item.Organizer.DisplayName, item.Organizer.Email),
 			AttendeesJSON: attendeesJSON,
 		}
@@ -472,7 +474,7 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 	values.Set("endDateTime", end.Format(time.RFC3339))
 	values.Set("$orderby", "start/dateTime")
 	values.Set("$top", "1000")
-	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees")
+	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
 	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView?%s", url.PathEscape(calendar.ID), values.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
@@ -496,6 +498,7 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 		Value []struct {
 			ID       string `json:"id"`
 			Subject  string `json:"subject"`
+			WebLink  string `json:"webLink"`
 			IsAllDay bool   `json:"isAllDay"`
 			Start    struct {
 				DateTime string `json:"dateTime"`
@@ -564,6 +567,7 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 			Location:      item.Location.DisplayName,
 			Description:   item.BodyPreview,
 			MeetingLink:   meetingLink,
+			EventLink:     item.WebLink,
 			Organizer:     firstNonEmpty(item.Organizer.EmailAddress.Name, item.Organizer.EmailAddress.Address),
 			AttendeesJSON: attendeesJSON,
 		}
@@ -728,4 +732,3 @@ func stringValue(value *string) string {
 	}
 	return *value
 }
-

@@ -28,6 +28,7 @@ type ServerCalendarEvent = {
   location?: string
   description?: string
   meeting_link?: string
+  event_link?: string
   calendar_id?: string
   calendar_name?: string
   color?: string
@@ -50,6 +51,7 @@ export type CalendarEvent = {
   color: string
   attendees: CalendarAttendee[]
   meetingLink?: string
+  eventLink?: string
   location?: string
   description?: string
   organizer?: string
@@ -131,6 +133,7 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
     color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
     attendees: event.attendees ?? [],
     meetingLink: event.meeting_link ?? extractMeetingLink(event),
+    eventLink: event.event_link,
     location: event.location,
     description: event.description,
     organizer: event.organizer,

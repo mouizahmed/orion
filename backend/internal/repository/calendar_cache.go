@@ -75,7 +75,7 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 		SELECT e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
-			COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
+			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
 			COALESCE(e.organizer, ''), e.is_meeting, e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
@@ -104,7 +104,7 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 			&event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
-			&event.CalendarName, &event.Color, &event.Organizer,
+			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
 			&event.IsMeeting, &event.AttendeesJSON,
 		); err != nil {
 			return nil, err
@@ -124,7 +124,7 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 		SELECT e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
-			COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
+			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
 			COALESCE(e.organizer, ''), e.is_meeting, e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
@@ -163,7 +163,7 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 			&event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
-			&event.CalendarName, &event.Color, &event.Organizer,
+			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
 			&event.IsMeeting, &event.AttendeesJSON,
 		); err != nil {
 			return nil, err
@@ -286,15 +286,15 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		return nil
 	}
 
-	const nParams = 18
+	const nParams = 19
 	placeholders := make([]string, len(events))
 	args := make([]interface{}, 0, len(events)*nParams)
 	for i, event := range events {
 		b := i * nParams
 		placeholders[i] = fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
 			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8, b+9, b+10,
-			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18,
+			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18, b+19,
 		)
 		attendees := event.AttendeesJSON
 		if len(attendees) == 0 {
@@ -304,14 +304,14 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 			userID, connection.ID, event.CalendarID, event.ProviderID, event.Provider,
 			nullString(event.AccountEmail), event.Title, event.Start, event.End, event.AllDay,
 			nullString(event.Location), nullString(event.Description), nullString(event.MeetingLink),
-			nullString(event.CalendarName), nullString(event.Color), nullString(event.Organizer),
+			nullString(event.EventLink), nullString(event.CalendarName), nullString(event.Color), nullString(event.Organizer),
 			event.IsMeeting, attendees,
 		)
 	}
 
 	query := `INSERT INTO calendar_events (
 		user_id, connection_id, calendar_id, provider_event_id, provider, account_email,
-		title, start_at, end_at, all_day, location, description, meeting_link, calendar_name,
+		title, start_at, end_at, all_day, location, description, meeting_link, event_link, calendar_name,
 		color, organizer, is_meeting, attendees, synced_at, created_at, updated_at
 	) VALUES ` + strings.Join(placeholders, ",") + `
 	ON CONFLICT (user_id, connection_id, calendar_id, provider_event_id) DO UPDATE SET
@@ -319,7 +319,7 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		title = EXCLUDED.title, start_at = EXCLUDED.start_at, end_at = EXCLUDED.end_at,
 		all_day = EXCLUDED.all_day,
 		location = EXCLUDED.location, description = EXCLUDED.description,
-		meeting_link = EXCLUDED.meeting_link, calendar_name = EXCLUDED.calendar_name,
+		meeting_link = EXCLUDED.meeting_link, event_link = EXCLUDED.event_link, calendar_name = EXCLUDED.calendar_name,
 		color = EXCLUDED.color, organizer = EXCLUDED.organizer,
 		is_meeting = EXCLUDED.is_meeting, attendees = EXCLUDED.attendees,
 		synced_at = EXCLUDED.synced_at, updated_at = EXCLUDED.updated_at`
