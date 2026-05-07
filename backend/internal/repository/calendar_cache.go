@@ -333,7 +333,7 @@ func (r *calendarCacheRepository) DeleteEventsNotSeen(ctx context.Context, userI
 	query := `
 		DELETE FROM calendar_events
 		WHERE user_id = $1 AND connection_id = $2 AND calendar_id = $3
-			AND start_at >= $4 AND start_at < $5
+			AND start_at < $5 AND end_at > $4
 	`
 	if len(seenProviderIDs) > 0 {
 		placeholders := make([]string, 0, len(seenProviderIDs))

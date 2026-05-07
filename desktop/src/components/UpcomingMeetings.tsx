@@ -1,214 +1,51 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-
 import { MapPin, Users } from 'lucide-react'
 
-import { auth } from '@/config/firebase'
-import { useAuth } from '@/contexts/AuthContext'
+import { useCalendarEvents, type CalendarEvent } from '@/hooks/useCalendarEvents'
 import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
-
-type CalendarAttendee = {
-  name?: string
-  email?: string
+function eventDisplayDate(event: CalendarEvent) {
+  const date = new Date(event.start)
+  if (event.allDay) {
+    return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())
+  }
+  return date
 }
 
-interface Meeting {
-  id: string
-  providerId?: string
-  connectionId?: string
-  accountEmail?: string
-  title: string
-  start: string
-  end: string
-  location?: string
-  organizer?: string
-  calendarId?: string
-  calendarName?: string
-  color?: string
-  provider: string
-  attendees?: CalendarAttendee[]
+function eventDateKey(event: CalendarEvent) {
+  const date = new Date(event.start)
+  if (event.allDay) {
+    return [date.getUTCFullYear(), String(date.getUTCMonth() + 1).padStart(2, '0'), String(date.getUTCDate()).padStart(2, '0')].join('-')
+  }
+  return dateKey(date)
 }
 
-interface CalendarEvent {
-  id: string
-  provider_id?: string
-  connection_id?: string
-  account_email?: string
-  title: string
-  start: string
-  end: string
-  location?: string
-  description?: string
-  organizer?: string
-  calendar_id?: string
-  calendar_name?: string
-  color?: string
-  provider: string
-  attendees?: CalendarAttendee[]
-}
-
-function formatMeetingDate(startTime: string) {
-  const date = new Date(startTime)
+function formatDateBadge(date: Date) {
   const month = date.toLocaleDateString('en-US', { month: 'short' })
   const day = date.getDate()
   return { month, day: day.toString() }
 }
 
-function formatMeetingTime(startTime: string, endTime: string) {
-  return `${formatTime(startTime)}-${formatTime(endTime)}`
+function formatMeetingDate(event: CalendarEvent) {
+  return formatDateBadge(eventDisplayDate(event))
 }
 
-const POLL_INTERVAL = 2 * 60 * 1000 // 2 minutes
-const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
+function formatMeetingTime(event: CalendarEvent) {
+  if (event.allDay) return 'All day'
+  return `${formatTime(event.start)}-${formatTime(event.end)}`
+}
+
 const CALENDAR_EVENT_OPEN_EVENT = 'dashboard-calendar-event-open'
-const STALE_REFETCH_DELAY = 2500
 
 export function UpcomingMeetings() {
-  const { user } = useAuth()
-  const [meetings, setMeetings] = useState<Meeting[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const cancelledRef = useRef(false)
-  const staleRefetchTimerRef = useRef<number | null>(null)
-  const pollAttemptsRef = useRef(0)
-
-  const cacheKey = user ? `calendar_events_${user.id}` : null
-
-  const clearStaleRefetch = useCallback(() => {
-    if (staleRefetchTimerRef.current !== null) {
-      window.clearTimeout(staleRefetchTimerRef.current)
-      staleRefetchTimerRef.current = null
-    }
-    pollAttemptsRef.current = 0
-  }, [])
-
-  const fetchUpcomingMeetings = useCallback(async (silent: boolean, force = false) => {
-    if (!user) return
-
-    try {
-      if (!silent) {
-        clearStaleRefetch()
-        setLoading(true)
-        setError(null)
-      }
-
-      if (cacheKey && !force) {
-        const cached = localStorage.getItem(cacheKey)
-        if (cached) {
-          const { data, timestamp } = JSON.parse(cached)
-          if (Date.now() - timestamp < POLL_INTERVAL) {
-            if (!cancelledRef.current) {
-              setMeetings(data)
-              if (!silent) setLoading(false)
-            }
-            return
-          }
-        }
-      }
-
-      const currentUser = auth.currentUser
-      if (!currentUser) throw new Error('Not authenticated')
-      const idToken = await currentUser.getIdToken()
-
-      const response = await fetch(`${API_BASE_URL}/calendar/upcoming?limit=3`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch calendar events: ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      if (cancelledRef.current) return
-
-      if (data.status === 'success' && data.events) {
-        const formattedMeetings: Meeting[] = data.events.map((event: CalendarEvent) => ({
-          id: event.id,
-          providerId: event.provider_id,
-          connectionId: event.connection_id,
-          accountEmail: event.account_email,
-          title: event.title,
-          start: event.start,
-          end: event.end,
-          location: event.location,
-          organizer: event.organizer,
-          calendarId: event.calendar_id,
-          calendarName: event.calendar_name,
-          color: event.color,
-          provider: event.provider,
-          attendees: event.attendees,
-        }))
-
-        setMeetings(formattedMeetings)
-
-        if (cacheKey) {
-          localStorage.setItem(cacheKey, JSON.stringify({
-            data: formattedMeetings,
-            timestamp: Date.now(),
-            lastSyncedAt: data.last_synced_at,
-          }))
-        }
-        if (!data.stale && !data.syncing) {
-          pollAttemptsRef.current = 0
-        } else if ((data.stale || data.syncing) && pollAttemptsRef.current < 10 && staleRefetchTimerRef.current === null) {
-          const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
-          pollAttemptsRef.current++
-          staleRefetchTimerRef.current = window.setTimeout(() => {
-            staleRefetchTimerRef.current = null
-            void fetchUpcomingMeetings(true, true)
-          }, delay)
-        }
-      } else {
-        setMeetings([])
-      }
-    } catch (err) {
-      if (!cancelledRef.current && !silent) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch meetings')
-        setMeetings([])
-      }
-    } finally {
-      if (!cancelledRef.current && !silent) setLoading(false)
-    }
-  }, [user, cacheKey, clearStaleRefetch])
-
-  useEffect(() => {
-    cancelledRef.current = false
-
-    if (!user) {
-      setMeetings([])
-      setLoading(false)
-      return
-    }
-
-    void fetchUpcomingMeetings(false)
-
-    const interval = window.setInterval(() => {
-      void fetchUpcomingMeetings(true)
-    }, POLL_INTERVAL)
-    const handleCalendarRefresh = () => {
-      void fetchUpcomingMeetings(false, true)
-    }
-    window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
-
-    return () => {
-      cancelledRef.current = true
-      window.clearInterval(interval)
-      clearStaleRefetch()
-      window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
-    }
-  }, [user, fetchUpcomingMeetings, clearStaleRefetch])
+  const { events, loading, error } = useCalendarEvents()
+  const meetings = events.slice(0, 3)
 
   const today = new Date()
   const todayKey = dateKey(today)
-  const groupedMeetings = meetings.reduce<Array<{ key: string; date: Date; meetings: Meeting[] }>>(
+  const groupedMeetings = meetings.reduce<Array<{ key: string; date: Date; meetings: CalendarEvent[] }>>(
     (groups, meeting) => {
-      const date = new Date(meeting.start)
-      const key = dateKey(date)
+      const date = eventDisplayDate(meeting)
+      const key = eventDateKey(meeting)
       const existing = groups.find((group) => group.key === key)
 
       if (existing) {
@@ -265,7 +102,7 @@ export function UpcomingMeetings() {
     <div>
       <div className="space-y-0.5">
         {groupedMeetings.map((group, index) => {
-          const { month, day } = formatMeetingDate(group.date.toISOString())
+          const { month, day } = group.meetings[0] ? formatMeetingDate(group.meetings[0]) : formatDateBadge(group.date)
           const isToday = isSameDay(group.date, today)
 
           return (
@@ -306,7 +143,7 @@ export function UpcomingMeetings() {
                           </span>
                         </div>
                         <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatMeetingTime(meeting.start, meeting.end)}
+                          {formatMeetingTime(meeting)}
                         </p>
                         {(meeting.calendarName || meeting.accountEmail) && (
                           <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">

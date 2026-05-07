@@ -66,7 +66,6 @@ type updateCalendarVisibilityRequest struct {
 	Visible *bool `json:"visible" binding:"required"`
 }
 
-
 type calendarCacheMetadata struct {
 	Syncing      bool       `json:"syncing"`
 	Stale        bool       `json:"stale"`
@@ -155,8 +154,20 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 		return
 	}
 
+	if c.Query("wait") == "true" {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+		defer cancel()
+		if err := h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll); err != nil {
+			log.Printf("calendar: manual sync failed for user %s: %v", userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Calendar sync failed"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": false})
+		return
+	}
+
 	h.triggerBackgroundSync(userID, calendarservice.SyncScopeAll)
-	c.JSON(http.StatusOK, gin.H{"status": "success"})
+	c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": true})
 }
 
 func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
@@ -374,4 +385,3 @@ func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarser
 		}
 	}()
 }
-

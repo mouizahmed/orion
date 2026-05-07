@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
 import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Settings2, Users, X } from 'lucide-react'
 
-import { auth } from '@/config/firebase'
 import { Button } from '@/components/ui/button'
 import {
   DashboardPanel,
@@ -10,8 +9,8 @@ import {
   DashboardPanelHeader,
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
-import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import { useCalendarEvents, type CalendarAttendee, type CalendarEvent } from '@/hooks/useCalendarEvents'
 import { listNotesByEvent } from '@/lib/notes-client'
 import type { NoteRecord } from '@/types/note'
 import { NoteRow } from '@/components/NoteRow'
@@ -19,62 +18,13 @@ import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { cn } from '@/lib/utils'
 import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
-const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
 const DAY_MS = 24 * 60 * 60 * 1000
 const HOUR_HEIGHT = 44
 const WEEK_TIME_GUTTER = 48
 const START_HOUR = 0
 const END_HOUR = 24
-const STALE_REFETCH_DELAY = 2500
-const POLL_INTERVAL = 2 * 60 * 1000
 
 type CalendarView = 'agenda' | 'week' | 'month'
-
-type CalendarAttendee = {
-  name?: string
-  email?: string
-}
-
-type ServerCalendarEvent = {
-  id: string
-  provider_id?: string
-  connection_id?: string
-  account_email?: string
-  title: string
-  start: string
-  end: string
-  all_day?: boolean
-  location?: string
-  description?: string
-  meeting_link?: string
-  calendar_id?: string
-  calendar_name?: string
-  color?: string
-  organizer?: string
-  provider: string
-  attendees?: CalendarAttendee[]
-}
-
-type CalendarEvent = {
-  id: string
-  providerId?: string
-  connectionId?: string
-  accountEmail?: string
-  title: string
-  start: string
-  end: string
-  allDay: boolean
-  calendarId: string
-  calendarName: string
-  color: string
-  attendees: CalendarAttendee[]
-  meetingLink?: string
-  location?: string
-  description?: string
-  organizer?: string
-  provider: string
-}
 
 type PositionedEvent = CalendarEvent & {
   top: number
@@ -140,11 +90,6 @@ function formatCalendarTitle(view: CalendarView, cursorDate: Date) {
   return `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${weekEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
 }
 
-function extractMeetingLink(event: ServerCalendarEvent) {
-  const text = `${event.location ?? ''} ${event.description ?? ''}`
-  return text.match(/https?:\/\/[^\s<>"')]+/i)?.[0]
-}
-
 function getReadableTextColor(backgroundColor: string) {
   const match = backgroundColor.match(/^#?([0-9a-f]{6})$/i)
   if (!match) return '#ffffff'
@@ -160,30 +105,6 @@ function getReadableTextColor(backgroundColor: string) {
 
 function getAttendeeLabel(attendee: CalendarAttendee) {
   return attendee.name || attendee.email || 'Unknown attendee'
-}
-
-function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
-  const providerLabel = event.provider === 'google' ? 'Google Calendar' : event.provider === 'microsoft' ? 'Microsoft Outlook' : 'Calendar'
-
-  return {
-    id: event.id,
-    providerId: event.provider_id,
-    connectionId: event.connection_id,
-    accountEmail: event.account_email,
-    title: event.title || 'Untitled event',
-    start: event.start,
-    end: event.end,
-    allDay: event.all_day ?? false,
-    calendarId: event.calendar_id || event.provider,
-    calendarName: event.calendar_name || providerLabel,
-    color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
-    attendees: event.attendees ?? [],
-    meetingLink: event.meeting_link ?? extractMeetingLink(event),
-    location: event.location,
-    description: event.description,
-    organizer: event.organizer,
-    provider: event.provider,
-  }
 }
 
 function buildMonthGrid(cursorDate: Date) {
@@ -499,94 +420,19 @@ export function DashboardCalendar({
   onOpenCalendarSettings?: () => void
   onOpenNotes?: () => void
 }) {
-  const { user } = useAuth()
   const { createNewNote, selectNote } = useDashboardNotes()
+  const { events, loading, error } = useCalendarEvents()
   const [view, setView] = useState<CalendarView>('week')
   const [cursorDate, setCursorDate] = useState(() => new Date())
-  const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [selectedDay, setSelectedDay] = useState<Date | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const staleRefetchTimerRef = useRef<number | null>(null)
-  const pollAttemptsRef = useRef(0)
-
-  const clearStaleRefetch = useCallback(() => {
-    if (staleRefetchTimerRef.current !== null) {
-      window.clearTimeout(staleRefetchTimerRef.current)
-      staleRefetchTimerRef.current = null
-    }
-    pollAttemptsRef.current = 0
-  }, [])
-
-  const loadEvents = useCallback(async (silent = false) => {
-    if (!user) return
-    if (!silent) {
-      clearStaleRefetch()
-      setLoading(true)
-      setError(null)
-    }
-
-    try {
-      const currentUser = auth.currentUser
-      if (!currentUser) throw new Error('Not authenticated')
-      const idToken = await currentUser.getIdToken()
-      const response = await fetch(`${API_BASE_URL}/calendar/upcoming?limit=100`, {
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-      })
-
-      if (!response.ok) throw new Error(`Failed to fetch calendar events: ${response.status}`)
-      const data = await response.json()
-      const nextEvents = data.status === 'success' && Array.isArray(data.events)
-        ? data.events.map((event: ServerCalendarEvent) => normalizeEvent(event))
-        : []
-      setEvents(nextEvents)
-      if (!silent) {
-        setSelectedEvent(null)
-        setSelectedDay(null)
-      } else {
-        setSelectedEvent((current) => {
-          if (!current) return null
-          const updated = nextEvents.find((e: CalendarEvent) => e.id === current.id)
-          return updated ?? null
-        })
-      }
-      if (!data.stale && !data.syncing) {
-        pollAttemptsRef.current = 0
-      } else if ((data.stale || data.syncing) && pollAttemptsRef.current < 10 && staleRefetchTimerRef.current === null) {
-        const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
-        pollAttemptsRef.current++
-        staleRefetchTimerRef.current = window.setTimeout(() => {
-          staleRefetchTimerRef.current = null
-          void loadEvents(true)
-        }, delay)
-      }
-    } catch (loadError) {
-      if (!silent) {
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load calendar')
-        setEvents([])
-        setSelectedEvent(null)
-        setSelectedDay(null)
-      }
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }, [user, clearStaleRefetch])
 
   useEffect(() => {
-    void loadEvents()
-    const interval = window.setInterval(() => void loadEvents(true), POLL_INTERVAL)
-    const handleCalendarRefresh = () => void loadEvents()
-    window.addEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
-    return () => {
-      clearStaleRefetch()
-      window.clearInterval(interval)
-      window.removeEventListener(CALENDAR_REFRESH_EVENT, handleCalendarRefresh)
-    }
-  }, [loadEvents, clearStaleRefetch])
+    setSelectedEvent((current) => {
+      if (!current) return null
+      return events.find((event) => event.id === current.id) ?? null
+    })
+  }, [events])
 
   const visibleEvents = events
   const weekDays = useMemo(() => {

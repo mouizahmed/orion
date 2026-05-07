@@ -1,0 +1,279 @@
+import { useCallback, useEffect, useState } from 'react'
+
+import { auth } from '@/config/firebase'
+import { useAuth } from '@/contexts/AuthContext'
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
+const POLL_INTERVAL = 2 * 60 * 1000
+const STALE_REFETCH_DELAY = 2500
+const MAX_EVENTS = 100
+
+export type CalendarAttendee = {
+  name?: string
+  email?: string
+}
+
+type ServerCalendarEvent = {
+  id: string
+  provider_id?: string
+  connection_id?: string
+  account_email?: string
+  title: string
+  start: string
+  end: string
+  all_day?: boolean
+  location?: string
+  description?: string
+  meeting_link?: string
+  calendar_id?: string
+  calendar_name?: string
+  color?: string
+  organizer?: string
+  provider: string
+  attendees?: CalendarAttendee[]
+}
+
+export type CalendarEvent = {
+  id: string
+  providerId?: string
+  connectionId?: string
+  accountEmail?: string
+  title: string
+  start: string
+  end: string
+  allDay: boolean
+  calendarId: string
+  calendarName: string
+  color: string
+  attendees: CalendarAttendee[]
+  meetingLink?: string
+  location?: string
+  description?: string
+  organizer?: string
+  provider: string
+}
+
+type CalendarEventsSnapshot = {
+  events: CalendarEvent[]
+  loading: boolean
+  error: string | null
+  syncing: boolean
+  stale: boolean
+  lastSyncedAt?: string
+}
+
+const emptySnapshot: CalendarEventsSnapshot = {
+  events: [],
+  loading: false,
+  error: null,
+  syncing: false,
+  stale: false,
+}
+
+let activeUserId: string | null = null
+let snapshot: CalendarEventsSnapshot = emptySnapshot
+let inFlight: Promise<void> | null = null
+let pollTimer: number | null = null
+let staleRefetchTimer: number | null = null
+let pollAttempts = 0
+let subscriptionCount = 0
+let refreshListener: (() => void) | null = null
+
+const subscribers = new Set<(next: CalendarEventsSnapshot) => void>()
+
+function emit() {
+  subscribers.forEach((subscriber) => subscriber(snapshot))
+}
+
+function setSnapshot(next: Partial<CalendarEventsSnapshot>) {
+  snapshot = { ...snapshot, ...next }
+  emit()
+}
+
+function resetSnapshot() {
+  snapshot = emptySnapshot
+  emit()
+}
+
+function clearStaleRefetch() {
+  if (staleRefetchTimer !== null) {
+    window.clearTimeout(staleRefetchTimer)
+    staleRefetchTimer = null
+  }
+  pollAttempts = 0
+}
+
+function extractMeetingLink(event: ServerCalendarEvent) {
+  const text = `${event.location ?? ''} ${event.description ?? ''}`
+  return text.match(/https?:\/\/[^\s<>"')]+/i)?.[0]
+}
+
+function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
+  const providerLabel = event.provider === 'google' ? 'Google Calendar' : event.provider === 'microsoft' ? 'Microsoft Outlook' : 'Calendar'
+
+  return {
+    id: event.id,
+    providerId: event.provider_id,
+    connectionId: event.connection_id,
+    accountEmail: event.account_email,
+    title: event.title || 'Untitled event',
+    start: event.start,
+    end: event.end,
+    allDay: event.all_day ?? false,
+    calendarId: event.calendar_id || event.provider,
+    calendarName: event.calendar_name || providerLabel,
+    color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
+    attendees: event.attendees ?? [],
+    meetingLink: event.meeting_link ?? extractMeetingLink(event),
+    location: event.location,
+    description: event.description,
+    organizer: event.organizer,
+    provider: event.provider,
+  }
+}
+
+async function fetchCalendarEvents(silent = false) {
+  const requestUserId = activeUserId
+  if (!requestUserId) return
+
+  if (!silent) {
+    clearStaleRefetch()
+    setSnapshot({ loading: true, error: null })
+  }
+
+  if (inFlight) {
+    return inFlight
+  }
+
+  inFlight = (async () => {
+    try {
+      const currentUser = auth.currentUser
+      if (!currentUser || currentUser.uid !== requestUserId) {
+        throw new Error('Not authenticated')
+      }
+
+      const idToken = await currentUser.getIdToken()
+      const response = await fetch(`${API_BASE_URL}/calendar/upcoming?limit=${MAX_EVENTS}`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch calendar events: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (activeUserId !== requestUserId) return
+
+      const events = data.status === 'success' && Array.isArray(data.events)
+        ? data.events.map((event: ServerCalendarEvent) => normalizeEvent(event))
+        : []
+
+      setSnapshot({
+        events,
+        loading: false,
+        error: null,
+        syncing: Boolean(data.syncing),
+        stale: Boolean(data.stale),
+        lastSyncedAt: data.last_synced_at,
+      })
+
+      if (!data.stale && !data.syncing) {
+        pollAttempts = 0
+      } else if ((data.stale || data.syncing) && pollAttempts < 10 && staleRefetchTimer === null) {
+        const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
+        pollAttempts++
+        staleRefetchTimer = window.setTimeout(() => {
+          staleRefetchTimer = null
+          void fetchCalendarEvents(true)
+        }, delay)
+      }
+    } catch (error) {
+      if (activeUserId !== requestUserId) return
+      if (!silent) {
+        setSnapshot({
+          events: [],
+          loading: false,
+          error: error instanceof Error ? error.message : 'Failed to load calendar',
+          syncing: false,
+          stale: false,
+        })
+      }
+    } finally {
+      inFlight = null
+    }
+  })()
+
+  return inFlight
+}
+
+function startSharedPolling() {
+  if (pollTimer === null) {
+    pollTimer = window.setInterval(() => {
+      void fetchCalendarEvents(true)
+    }, POLL_INTERVAL)
+  }
+
+  if (refreshListener === null) {
+    refreshListener = () => {
+      void fetchCalendarEvents(false)
+    }
+    window.addEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
+  }
+}
+
+function stopSharedPolling() {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+  if (refreshListener !== null) {
+    window.removeEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
+    refreshListener = null
+  }
+  clearStaleRefetch()
+}
+
+export function useCalendarEvents() {
+  const { user } = useAuth()
+  const [localSnapshot, setLocalSnapshot] = useState(snapshot)
+
+  useEffect(() => {
+    if (!user) {
+      activeUserId = null
+      resetSnapshot()
+      setLocalSnapshot(snapshot)
+      return
+    }
+
+    if (activeUserId !== user.id) {
+      activeUserId = user.id
+      clearStaleRefetch()
+      snapshot = { ...emptySnapshot, loading: true }
+    }
+
+    subscriptionCount++
+    subscribers.add(setLocalSnapshot)
+    setLocalSnapshot(snapshot)
+    startSharedPolling()
+    void fetchCalendarEvents(false)
+
+    return () => {
+      subscribers.delete(setLocalSnapshot)
+      subscriptionCount = Math.max(0, subscriptionCount - 1)
+      if (subscriptionCount === 0) {
+        stopSharedPolling()
+      }
+    }
+  }, [user])
+
+  const refresh = useCallback(() => fetchCalendarEvents(false), [])
+
+  return {
+    ...localSnapshot,
+    refresh,
+  }
+}

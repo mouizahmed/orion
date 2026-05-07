@@ -232,7 +232,7 @@ export default function DashboardTopBar({
       const currentUser = auth.currentUser
       if (currentUser) {
         const idToken = await currentUser.getIdToken()
-        await fetch(`${API_BASE_URL}/calendar/sync`, {
+        await fetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
           method: 'POST',
           headers: {
             Accept: 'application/json',
@@ -411,4 +411,3 @@ export default function DashboardTopBar({
     </div>
   )
 }
-
