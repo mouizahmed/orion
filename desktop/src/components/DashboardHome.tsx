@@ -1,6 +1,6 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { ArrowDownUp, ArrowUpDown, FileText, Plus, Settings2 } from 'lucide-react'
+import { ArrowDownUp, ArrowUpDown, FileText, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -20,6 +20,7 @@ import { NoteRow } from '@/components/NoteRow'
 import { UpcomingMeetings } from '@/components/UpcomingMeetings'
 import { useAuth } from '@/contexts/AuthContext'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import { useCalendarEvents } from '@/hooks/useCalendarEvents'
 import { listActivityPage } from '@/lib/activity-client'
 import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/types/activity'
 
@@ -84,6 +85,12 @@ export default function DashboardHome({
   const [activity, setActivity] = useState<ActivityRecord[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
   const [activityError, setActivityError] = useState<string | null>(null)
+  const {
+    events: calendarEvents,
+    loading: calendarLoading,
+    error: calendarError,
+    syncing: calendarSyncing,
+  } = useCalendarEvents()
 
   const loadActivity = useCallback(async () => {
     const requestId = activityRequestRef.current + 1
@@ -130,7 +137,15 @@ export default function DashboardHome({
       <div>
         <DashboardPanel>
           <DashboardPanelHeader>
-            <DashboardPanelTitle>Coming up</DashboardPanelTitle>
+            <div className="flex min-w-0 items-baseline gap-2">
+              <DashboardPanelTitle>Coming up</DashboardPanelTitle>
+              {calendarSyncing ? (
+                <div className="flex items-center gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span>Syncing</span>
+                </div>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1.5">
               <Button
                 type="button"
@@ -149,12 +164,12 @@ export default function DashboardHome({
                 size="sm"
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
               >
-                View calendar
+                View all
               </Button>
             </div>
           </DashboardPanelHeader>
           <DashboardPanelBody>
-            <UpcomingMeetings />
+            <UpcomingMeetings events={calendarEvents} loading={calendarLoading} error={calendarError} />
           </DashboardPanelBody>
         </DashboardPanel>
       </div>

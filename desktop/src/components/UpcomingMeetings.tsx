@@ -1,6 +1,6 @@
-import { MapPin, RefreshCw, Users } from 'lucide-react'
+import { MapPin, Users } from 'lucide-react'
 
-import { useCalendarEvents, type CalendarEvent } from '@/hooks/useCalendarEvents'
+import type { CalendarEvent } from '@/hooks/useCalendarEvents'
 import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
 
 function eventDisplayDate(event: CalendarEvent) {
@@ -34,8 +34,15 @@ function formatMeetingTime(event: CalendarEvent) {
   return `${formatTime(event.start)}-${formatTime(event.end)}`
 }
 
-export function UpcomingMeetings() {
-  const { events, loading, error, syncing } = useCalendarEvents()
+export function UpcomingMeetings({
+  events,
+  loading,
+  error,
+}: {
+  events: CalendarEvent[]
+  loading: boolean
+  error: string | null
+}) {
   const meetings = events.slice(0, 3)
 
   const today = new Date()
@@ -99,12 +106,6 @@ export function UpcomingMeetings() {
   return (
     <div>
       <div className="space-y-0.5">
-        {syncing ? (
-          <div className="flex items-center gap-1.5 px-2.5 pb-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            <span>Syncing calendar</span>
-          </div>
-        ) : null}
         {groupedMeetings.map((group, index) => {
           const { month, day } = group.meetings[0] ? formatMeetingDate(group.meetings[0]) : formatDateBadge(group.date)
           const isToday = isSameDay(group.date, today)

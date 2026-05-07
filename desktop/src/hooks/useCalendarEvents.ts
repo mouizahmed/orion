@@ -2,13 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
+import { wsClient } from '@/lib/ws-client'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
-const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
-const CALENDAR_SYNC_START_EVENT = 'dashboard-calendar-sync-start'
-const CALENDAR_SYNC_END_EVENT = 'dashboard-calendar-sync-end'
-const POLL_INTERVAL = 2 * 60 * 1000
-const STALE_REFETCH_DELAY = 2500
 const MAX_EVENTS = 100
 
 export type CalendarAttendee = {
@@ -65,6 +61,7 @@ type CalendarEventsSnapshot = {
   syncing: boolean
   stale: boolean
   lastSyncedAt?: string
+  lastFetchedAt?: number
 }
 
 const emptySnapshot: CalendarEventsSnapshot = {
@@ -78,14 +75,7 @@ const emptySnapshot: CalendarEventsSnapshot = {
 let activeUserId: string | null = null
 let snapshot: CalendarEventsSnapshot = emptySnapshot
 let inFlight: Promise<void> | null = null
-let pollTimer: number | null = null
-let staleRefetchTimer: number | null = null
-let pollAttempts = 0
-let subscriptionCount = 0
-let manualSyncActive = false
-let refreshListener: (() => void) | null = null
-let syncStartListener: (() => void) | null = null
-let syncEndListener: (() => void) | null = null
+let wsUnsubscribe: (() => void) | null = null
 
 const subscribers = new Set<(next: CalendarEventsSnapshot) => void>()
 
@@ -101,14 +91,6 @@ function setSnapshot(next: Partial<CalendarEventsSnapshot>) {
 function resetSnapshot() {
   snapshot = emptySnapshot
   emit()
-}
-
-function clearStaleRefetch() {
-  if (staleRefetchTimer !== null) {
-    window.clearTimeout(staleRefetchTimer)
-    staleRefetchTimer = null
-  }
-  pollAttempts = 0
 }
 
 function extractMeetingLink(event: ServerCalendarEvent) {
@@ -146,7 +128,6 @@ async function fetchCalendarEvents(silent = false) {
   if (!requestUserId) return
 
   if (!silent) {
-    clearStaleRefetch()
     setSnapshot({ loading: true, error: null })
   }
 
@@ -187,18 +168,8 @@ async function fetchCalendarEvents(silent = false) {
         syncing: Boolean(data.syncing),
         stale: Boolean(data.stale),
         lastSyncedAt: data.last_synced_at,
+        lastFetchedAt: Date.now(),
       })
-
-      if (!data.stale && !data.syncing) {
-        pollAttempts = 0
-      } else if ((data.stale || data.syncing) && pollAttempts < 10 && staleRefetchTimer === null) {
-        const delay = data.syncing ? 1000 : STALE_REFETCH_DELAY
-        pollAttempts++
-        staleRefetchTimer = window.setTimeout(() => {
-          staleRefetchTimer = null
-          void fetchCalendarEvents(true)
-        }, delay)
-      }
     } catch (error) {
       if (activeUserId !== requestUserId) return
       if (!silent) {
@@ -218,60 +189,31 @@ async function fetchCalendarEvents(silent = false) {
   return inFlight
 }
 
-function startSharedPolling() {
-  if (pollTimer === null) {
-    pollTimer = window.setInterval(() => {
+function startSharedWS() {
+  if (wsUnsubscribe !== null) return
+  wsUnsubscribe = wsClient.subscribe('calendar.sync_status', (data) => {
+    const wasSyncing = snapshot.syncing
+    const wasStale = snapshot.stale
+    setSnapshot({ syncing: data.syncing, stale: data.stale, lastSyncedAt: data.last_synced_at })
+    // Re-fetch only when the backend reports fresh data after local state was syncing/stale.
+    // Failed or still-stale syncs should not create a refetch loop.
+    if (!data.syncing && !data.stale && (wasSyncing || wasStale)) {
       void fetchCalendarEvents(true)
-    }, POLL_INTERVAL)
-  }
-
-  if (refreshListener === null) {
-    refreshListener = () => {
-      void fetchCalendarEvents(true).finally(() => {
-        if (manualSyncActive) {
-          manualSyncActive = false
-          setSnapshot({ syncing: false })
-        }
-      })
     }
-    window.addEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
-  }
-
-  if (syncStartListener === null) {
-    syncStartListener = () => {
-      manualSyncActive = true
-      setSnapshot({ syncing: true, error: null })
-    }
-    window.addEventListener(CALENDAR_SYNC_START_EVENT, syncStartListener)
-  }
-
-  if (syncEndListener === null) {
-    syncEndListener = () => {
-      manualSyncActive = false
-      setSnapshot({ syncing: false })
-    }
-    window.addEventListener(CALENDAR_SYNC_END_EVENT, syncEndListener)
-  }
+  })
 }
 
-function stopSharedPolling() {
-  if (pollTimer !== null) {
-    window.clearInterval(pollTimer)
-    pollTimer = null
-  }
-  if (refreshListener !== null) {
-    window.removeEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
-    refreshListener = null
-  }
-  if (syncStartListener !== null) {
-    window.removeEventListener(CALENDAR_SYNC_START_EVENT, syncStartListener)
-    syncStartListener = null
-  }
-  if (syncEndListener !== null) {
-    window.removeEventListener(CALENDAR_SYNC_END_EVENT, syncEndListener)
-    syncEndListener = null
-  }
-  clearStaleRefetch()
+function stopSharedWS() {
+  wsUnsubscribe?.()
+  wsUnsubscribe = null
+}
+
+export function triggerCalendarSync() {
+  setSnapshot({ syncing: true, error: null })
+}
+
+export function refreshCalendarEvents() {
+  void fetchCalendarEvents(true)
 }
 
 export function useCalendarEvents() {
@@ -286,23 +228,27 @@ export function useCalendarEvents() {
       return
     }
 
-    if (activeUserId !== user.id) {
+    const userChanged = activeUserId !== user.id
+    if (userChanged) {
       activeUserId = user.id
-      clearStaleRefetch()
       snapshot = { ...emptySnapshot, loading: true }
     }
 
-    subscriptionCount++
     subscribers.add(setLocalSnapshot)
     setLocalSnapshot(snapshot)
-    startSharedPolling()
-    void fetchCalendarEvents(false)
+    startSharedWS()
+
+    // SWR: always revalidate on subscribe unless a fetch is already in progress.
+    // Silent (no loading spinner) when we have cached data; non-silent on first load or error.
+    if (!snapshot.loading || userChanged) {
+      const silent = !userChanged && Boolean(snapshot.lastFetchedAt) && !snapshot.error
+      void fetchCalendarEvents(silent)
+    }
 
     return () => {
       subscribers.delete(setLocalSnapshot)
-      subscriptionCount = Math.max(0, subscriptionCount - 1)
-      if (subscriptionCount === 0) {
-        stopSharedPolling()
+      if (subscribers.size === 0) {
+        stopSharedWS()
       }
     }
   }, [user])

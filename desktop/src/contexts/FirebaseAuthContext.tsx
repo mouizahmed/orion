@@ -37,7 +37,7 @@ const LOGOUT_STORAGE_KEYS = [
   'chat:activeConversationId',
 ]
 
-const LOGOUT_STORAGE_PREFIXES = ['orionly:local-meeting-', 'calendar_events_']
+const LOGOUT_STORAGE_PREFIXES = ['orionly:local-meeting-']
 
 export function clearKnownSessionStorage() {
   for (const key of LOGOUT_STORAGE_KEYS) {

@@ -9,13 +9,16 @@ import {
   DesktopAuthProvider,
   useDesktopAuthActions,
 } from '@/contexts/DesktopAuthContext'
+import { WebSocketProvider } from '@/contexts/WebSocketContext'
 
 export type { User }
 
 export function DesktopAuthRoot({ children }: { children: ReactNode }) {
   return (
     <FirebaseAuthProvider>
-      <DesktopAuthProvider>{children}</DesktopAuthProvider>
+      <WebSocketProvider>
+        <DesktopAuthProvider>{children}</DesktopAuthProvider>
+      </WebSocketProvider>
     </FirebaseAuthProvider>
   )
 }
@@ -23,7 +26,9 @@ export function DesktopAuthRoot({ children }: { children: ReactNode }) {
 export function DashboardAuthRoot({ children }: { children: ReactNode }) {
   return (
     <FirebaseAuthProvider>
-      <DashboardAuthActionsProvider>{children}</DashboardAuthActionsProvider>
+      <WebSocketProvider>
+        <DashboardAuthActionsProvider>{children}</DashboardAuthActionsProvider>
+      </WebSocketProvider>
     </FirebaseAuthProvider>
   )
 }

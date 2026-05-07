@@ -20,6 +20,7 @@ type CalendarHandler struct {
 	preferenceRepo repository.CalendarPreferenceRepository
 	cacheRepo      repository.CalendarCacheRepository
 	syncService    *calendarservice.Service
+	hub            *WsHub
 }
 
 type CalendarEvent struct {
@@ -74,12 +75,13 @@ type calendarCacheMetadata struct {
 	LastError    string     `json:"last_error,omitempty"`
 }
 
-func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service) *CalendarHandler {
+func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, hub *WsHub) *CalendarHandler {
 	return &CalendarHandler{
 		connectionRepo: connectionRepo,
 		preferenceRepo: preferenceRepo,
 		cacheRepo:      cacheRepo,
 		syncService:    syncService,
+		hub:            hub,
 	}
 }
 
@@ -160,9 +162,11 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 		defer cancel()
 		if err := h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll); err != nil {
 			log.Printf("calendar: manual sync failed for user %s: %v", userID, err)
+			h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
 			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Calendar sync failed"})
 			return
 		}
+		h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
 		c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": false})
 		return
 	}
@@ -380,11 +384,34 @@ func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarser
 	if h.syncService == nil {
 		return
 	}
+	h.sendCalendarSyncStatus(userID, true, true, nil)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		if err := h.syncService.SyncUser(ctx, userID, scope); err != nil {
 			log.Printf("calendar: background sync failed for user %s: %v", userID, err)
+			h.sendCalendarSyncMetadata(context.Background(), userID, scope)
+			return
 		}
+		h.sendCalendarSyncMetadata(context.Background(), userID, scope)
 	}()
+}
+
+func (h *CalendarHandler) sendCalendarSyncMetadata(ctx context.Context, userID string, scope calendarservice.SyncScope) {
+	metadata := h.getCacheMetadata(ctx, userID, scope)
+	h.sendCalendarSyncStatus(userID, metadata.Syncing, metadata.Stale, metadata.LastSyncedAt)
+}
+
+func (h *CalendarHandler) sendCalendarSyncStatus(userID string, syncing bool, stale bool, lastSyncedAt *time.Time) {
+	if h.hub == nil {
+		return
+	}
+	data := gin.H{"syncing": syncing, "stale": stale}
+	if lastSyncedAt != nil {
+		data["last_synced_at"] = *lastSyncedAt
+	}
+	h.hub.SendToUser(userID, gin.H{
+		"type": "calendar.sync_status",
+		"data": data,
+	})
 }

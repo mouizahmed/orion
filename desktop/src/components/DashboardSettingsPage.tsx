@@ -14,9 +14,10 @@ import {
 import { auth } from '@/config/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
+import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
+import { wsClient } from '@/lib/ws-client'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
-const CALENDAR_STALE_REFETCH_DELAY = 2500
 
 export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
 
@@ -115,10 +116,8 @@ const calendarProviderOptions: Array<{
   { provider: 'microsoft', label: 'Outlook', icon: '/microsoft-outlook-icon.svg' },
 ]
 
-function clearCalendarCaches(userID?: string) {
-  if (!userID) return
-  localStorage.removeItem(`calendar_events_${userID}`)
-  window.dispatchEvent(new Event('dashboard-calendar-refresh'))
+function refreshCalendarViews() {
+  refreshCalendarEvents()
 }
 
 function accountLabel(connection: IntegrationConnection) {
@@ -445,8 +444,6 @@ export default function DashboardSettingsPage({
   const { user, logout, updateProfileName, uploadProfileAvatar } = useAuth()
   const shortcutApi = desktopApi.shortcuts
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
-  const calendarStaleRefetchTimerRef = useRef<number | null>(null)
-  const calendarStaleRefetchAttemptedRef = useRef(false)
   const canManageShortcuts = shortcutApi.isAvailable()
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
@@ -557,16 +554,6 @@ export default function DashboardSettingsPage({
           ? calendarsData.calendars
           : [],
       )
-      if (!calendarsData.stale && !calendarsData.syncing) {
-        calendarStaleRefetchAttemptedRef.current = false
-      }
-      if ((calendarsData.stale || calendarsData.syncing) && !calendarStaleRefetchAttemptedRef.current && calendarStaleRefetchTimerRef.current === null) {
-        calendarStaleRefetchAttemptedRef.current = true
-        calendarStaleRefetchTimerRef.current = window.setTimeout(() => {
-          calendarStaleRefetchTimerRef.current = null
-          void loadCalendarSettings()
-        }, CALENDAR_STALE_REFETCH_DELAY)
-      }
     } catch (loadError) {
       setCalendarConnections([])
       setConnectedCalendars([])
@@ -577,13 +564,11 @@ export default function DashboardSettingsPage({
   }, [user])
 
   useEffect(() => {
-    return () => {
-      if (calendarStaleRefetchTimerRef.current !== null) {
-        window.clearTimeout(calendarStaleRefetchTimerRef.current)
-        calendarStaleRefetchTimerRef.current = null
-      }
-    }
-  }, [])
+    if (selectedSection !== 'calendar' || !user) return
+    return wsClient.subscribe('calendar.sync_status', (data) => {
+      if (!data.syncing) void loadCalendarSettings()
+    })
+  }, [selectedSection, user, loadCalendarSettings])
 
   useEffect(() => {
     if (selectedSection !== 'calendar' || !user) return
@@ -600,7 +585,7 @@ export default function DashboardSettingsPage({
         return
       }
 
-      clearCalendarCaches(user?.id)
+      refreshCalendarViews()
       if (selectedSection === 'calendar') {
         void loadCalendarSettings()
       }
@@ -661,14 +646,14 @@ export default function DashboardSettingsPage({
       if (!result.success) {
         throw new Error(result.error)
       }
-      clearCalendarCaches(user?.id)
+      refreshCalendarViews()
       void loadCalendarSettings()
     } catch (connectError) {
       setCalendarError(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
     } finally {
       setCalendarAction(null)
     }
-  }, [loadCalendarSettings, user?.id])
+  }, [loadCalendarSettings])
 
   const handleDisconnectCalendar = useCallback(
     async (connectionID: string) => {
@@ -686,7 +671,7 @@ export default function DashboardSettingsPage({
         if (!result.success) {
           throw new Error(result.error)
         }
-        clearCalendarCaches(user?.id)
+        refreshCalendarViews()
         await loadCalendarSettings()
       } catch (disconnectError) {
         setCalendarError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
@@ -694,7 +679,7 @@ export default function DashboardSettingsPage({
         setCalendarAction(null)
       }
     },
-    [loadCalendarSettings, user?.id],
+    [loadCalendarSettings],
   )
 
   const handleCalendarVisibility = useCallback(
@@ -733,7 +718,7 @@ export default function DashboardSettingsPage({
         if (!response.ok) {
           throw new Error(`Failed to update calendar visibility: ${response.status}`)
         }
-        clearCalendarCaches(user?.id)
+        refreshCalendarViews()
       } catch (visibilityError) {
         setConnectedCalendars((current) =>
           current.map((item) =>
@@ -747,7 +732,7 @@ export default function DashboardSettingsPage({
         setCalendarAction(null)
       }
     },
-    [user?.id],
+    [],
   )
 
   const handleShortcutUpdate = useCallback(

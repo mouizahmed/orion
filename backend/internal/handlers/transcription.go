@@ -193,34 +193,41 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
 }
 
-func (h *TranscriptionHandler) authenticateClientConn(clientConn *websocket.Conn) error {
+// authenticateWSConn performs the WS auth handshake and returns the authenticated userID.
+func authenticateWSConn(conn *websocket.Conn) (string, error) {
 	firebaseClient := auth.GetFirebaseClient()
 	if firebaseClient == nil {
-		return errors.New("auth service unavailable")
+		return "", errors.New("auth service unavailable")
 	}
 
-	_ = clientConn.SetReadDeadline(time.Now().Add(authTimeout))
-	messageType, payload, err := clientConn.ReadMessage()
+	_ = conn.SetReadDeadline(time.Now().Add(authTimeout))
+	messageType, payload, err := conn.ReadMessage()
 	if err != nil {
-		return errors.New("missing auth message")
+		return "", errors.New("missing auth message")
 	}
-	_ = clientConn.SetReadDeadline(time.Time{})
+	_ = conn.SetReadDeadline(time.Time{})
 	if messageType != websocket.TextMessage {
-		return errors.New("invalid auth message")
+		return "", errors.New("invalid auth message")
 	}
 
 	var authMsg wsAuthMessage
 	if err := json.Unmarshal(payload, &authMsg); err != nil {
-		return errors.New("invalid auth payload")
+		return "", errors.New("invalid auth payload")
 	}
 	if authMsg.Type != "auth" || authMsg.Token == "" {
-		return errors.New("invalid auth payload")
+		return "", errors.New("invalid auth payload")
 	}
 
-	if _, err := firebaseClient.VerifyIDTokenAndCheckRevoked(authMsg.Token); err != nil {
-		return errors.New("invalid token")
+	token, err := firebaseClient.VerifyIDTokenAndCheckRevoked(authMsg.Token)
+	if err != nil {
+		return "", errors.New("invalid token")
 	}
-	return nil
+	return token.UID, nil
+}
+
+func (h *TranscriptionHandler) authenticateClientConn(clientConn *websocket.Conn) error {
+	_, err := authenticateWSConn(clientConn)
+	return err
 }
 
 type assemblyAIWord struct {

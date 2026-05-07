@@ -153,7 +153,9 @@ func main() {
 	transcriptionHandler := handlers.NewTranscriptionHandler()
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
 	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, redisClient)
-	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService)
+	wsHub := handlers.NewWsHub()
+	wsHandler := handlers.NewWsHandler(wsHub)
+	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
@@ -180,6 +182,7 @@ func main() {
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
 		api.GET("/transcription/stream", transcriptionHandler.Stream)
+		api.GET("/ws", wsHandler.Handle)
 	}
 
 	// OAuth routes (no auth required)
