@@ -395,8 +395,8 @@ export function DashboardCalendar({
   }, [createNewNote, selectNote, onOpenNotes])
 
   return (
-    <div className={cn('grid h-full min-h-0 gap-2', hasDetailsPanel && 'lg:grid-cols-[minmax(0,1fr)_304px]')}>
-      <DashboardPanel className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 gap-2">
+      <DashboardPanel className="flex min-w-0 flex-1 flex-col">
         <DashboardPanelHeader>
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -488,8 +488,13 @@ export function DashboardCalendar({
         </DashboardPanelBody>
       </DashboardPanel>
 
-      {hasDetailsPanel ? (
-        <DashboardPanel className="min-h-0">
+      <div
+        className={cn(
+          'flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
+          hasDetailsPanel ? 'w-[304px]' : 'w-0',
+        )}
+      >
+        <DashboardPanel className="h-full min-h-0 w-[304px]">
           <DashboardPanelBody className="h-full min-h-0 p-2">
             {selectedEvent ? (
               <EventDetail
@@ -501,7 +506,7 @@ export function DashboardCalendar({
             ) : null}
           </DashboardPanelBody>
         </DashboardPanel>
-      ) : null}
+      </div>
     </div>
   )
 }
