@@ -9,7 +9,7 @@ import { useWindowState } from '@/hooks/useWindowState'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { searchAll } from '@/lib/search-client'
 import { desktopApi } from '@/lib/desktop-api'
-import { triggerCalendarSync } from '@/hooks/useCalendarEvents'
+import { triggerCalendarSync, resetCalendarSync } from '@/hooks/useCalendarEvents'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -245,7 +245,7 @@ export default function DashboardTopBar({
         }
       }
     } catch {
-      // WS push will update sync state when server finishes; nothing to clean up here
+      resetCalendarSync()
     } finally {
       calendarRefreshInFlightRef.current = false
     }

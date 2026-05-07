@@ -189,6 +189,8 @@ async function fetchCalendarEvents(silent = false) {
   return inFlight
 }
 
+let wsStatusUnsubscribe: (() => void) | null = null
+
 function startSharedWS() {
   if (wsUnsubscribe !== null) return
   wsUnsubscribe = wsClient.subscribe('calendar.sync_status', (data) => {
@@ -201,15 +203,27 @@ function startSharedWS() {
       void fetchCalendarEvents(true)
     }
   })
+
+  // On reconnect, re-fetch to clear any stale syncing/stale UI state that
+  // accumulated while the server was unreachable.
+  wsStatusUnsubscribe = wsClient.onStatusChange((status) => {
+    if (status === 'connected') void fetchCalendarEvents(true)
+  })
 }
 
 function stopSharedWS() {
   wsUnsubscribe?.()
   wsUnsubscribe = null
+  wsStatusUnsubscribe?.()
+  wsStatusUnsubscribe = null
 }
 
 export function triggerCalendarSync() {
   setSnapshot({ syncing: true, error: null })
+}
+
+export function resetCalendarSync() {
+  setSnapshot({ syncing: false })
 }
 
 export function refreshCalendarEvents() {

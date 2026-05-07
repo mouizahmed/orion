@@ -365,8 +365,6 @@ export function NotesTree({
                   </div>
                 ))}
               </div>
-            ) : error ? (
-              <div className="px-2 py-1 text-xs text-red-500">{error}</div>
             ) : (
               <div className="space-y-1 min-w-0">
                 {treeFolders.map(renderFolderRow)}

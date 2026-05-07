@@ -169,7 +169,7 @@ export default function DashboardHome({
             </div>
           </DashboardPanelHeader>
           <DashboardPanelBody>
-            <UpcomingMeetings events={calendarEvents} loading={calendarLoading} error={calendarError} />
+            <UpcomingMeetings events={calendarEvents} loading={calendarLoading} />
           </DashboardPanelBody>
         </DashboardPanel>
       </div>
@@ -254,10 +254,6 @@ export default function DashboardHome({
                   </div>
                 </div>
               ))}
-            </div>
-          ) : activityError ? (
-            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 text-center dark:border-white/10 dark:bg-white/[0.03]">
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">Failed to load activity</p>
             </div>
           ) : groupedActivity.length > 0 ? (
             <div className="space-y-3">

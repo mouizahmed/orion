@@ -454,7 +454,7 @@ export default function DashboardSettingsPage({
   const [calendarConnections, setCalendarConnections] = useState<IntegrationConnection[]>([])
   const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
   const [isLoadingCalendars, setIsLoadingCalendars] = useState(false)
-  const [calendarError, setCalendarError] = useState<string | null>(null)
+  const [calendarActionError, setCalendarActionError] = useState<string | null>(null)
   const [calendarAction, setCalendarAction] = useState<string | null>(null)
   const [profileName, setProfileName] = useState(user?.name || '')
   const [profileAction, setProfileAction] = useState<'name' | 'avatar' | null>(null)
@@ -515,7 +515,6 @@ export default function DashboardSettingsPage({
   const loadCalendarSettings = useCallback(async () => {
     if (!user) return
     setIsLoadingCalendars(true)
-    setCalendarError(null)
 
     try {
       const currentUser = auth.currentUser
@@ -554,10 +553,9 @@ export default function DashboardSettingsPage({
           ? calendarsData.calendars
           : [],
       )
-    } catch (loadError) {
+    } catch {
       setCalendarConnections([])
       setConnectedCalendars([])
-      setCalendarError(loadError instanceof Error ? loadError.message : 'Failed to load calendar settings')
     } finally {
       setIsLoadingCalendars(false)
     }
@@ -581,7 +579,7 @@ export default function DashboardSettingsPage({
       if (event.feature && event.feature !== 'calendar') return
 
       if (!event.success) {
-        setCalendarError(event.error || 'Calendar connection failed')
+        setCalendarActionError(event.error || 'Calendar connection failed')
         return
       }
 
@@ -634,12 +632,12 @@ export default function DashboardSettingsPage({
   const handleConnectCalendar = useCallback(async (provider: CalendarIntegrationProvider) => {
     const currentUser = auth.currentUser
     if (!currentUser) {
-      setCalendarError('Not authenticated')
+      setCalendarActionError('Not authenticated')
       return
     }
 
     setCalendarAction(`connect:${provider}`)
-    setCalendarError(null)
+    setCalendarActionError(null)
     try {
       const idToken = await currentUser.getIdToken()
       const result = await desktopApi.integrations.connect(provider, 'calendar', idToken)
@@ -649,7 +647,7 @@ export default function DashboardSettingsPage({
       refreshCalendarViews()
       void loadCalendarSettings()
     } catch (connectError) {
-      setCalendarError(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
+      setCalendarActionError(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
     } finally {
       setCalendarAction(null)
     }
@@ -659,12 +657,12 @@ export default function DashboardSettingsPage({
     async (connectionID: string) => {
       const currentUser = auth.currentUser
       if (!currentUser) {
-        setCalendarError('Not authenticated')
+        setCalendarActionError('Not authenticated')
         return
       }
 
       setCalendarAction(`disconnect:${connectionID}`)
-      setCalendarError(null)
+      setCalendarActionError(null)
       try {
         const idToken = await currentUser.getIdToken()
         const result = await desktopApi.integrations.disconnect(connectionID, idToken)
@@ -674,7 +672,7 @@ export default function DashboardSettingsPage({
         refreshCalendarViews()
         await loadCalendarSettings()
       } catch (disconnectError) {
-        setCalendarError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
+        setCalendarActionError(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
       } finally {
         setCalendarAction(null)
       }
@@ -686,13 +684,13 @@ export default function DashboardSettingsPage({
     async (calendar: ConnectedCalendar, visible: boolean) => {
       const currentUser = auth.currentUser
       if (!currentUser) {
-        setCalendarError('Not authenticated')
+        setCalendarActionError('Not authenticated')
         return
       }
 
       const actionKey = `toggle:${calendar.connection_id}:${calendar.id}`
       setCalendarAction(actionKey)
-      setCalendarError(null)
+      setCalendarActionError(null)
       setConnectedCalendars((current) =>
         current.map((item) =>
           item.connection_id === calendar.connection_id && item.id === calendar.id
@@ -727,7 +725,7 @@ export default function DashboardSettingsPage({
               : item,
           ),
         )
-        setCalendarError(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
+        setCalendarActionError(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
       } finally {
         setCalendarAction(null)
       }
@@ -1052,6 +1050,9 @@ export default function DashboardSettingsPage({
               ) : (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No calendar accounts connected.</div>
               )}
+              {calendarActionError && (
+                <div className="border-t border-neutral-200 px-3 py-2 text-xs text-red-600 dark:border-white/10 dark:text-red-300">{calendarActionError}</div>
+              )}
             </div>
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
@@ -1067,8 +1068,6 @@ export default function DashboardSettingsPage({
               </div>
               {isLoadingCalendars ? (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading calendars...</div>
-              ) : calendarError ? (
-                <div className="px-3 py-4 text-xs text-red-600 dark:text-red-300">{calendarError}</div>
               ) : connectedCalendars.length > 0 && calendarConnections.length > 0 ? (
                 calendarConnections.map((connection) => {
                   const calendars = calendarsByConnection[connection.id] || []

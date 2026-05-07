@@ -37,11 +37,9 @@ function formatMeetingTime(event: CalendarEvent) {
 export function UpcomingMeetings({
   events,
   loading,
-  error,
 }: {
   events: CalendarEvent[]
   loading: boolean
-  error: string | null
 }) {
   const meetings = events.slice(0, 3)
 
@@ -89,16 +87,6 @@ export function UpcomingMeetings({
             </div>
           </div>
         ))}
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-2.5 text-center dark:border-white/10 dark:bg-white/[0.03]">
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">
-          Calendar integration coming soon
-        </p>
       </div>
     )
   }

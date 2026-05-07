@@ -436,10 +436,6 @@ export function DashboardCalendar({
                 </div>
               ))}
             </div>
-          ) : error ? (
-            <div className="flex h-full items-center justify-center text-xs text-neutral-500 dark:text-neutral-400">
-              Failed to load calendar
-            </div>
           ) : visibleEvents.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
               <CalendarDays className="mb-2 h-5 w-5 text-neutral-400" />
