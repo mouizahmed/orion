@@ -34,8 +34,6 @@ function formatMeetingTime(event: CalendarEvent) {
   return `${formatTime(event.start)}-${formatTime(event.end)}`
 }
 
-const CALENDAR_EVENT_OPEN_EVENT = 'dashboard-calendar-event-open'
-
 export function UpcomingMeetings() {
   const { events, loading, error, syncing } = useCalendarEvents()
   const meetings = events.slice(0, 3)
@@ -131,13 +129,9 @@ export function UpcomingMeetings() {
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
-                    <button
+                    <div
                       key={meeting.id}
-                      type="button"
-                      className="block w-full rounded-lg border border-transparent text-left transition-colors hover:border-neutral-200/70 hover:bg-neutral-100/60 dark:hover:border-white/8 dark:hover:bg-white/[0.055]"
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent(CALENDAR_EVENT_OPEN_EVENT, { detail: meeting }))
-                      }}
+                      className="block w-full rounded-lg border border-transparent text-left"
                     >
                       <div
                         className="min-w-0 border-l-2 py-1 pl-3"
@@ -171,7 +165,7 @@ export function UpcomingMeetings() {
                           </p>
                         )}
                       </div>
-                    </button>
+                    </div>
                   ))
                 )}
               </div>
