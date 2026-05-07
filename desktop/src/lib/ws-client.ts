@@ -99,7 +99,7 @@ class WebSocketClient {
           if (this.ws !== ws) return
           ws.send(JSON.stringify({ type: 'auth', token }))
         })
-        .catch(() => ws.close())
+        .catch((err) => { console.warn('ws: token fetch failed', err); ws.close() })
     }
 
     ws.onmessage = (ev) => {

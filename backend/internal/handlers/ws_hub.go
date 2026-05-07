@@ -48,7 +48,11 @@ func (h *WsHub) SendToUser(userID string, msg any) {
 	}
 
 	h.mu.RLock()
-	conns := h.conns[userID]
+	inner := h.conns[userID]
+	conns := make(map[*websocket.Conn]*sync.Mutex, len(inner))
+	for c, m := range inner {
+		conns[c] = m
+	}
 	h.mu.RUnlock()
 
 	for conn, mu := range conns {
