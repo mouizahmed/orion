@@ -12,6 +12,8 @@ import { desktopApi } from '@/lib/desktop-api'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
+const CALENDAR_SYNC_START_EVENT = 'dashboard-calendar-sync-start'
+const CALENDAR_SYNC_END_EVENT = 'dashboard-calendar-sync-end'
 
 export default function DashboardTopBar({
   onBackToOverlay,
@@ -228,21 +230,32 @@ export default function DashboardTopBar({
 
     calendarRefreshInFlightRef.current = true
 
+    let calendarSyncStarted = false
+
     try {
       const currentUser = auth.currentUser
       if (currentUser) {
+        calendarSyncStarted = true
+        window.dispatchEvent(new Event(CALENDAR_SYNC_START_EVENT))
         const idToken = await currentUser.getIdToken()
-        await fetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
+        const response = await fetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
           method: 'POST',
           headers: {
             Accept: 'application/json',
             Authorization: `Bearer ${idToken}`,
           },
         })
+        if (!response.ok) {
+          throw new Error(`Calendar sync failed: ${response.status}`)
+        }
+        window.dispatchEvent(new Event(CALENDAR_REFRESH_EVENT))
+      }
+    } catch {
+      if (calendarSyncStarted) {
+        window.dispatchEvent(new Event(CALENDAR_SYNC_END_EVENT))
       }
     } finally {
       calendarRefreshInFlightRef.current = false
-      window.dispatchEvent(new Event(CALENDAR_REFRESH_EVENT))
     }
   }
 

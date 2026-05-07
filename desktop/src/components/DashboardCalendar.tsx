@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 
-import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, Settings2, Users, X } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, ExternalLink, MapPin, RefreshCw, Settings2, Users, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -421,7 +421,7 @@ export function DashboardCalendar({
   onOpenNotes?: () => void
 }) {
   const { createNewNote, selectNote } = useDashboardNotes()
-  const { events, loading, error } = useCalendarEvents()
+  const { events, loading, error, syncing } = useCalendarEvents()
   const [view, setView] = useState<CalendarView>('week')
   const [cursorDate, setCursorDate] = useState(() => new Date())
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
@@ -495,6 +495,12 @@ export function DashboardCalendar({
               <div className="truncate text-xs text-neutral-500 dark:text-neutral-400">
                 {formatCalendarTitle(view, cursorDate)}
               </div>
+              {syncing ? (
+                <div className="flex items-center gap-1 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  <span>Syncing</span>
+                </div>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>

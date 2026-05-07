@@ -5,6 +5,8 @@ import { useAuth } from '@/contexts/AuthContext'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 const CALENDAR_REFRESH_EVENT = 'dashboard-calendar-refresh'
+const CALENDAR_SYNC_START_EVENT = 'dashboard-calendar-sync-start'
+const CALENDAR_SYNC_END_EVENT = 'dashboard-calendar-sync-end'
 const POLL_INTERVAL = 2 * 60 * 1000
 const STALE_REFETCH_DELAY = 2500
 const MAX_EVENTS = 100
@@ -78,7 +80,10 @@ let pollTimer: number | null = null
 let staleRefetchTimer: number | null = null
 let pollAttempts = 0
 let subscriptionCount = 0
+let manualSyncActive = false
 let refreshListener: (() => void) | null = null
+let syncStartListener: (() => void) | null = null
+let syncEndListener: (() => void) | null = null
 
 const subscribers = new Set<(next: CalendarEventsSnapshot) => void>()
 
@@ -219,9 +224,30 @@ function startSharedPolling() {
 
   if (refreshListener === null) {
     refreshListener = () => {
-      void fetchCalendarEvents(false)
+      void fetchCalendarEvents(true).finally(() => {
+        if (manualSyncActive) {
+          manualSyncActive = false
+          setSnapshot({ syncing: false })
+        }
+      })
     }
     window.addEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
+  }
+
+  if (syncStartListener === null) {
+    syncStartListener = () => {
+      manualSyncActive = true
+      setSnapshot({ syncing: true, error: null })
+    }
+    window.addEventListener(CALENDAR_SYNC_START_EVENT, syncStartListener)
+  }
+
+  if (syncEndListener === null) {
+    syncEndListener = () => {
+      manualSyncActive = false
+      setSnapshot({ syncing: false })
+    }
+    window.addEventListener(CALENDAR_SYNC_END_EVENT, syncEndListener)
   }
 }
 
@@ -233,6 +259,14 @@ function stopSharedPolling() {
   if (refreshListener !== null) {
     window.removeEventListener(CALENDAR_REFRESH_EVENT, refreshListener)
     refreshListener = null
+  }
+  if (syncStartListener !== null) {
+    window.removeEventListener(CALENDAR_SYNC_START_EVENT, syncStartListener)
+    syncStartListener = null
+  }
+  if (syncEndListener !== null) {
+    window.removeEventListener(CALENDAR_SYNC_END_EVENT, syncEndListener)
+    syncEndListener = null
   }
   clearStaleRefetch()
 }
