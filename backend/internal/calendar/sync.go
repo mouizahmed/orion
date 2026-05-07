@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,7 +173,11 @@ func (s *Service) syncEvents(ctx context.Context, userID string, connection *mod
 		}
 	}
 
-	sem := semaphore.NewWeighted(3)
+	concurrency := int64(3)
+	if connection.Provider == models.IntegrationProviderMicrosoft {
+		concurrency = 1
+	}
+	sem := semaphore.NewWeighted(concurrency)
 	group, ctx := errgroup.WithContext(ctx)
 	for _, source := range visible {
 		source := source
@@ -419,20 +424,9 @@ func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.Inte
 }
 
 func (s *Service) fetchMicrosoftCalendars(ctx context.Context, connection *models.IntegrationConnection) ([]*models.CachedCalendarSource, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit", nil)
+	body, err := s.doMicrosoftGet(ctx, connection, "https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,color,isDefaultCalendar,canEdit", "")
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Microsoft calendars API error: %s", string(body))
 	}
 
 	var microsoftResponse struct {
@@ -444,7 +438,7 @@ func (s *Service) fetchMicrosoftCalendars(ctx context.Context, connection *model
 			CanEdit           bool   `json:"canEdit"`
 		} `json:"value"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&microsoftResponse); err != nil {
+	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
 		return nil, err
 	}
 
@@ -473,25 +467,13 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 	values.Set("startDateTime", start.Format(time.RFC3339))
 	values.Set("endDateTime", end.Format(time.RFC3339))
 	values.Set("$orderby", "start/dateTime")
-	values.Set("$top", "1000")
+	values.Set("$top", "250")
 	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
 	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView?%s", url.PathEscape(calendar.ID), values.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	body, err := s.doMicrosoftGet(ctx, connection, requestURL, `outlook.timezone="UTC"`)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-	req.Header.Set("Prefer", `outlook.timezone="UTC"`)
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Microsoft calendarView API error: %s", string(body))
 	}
 
 	var microsoftResponse struct {
@@ -528,7 +510,7 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 			} `json:"attendees"`
 		} `json:"value"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&microsoftResponse); err != nil {
+	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
 		return nil, err
 	}
 
@@ -575,6 +557,74 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 		events = append(events, event)
 	}
 	return events, nil
+}
+
+func (s *Service) doMicrosoftGet(ctx context.Context, connection *models.IntegrationConnection, requestURL string, prefer string) ([]byte, error) {
+	const maxAttempts = 4
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
+		if prefer != "" {
+			req.Header.Set("Prefer", prefer)
+		}
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			if attempt < maxAttempts-1 {
+				if waitErr := sleepWithContext(ctx, microsoftRetryDelay("", attempt)); waitErr != nil {
+					return nil, waitErr
+				}
+				continue
+			}
+			return nil, err
+		}
+
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if resp.StatusCode == http.StatusOK {
+			return body, nil
+		}
+		if isRetryableMicrosoftGraphResponse(resp.StatusCode, body) && attempt < maxAttempts-1 {
+			if waitErr := sleepWithContext(ctx, microsoftRetryDelay(resp.Header.Get("Retry-After"), attempt)); waitErr != nil {
+				return nil, waitErr
+			}
+			continue
+		}
+		return nil, fmt.Errorf("Microsoft Graph API error status %d: %s", resp.StatusCode, string(body))
+	}
+	return nil, fmt.Errorf("Microsoft Graph API error: retry attempts exhausted")
+}
+
+func isRetryableMicrosoftGraphResponse(status int, body []byte) bool {
+	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout {
+		return true
+	}
+	lowerBody := strings.ToLower(string(body))
+	return strings.Contains(lowerBody, "applicationthrottled") || strings.Contains(lowerBody, "mailboxconcurrency")
+}
+
+func microsoftRetryDelay(retryAfter string, attempt int) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	return time.Duration(1<<attempt) * time.Second
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (s *Service) refreshConnectionTokenIfNeeded(userID string, connection *models.IntegrationConnection) error {
