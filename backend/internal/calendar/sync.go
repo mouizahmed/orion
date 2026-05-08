@@ -129,8 +129,9 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 	}
 
 	if scope == SyncScopeAll || scope == SyncScopeEvents {
-		windowStart := time.Now().UTC()
-		windowEnd := windowStart.Add(EventWindow)
+		now := time.Now().UTC()
+		windowStart := now.Add(-30 * 24 * time.Hour)
+		windowEnd := now.Add(EventWindow)
 		if err := s.syncEvents(ctx, userID, connection, fetchedCalendars, windowStart, windowEnd); err != nil {
 			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
 			return err
