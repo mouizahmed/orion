@@ -16,6 +16,9 @@ type CachedCalendarSource struct {
 	Visible         bool
 	AccessRole      string
 	SyncedAt        *time.Time
+	SyncToken       string
+	SyncWindowStart *time.Time
+	SyncWindowEnd   *time.Time
 }
 
 type CachedCalendarEvent struct {

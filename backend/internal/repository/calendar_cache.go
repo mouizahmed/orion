@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 )
@@ -19,6 +20,9 @@ type CalendarCacheRepository interface {
 	UpsertCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) error
 	UpsertCalendarEvents(ctx context.Context, userID string, connection *models.IntegrationConnection, events []*models.CachedCalendarEvent) error
 	DeleteEventsNotSeen(ctx context.Context, userID, connectionID, calendarID string, windowStart, windowEnd time.Time, seenProviderIDs []string) error
+	SaveCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID, token string, windowStart, windowEnd time.Time) error
+	ClearCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID string) error
+	DeleteCalendarEventsByProviderID(ctx context.Context, userID, connectionID, calendarID string, providerIDs []string) error
 	MarkSyncStarted(ctx context.Context, userID, connectionID string) error
 	MarkSyncSuccess(ctx context.Context, userID, connectionID, scope string, windowStart, windowEnd *time.Time) error
 	MarkSyncError(ctx context.Context, userID, connectionID string, syncErr error) error
@@ -38,7 +42,8 @@ func (r *calendarCacheRepository) ListCalendarSources(ctx context.Context, userI
 			s.name, s.provider, COALESCE(s.color, ''), COALESCE(s.background_color, ''),
 			COALESCE(s.foreground_color, ''), s.primary_calendar, s.selected,
 			COALESCE(p.visible, s.primary_calendar OR s.selected) AS visible,
-			COALESCE(s.access_role, ''), s.synced_at
+			COALESCE(s.access_role, ''), s.synced_at,
+			COALESCE(s.sync_token, ''), s.sync_window_start, s.sync_window_end
 		FROM calendar_sources s
 		JOIN integration_connections c
 			ON c.user_id = s.user_id AND c.id = s.connection_id AND c.status = 'active'
@@ -62,6 +67,7 @@ func (r *calendarCacheRepository) ListCalendarSources(ctx context.Context, userI
 			&calendar.BackgroundColor, &calendar.ForegroundColor,
 			&calendar.Primary, &calendar.Selected, &calendar.Visible,
 			&calendar.AccessRole, &calendar.SyncedAt,
+			&calendar.SyncToken, &calendar.SyncWindowStart, &calendar.SyncWindowEnd,
 		); err != nil {
 			return nil, err
 		}
@@ -344,6 +350,39 @@ func (r *calendarCacheRepository) DeleteEventsNotSeen(ctx context.Context, userI
 		query += " AND provider_event_id NOT IN (" + strings.Join(placeholders, ",") + ")"
 	}
 	_, err := r.db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (r *calendarCacheRepository) SaveCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID, token string, windowStart, windowEnd time.Time) error {
+	query := `
+		UPDATE calendar_sources
+		SET sync_token = $4, sync_window_start = $5, sync_window_end = $6, updated_at = now()
+		WHERE user_id = $1 AND connection_id = $2 AND calendar_id = $3
+	`
+	_, err := r.db.ExecContext(ctx, query, userID, connectionID, calendarID, token, windowStart, windowEnd)
+	return err
+}
+
+func (r *calendarCacheRepository) ClearCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID string) error {
+	query := `
+		UPDATE calendar_sources
+		SET sync_token = NULL, sync_window_start = NULL, sync_window_end = NULL, updated_at = now()
+		WHERE user_id = $1 AND connection_id = $2 AND calendar_id = $3
+	`
+	_, err := r.db.ExecContext(ctx, query, userID, connectionID, calendarID)
+	return err
+}
+
+func (r *calendarCacheRepository) DeleteCalendarEventsByProviderID(ctx context.Context, userID, connectionID, calendarID string, providerIDs []string) error {
+	if len(providerIDs) == 0 {
+		return nil
+	}
+	query := `
+		DELETE FROM calendar_events
+		WHERE user_id = $1 AND connection_id = $2 AND calendar_id = $3
+			AND provider_event_id = ANY($4)
+	`
+	_, err := r.db.ExecContext(ctx, query, userID, connectionID, calendarID, pq.Array(providerIDs))
 	return err
 }
 

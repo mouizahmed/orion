@@ -210,10 +210,26 @@ func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
 		return
 	}
 
+	var previouslyVisible bool
+	if sources, err := h.cacheRepo.ListCalendarSources(c.Request.Context(), userID); err == nil {
+		for _, src := range sources {
+			if src.ConnectionID == connectionID && src.ID == calendarID {
+				previouslyVisible = src.Visible
+				break
+			}
+		}
+	}
+
 	if err := h.preferenceRepo.UpsertVisibility(userID, connectionID, calendarID, *request.Visible); err != nil {
 		log.Printf("calendar: failed to update visibility for connection %s calendar %s: %v", connectionID, calendarID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to update calendar visibility"})
 		return
+	}
+
+	if !previouslyVisible && *request.Visible {
+		if err := h.cacheRepo.ClearCalendarSyncToken(c.Request.Context(), userID, connectionID, calendarID); err != nil {
+			log.Printf("calendar: failed to clear sync token for connection %s calendar %s: %v", connectionID, calendarID, err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -301,7 +317,7 @@ func (h *CalendarHandler) getCacheMetadata(ctx context.Context, userID string, s
 	}
 
 	now := time.Now()
-	requiredWindowEnd := now.Add(calendarservice.EventWindow)
+	_, requiredWindowEnd := calendarservice.AnchoredSyncWindow(now)
 	metadata.Stale = false
 	for _, state := range states {
 		if state.Status == "" {

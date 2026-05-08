@@ -24,7 +24,6 @@ import (
 const (
 	CalendarListTTL = 10 * time.Minute
 	EventTTL        = 2 * time.Minute
-	EventWindow     = 90 * 24 * time.Hour
 )
 
 type SyncScope string
@@ -34,6 +33,90 @@ const (
 	SyncScopeCalendars SyncScope = "calendars"
 	SyncScopeEvents    SyncScope = "events"
 )
+
+type calendarFetchResult struct {
+	Events      []*models.CachedCalendarEvent
+	Deleted     []string
+	NextToken   string
+	WasFullSync bool
+}
+
+type googleEventItem struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	Summary  string `json:"summary"`
+	HTMLLink string `json:"htmlLink"`
+	Start    struct {
+		DateTime string `json:"dateTime"`
+		Date     string `json:"date"`
+	} `json:"start"`
+	End struct {
+		DateTime string `json:"dateTime"`
+		Date     string `json:"date"`
+	} `json:"end"`
+	Location       string `json:"location"`
+	Description    string `json:"description"`
+	HangoutLink    string `json:"hangoutLink"`
+	ConferenceData struct {
+		EntryPoints []struct {
+			EntryPointType string `json:"entryPointType"`
+			URI            string `json:"uri"`
+		} `json:"entryPoints"`
+	} `json:"conferenceData"`
+	Organizer struct {
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+	} `json:"organizer"`
+	Attendees []struct {
+		Email       string `json:"email"`
+		DisplayName string `json:"displayName"`
+	} `json:"attendees"`
+}
+
+type microsoftEventItem struct {
+	ID      string `json:"id"`
+	Removed *struct {
+		Reason string `json:"reason"`
+	} `json:"@removed,omitempty"`
+	Subject  string `json:"subject"`
+	WebLink  string `json:"webLink"`
+	IsAllDay bool   `json:"isAllDay"`
+	Start    struct {
+		DateTime string `json:"dateTime"`
+	} `json:"start"`
+	End struct {
+		DateTime string `json:"dateTime"`
+	} `json:"end"`
+	Location struct {
+		DisplayName string `json:"displayName"`
+	} `json:"location"`
+	BodyPreview      string `json:"bodyPreview"`
+	OnlineMeetingURL string `json:"onlineMeetingUrl"`
+	OnlineMeeting    struct {
+		JoinURL string `json:"joinUrl"`
+	} `json:"onlineMeeting"`
+	Organizer struct {
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"organizer"`
+	Attendees []struct {
+		EmailAddress struct {
+			Name    string `json:"name"`
+			Address string `json:"address"`
+		} `json:"emailAddress"`
+	} `json:"attendees"`
+}
+
+func anchoredSyncWindow(now time.Time) (time.Time, time.Time) {
+	return AnchoredSyncWindow(now)
+}
+
+func AnchoredSyncWindow(now time.Time) (time.Time, time.Time) {
+	day := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	return day.Add(-30 * 24 * time.Hour), day.Add(90 * 24 * time.Hour)
+}
 
 type Service struct {
 	connections repository.IntegrationConnectionRepository
@@ -129,9 +212,7 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 	}
 
 	if scope == SyncScopeAll || scope == SyncScopeEvents {
-		now := time.Now().UTC()
-		windowStart := now.Add(-30 * 24 * time.Hour)
-		windowEnd := now.Add(EventWindow)
+		windowStart, windowEnd := anchoredSyncWindow(time.Now())
 		if err := s.syncEvents(ctx, userID, connection, fetchedCalendars, windowStart, windowEnd); err != nil {
 			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
 			return err
@@ -147,30 +228,24 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 
 func (s *Service) syncEvents(ctx context.Context, userID string, connection *models.IntegrationConnection, calendars []*models.CachedCalendarSource, windowStart, windowEnd time.Time) error {
 	if calendars == nil {
-		var err error
-		calendars, err = s.fetchCalendars(ctx, connection)
+		fetched, err := s.fetchCalendars(ctx, connection)
 		if err != nil {
 			s.markNeedsReconnectOnAuthError(userID, connection.ID, err)
 			return err
 		}
-		if err := s.cache.UpsertCalendarSources(ctx, userID, connection, calendars); err != nil {
+		if err := s.cache.UpsertCalendarSources(ctx, userID, connection, fetched); err != nil {
 			return err
 		}
 	}
 
-	visible := make([]*models.CachedCalendarSource, 0, len(calendars))
-	preferences, err := s.preferenceVisibility(userID, connection.ID)
+	dbSources, err := s.cache.ListCalendarSources(ctx, userID)
 	if err != nil {
-		log.Printf("calendar sync: failed to load preferences for %s: %v", connection.ID, err)
+		return err
 	}
-	for _, calendar := range calendars {
-		if pref, ok := preferences[calendar.ID]; ok {
-			calendar.Visible = pref
-		} else {
-			calendar.Visible = calendar.Primary || calendar.Selected
-		}
-		if calendar.Visible {
-			visible = append(visible, calendar)
+	var visible []*models.CachedCalendarSource
+	for _, src := range dbSources {
+		if src.ConnectionID == connection.ID && src.Visible {
+			visible = append(visible, src)
 		}
 	}
 
@@ -188,20 +263,42 @@ func (s *Service) syncEvents(ctx context.Context, userID string, connection *mod
 			}
 			defer sem.Release(1)
 
-			events, err := s.fetchEvents(ctx, connection, source, windowStart, windowEnd)
+			effectiveToken := ""
+			if source.SyncToken != "" && source.SyncWindowStart != nil && source.SyncWindowEnd != nil {
+				if source.SyncWindowStart.Equal(windowStart) && source.SyncWindowEnd.Equal(windowEnd) {
+					effectiveToken = source.SyncToken
+				}
+			}
+
+			result, err := s.fetchEvents(ctx, connection, source, windowStart, windowEnd, effectiveToken)
 			if err != nil {
 				s.markNeedsReconnectOnAuthError(userID, connection.ID, err)
 				log.Printf("calendar sync: failed to fetch events for connection %s calendar %s: %v", connection.ID, source.ID, err)
 				return nil
 			}
-			if err := s.cache.UpsertCalendarEvents(ctx, userID, connection, events); err != nil {
+			if err := s.cache.UpsertCalendarEvents(ctx, userID, connection, result.Events); err != nil {
 				return err
 			}
-			seen := make([]string, 0, len(events))
-			for _, event := range events {
-				seen = append(seen, event.ProviderID)
+			if len(result.Deleted) > 0 {
+				if err := s.cache.DeleteCalendarEventsByProviderID(ctx, userID, connection.ID, source.ID, result.Deleted); err != nil {
+					return err
+				}
 			}
-			return s.cache.DeleteEventsNotSeen(ctx, userID, connection.ID, source.ID, windowStart, windowEnd, seen)
+			if result.WasFullSync {
+				seen := make([]string, 0, len(result.Events))
+				for _, event := range result.Events {
+					seen = append(seen, event.ProviderID)
+				}
+				if err := s.cache.DeleteEventsNotSeen(ctx, userID, connection.ID, source.ID, windowStart, windowEnd, seen); err != nil {
+					return err
+				}
+			}
+			if result.NextToken != "" {
+				if err := s.cache.SaveCalendarSyncToken(ctx, userID, connection.ID, source.ID, result.NextToken, windowStart, windowEnd); err != nil {
+					return err
+				}
+			}
+			return nil
 		})
 	}
 	return group.Wait()
@@ -249,12 +346,12 @@ func (s *Service) fetchCalendars(ctx context.Context, connection *models.Integra
 	}
 }
 
-func (s *Service) fetchEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time) ([]*models.CachedCalendarEvent, error) {
+func (s *Service) fetchEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time, currentToken string) (*calendarFetchResult, error) {
 	switch connection.Provider {
 	case models.IntegrationProviderGoogle:
-		return s.fetchGoogleEvents(ctx, connection, calendar, start, end)
+		return s.fetchGoogleEvents(ctx, connection, calendar, start, end, currentToken)
 	case models.IntegrationProviderMicrosoft:
-		return s.fetchMicrosoftEvents(ctx, connection, calendar, start, end)
+		return s.fetchMicrosoftEvents(ctx, connection, calendar, start, end, currentToken)
 	default:
 		return nil, fmt.Errorf("unsupported calendar provider: %s", connection.Provider)
 	}
@@ -312,69 +409,129 @@ func (s *Service) fetchGoogleCalendars(ctx context.Context, connection *models.I
 	return calendars, nil
 }
 
-func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time) ([]*models.CachedCalendarEvent, error) {
-	values := url.Values{}
-	values.Set("timeMin", start.Format(time.RFC3339))
-	values.Set("timeMax", end.Format(time.RFC3339))
-	values.Set("orderBy", "startTime")
-	values.Set("singleEvents", "true")
-	values.Set("maxResults", "2500")
-	requestURL := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/%s/events?%s", url.PathEscape(calendar.ID), values.Encode())
+func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time, currentToken string) (*calendarFetchResult, error) {
+	if currentToken != "" {
+		result, err := s.fetchGoogleEventsIncremental(ctx, connection, calendar, currentToken)
+		if err == nil {
+			return result, nil
+		}
+		if !strings.Contains(err.Error(), "410") {
+			return nil, err
+		}
+	}
+	return s.fetchGoogleEventsFull(ctx, connection, calendar, start, end)
+}
+
+func (s *Service) fetchGoogleEventsFull(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time) (*calendarFetchResult, error) {
+	var allItems []googleEventItem
+	var nextSyncToken string
+	pageToken := ""
+	for {
+		values := url.Values{}
+		values.Set("timeMin", start.Format(time.RFC3339))
+		values.Set("timeMax", end.Format(time.RFC3339))
+		values.Set("orderBy", "startTime")
+		values.Set("singleEvents", "true")
+		values.Set("maxResults", "2500")
+		if pageToken != "" {
+			values.Set("pageToken", pageToken)
+		}
+		requestURL := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/%s/events?%s", url.PathEscape(calendar.ID), values.Encode())
+		body, status, err := s.doGoogleGet(ctx, connection, requestURL)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("Google Calendar API error %d: %s", status, string(body))
+		}
+		var page struct {
+			Items         []googleEventItem `json:"items"`
+			NextPageToken string            `json:"nextPageToken"`
+			NextSyncToken string            `json:"nextSyncToken"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, page.Items...)
+		if page.NextSyncToken != "" {
+			nextSyncToken = page.NextSyncToken
+		}
+		if page.NextPageToken == "" {
+			break
+		}
+		pageToken = page.NextPageToken
+	}
+	return &calendarFetchResult{Events: s.buildGoogleEvents(allItems, connection, calendar), NextToken: nextSyncToken, WasFullSync: true}, nil
+}
+
+func (s *Service) fetchGoogleEventsIncremental(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, syncToken string) (*calendarFetchResult, error) {
+	var allItems []googleEventItem
+	var deleted []string
+	var nextSyncToken string
+	pageToken := ""
+	for {
+		values := url.Values{}
+		values.Set("syncToken", syncToken)
+		values.Set("singleEvents", "true")
+		values.Set("maxResults", "2500")
+		if pageToken != "" {
+			values.Set("pageToken", pageToken)
+		}
+		requestURL := fmt.Sprintf("https://www.googleapis.com/calendar/v3/calendars/%s/events?%s", url.PathEscape(calendar.ID), values.Encode())
+		body, status, err := s.doGoogleGet(ctx, connection, requestURL)
+		if err != nil {
+			return nil, err
+		}
+		if status == http.StatusGone {
+			return nil, fmt.Errorf("Google Calendar syncToken expired (410 Gone)")
+		}
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("Google Calendar API error %d: %s", status, string(body))
+		}
+		var page struct {
+			Items         []googleEventItem `json:"items"`
+			NextPageToken string            `json:"nextPageToken"`
+			NextSyncToken string            `json:"nextSyncToken"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		for _, item := range page.Items {
+			if item.Status == "cancelled" {
+				deleted = append(deleted, item.ID)
+			} else {
+				allItems = append(allItems, item)
+			}
+		}
+		if page.NextSyncToken != "" {
+			nextSyncToken = page.NextSyncToken
+		}
+		if page.NextPageToken == "" {
+			break
+		}
+		pageToken = page.NextPageToken
+	}
+	return &calendarFetchResult{Events: s.buildGoogleEvents(allItems, connection, calendar), Deleted: deleted, NextToken: nextSyncToken, WasFullSync: false}, nil
+}
+
+func (s *Service) doGoogleGet(ctx context.Context, connection *models.IntegrationConnection, requestURL string) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+connection.AccessToken)
-
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Google Calendar API error: %s", string(body))
-	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	return body, resp.StatusCode, err
+}
 
-	var googleResponse struct {
-		Items []struct {
-			ID       string `json:"id"`
-			Status   string `json:"status"`
-			Summary  string `json:"summary"`
-			HTMLLink string `json:"htmlLink"`
-			Start    struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"start"`
-			End struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"end"`
-			Location       string `json:"location"`
-			Description    string `json:"description"`
-			HangoutLink    string `json:"hangoutLink"`
-			ConferenceData struct {
-				EntryPoints []struct {
-					EntryPointType string `json:"entryPointType"`
-					URI            string `json:"uri"`
-				} `json:"entryPoints"`
-			} `json:"conferenceData"`
-			Organizer struct {
-				DisplayName string `json:"displayName"`
-				Email       string `json:"email"`
-			} `json:"organizer"`
-			Attendees []struct {
-				Email       string `json:"email"`
-				DisplayName string `json:"displayName"`
-			} `json:"attendees"`
-		} `json:"items"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&googleResponse); err != nil {
-		return nil, err
-	}
-
-	events := make([]*models.CachedCalendarEvent, 0, len(googleResponse.Items))
-	for _, item := range googleResponse.Items {
+func (s *Service) buildGoogleEvents(items []googleEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) []*models.CachedCalendarEvent {
+	events := make([]*models.CachedCalendarEvent, 0, len(items))
+	for _, item := range items {
 		if item.Status == "cancelled" {
 			continue
 		}
@@ -421,7 +578,7 @@ func (s *Service) fetchGoogleEvents(ctx context.Context, connection *models.Inte
 		event.IsMeeting = isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON)
 		events = append(events, event)
 	}
-	return events, nil
+	return events
 }
 
 func (s *Service) fetchMicrosoftCalendars(ctx context.Context, connection *models.IntegrationConnection) ([]*models.CachedCalendarSource, error) {
@@ -463,60 +620,91 @@ func (s *Service) fetchMicrosoftCalendars(ctx context.Context, connection *model
 	return calendars, nil
 }
 
-func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time) ([]*models.CachedCalendarEvent, error) {
+func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time, currentToken string) (*calendarFetchResult, error) {
+	if currentToken != "" {
+		result, err := s.fetchMicrosoftEventsIncremental(ctx, connection, calendar, currentToken)
+		if err == nil {
+			return result, nil
+		}
+		if !strings.Contains(err.Error(), "410") {
+			return nil, err
+		}
+	}
+	return s.fetchMicrosoftEventsFull(ctx, connection, calendar, start, end)
+}
+
+func (s *Service) fetchMicrosoftEventsFull(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, start, end time.Time) (*calendarFetchResult, error) {
 	values := url.Values{}
 	values.Set("startDateTime", start.Format(time.RFC3339))
 	values.Set("endDateTime", end.Format(time.RFC3339))
-	values.Set("$orderby", "start/dateTime")
 	values.Set("$top", "250")
 	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
-	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView?%s", url.PathEscape(calendar.ID), values.Encode())
+	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView/delta?%s", url.PathEscape(calendar.ID), values.Encode())
 
-	body, err := s.doMicrosoftGet(ctx, connection, requestURL, `outlook.timezone="UTC"`)
-	if err != nil {
-		return nil, err
+	var allItems []microsoftEventItem
+	var deltaLink string
+	nextURL := requestURL
+	for nextURL != "" {
+		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC"`)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Value     []microsoftEventItem `json:"value"`
+			NextLink  string               `json:"@odata.nextLink"`
+			DeltaLink string               `json:"@odata.deltaLink"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, page.Value...)
+		if page.DeltaLink != "" {
+			deltaLink = page.DeltaLink
+		}
+		nextURL = page.NextLink
 	}
+	return &calendarFetchResult{Events: s.buildMicrosoftEvents(allItems, connection, calendar), NextToken: deltaLink, WasFullSync: true}, nil
+}
 
-	var microsoftResponse struct {
-		Value []struct {
-			ID       string `json:"id"`
-			Subject  string `json:"subject"`
-			WebLink  string `json:"webLink"`
-			IsAllDay bool   `json:"isAllDay"`
-			Start    struct {
-				DateTime string `json:"dateTime"`
-			} `json:"start"`
-			End struct {
-				DateTime string `json:"dateTime"`
-			} `json:"end"`
-			Location struct {
-				DisplayName string `json:"displayName"`
-			} `json:"location"`
-			BodyPreview      string `json:"bodyPreview"`
-			OnlineMeetingURL string `json:"onlineMeetingUrl"`
-			OnlineMeeting    struct {
-				JoinURL string `json:"joinUrl"`
-			} `json:"onlineMeeting"`
-			Organizer struct {
-				EmailAddress struct {
-					Name    string `json:"name"`
-					Address string `json:"address"`
-				} `json:"emailAddress"`
-			} `json:"organizer"`
-			Attendees []struct {
-				EmailAddress struct {
-					Name    string `json:"name"`
-					Address string `json:"address"`
-				} `json:"emailAddress"`
-			} `json:"attendees"`
-		} `json:"value"`
+func (s *Service) fetchMicrosoftEventsIncremental(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, deltaLinkURL string) (*calendarFetchResult, error) {
+	var allItems []microsoftEventItem
+	var deleted []string
+	var newDeltaLink string
+	nextURL := deltaLinkURL
+	for nextURL != "" {
+		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC"`)
+		if err != nil {
+			return nil, err
+		}
+		var page struct {
+			Value     []microsoftEventItem `json:"value"`
+			NextLink  string               `json:"@odata.nextLink"`
+			DeltaLink string               `json:"@odata.deltaLink"`
+		}
+		if err := json.Unmarshal(body, &page); err != nil {
+			return nil, err
+		}
+		for _, item := range page.Value {
+			if item.Removed != nil {
+				deleted = append(deleted, item.ID)
+			} else {
+				allItems = append(allItems, item)
+			}
+		}
+		if page.DeltaLink != "" {
+			newDeltaLink = page.DeltaLink
+		}
+		nextURL = page.NextLink
 	}
-	if err := json.Unmarshal(body, &microsoftResponse); err != nil {
-		return nil, err
-	}
+	return &calendarFetchResult{Events: s.buildMicrosoftEvents(allItems, connection, calendar), Deleted: deleted, NextToken: newDeltaLink, WasFullSync: false}, nil
+}
 
-	events := make([]*models.CachedCalendarEvent, 0, len(microsoftResponse.Value))
-	for _, item := range microsoftResponse.Value {
+func (s *Service) buildMicrosoftEvents(items []microsoftEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) []*models.CachedCalendarEvent {
+	events := make([]*models.CachedCalendarEvent, 0, len(items))
+	for _, item := range items {
+		if item.Removed != nil {
+			continue
+		}
 		eventStart, err := parseMicrosoftDateTime(item.Start.DateTime)
 		if err != nil {
 			continue
@@ -557,7 +745,7 @@ func (s *Service) fetchMicrosoftEvents(ctx context.Context, connection *models.I
 		event.IsMeeting = isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON)
 		events = append(events, event)
 	}
-	return events, nil
+	return events
 }
 
 func (s *Service) doMicrosoftGet(ctx context.Context, connection *models.IntegrationConnection, requestURL string, prefer string) ([]byte, error) {
