@@ -9,16 +9,16 @@ import {
 
 export const authOnboardingSteps: OnboardingStep[] = [
   {
-    title: 'Welcome to Orionly',
+    title: 'Welcome to Orion',
     description:
-      'Your private AI notepad for calls. Orionly captures meetings and helps turn them into clear notes, follow-ups, and answers.',
+      'Your private AI notepad for calls. Orion captures meetings and helps turn them into clear notes, follow-ups, and answers.',
     visualAlign: 'center',
     visual: <LargeLogoVisual />,
   },
   {
     title: 'We show up when your meeting starts',
     description:
-      'Orionly opens when your call begins and works across meeting apps without joining as a bot.',
+      'Orion opens when your call begins and works across meeting apps without joining as a bot.',
     visual: <MeetingVisual />,
   },
   {
@@ -30,7 +30,7 @@ export const authOnboardingSteps: OnboardingStep[] = [
   {
     title: 'Get live insights from your context',
     description:
-      'Orionly can use the notes, docs, and details you provide to surface timely answers and reminders during the call.',
+      'Orion can use the notes, docs, and details you provide to surface timely answers and reminders during the call.',
     visual: <LiveInsightsVisual />,
   },
   {

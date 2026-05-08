@@ -52,8 +52,8 @@ export function OpenAppCallback({
       <div className={`${callbackShellClass} py-10`}>
         <div className="flex w-full max-w-xl flex-col items-center gap-6">
           <Image
-            src="/orionly-mark.svg"
-            alt="Orionly Logo"
+            src="/orion-mark.svg"
+            alt="Orion Logo"
             width={80}
             height={80}
             className="rounded-md"
@@ -74,7 +74,7 @@ export function OpenAppCallback({
               className="inline-flex items-center gap-2 text-brand underline decoration-brand-dark underline-offset-4 transition hover:text-brand-light"
             >
               <ExternalLink className="h-4 w-4" />
-              Open Orionly
+              Open Orion
             </button>
           ) : null}
 
@@ -93,8 +93,8 @@ export function OpenAppCallback({
     <div className={`${callbackShellClass} py-12`}>
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <Image
-          src="/orionly-mark.svg"
-          alt="Orionly Logo"
+          src="/orion-mark.svg"
+          alt="Orion Logo"
           width={88}
           height={88}
           className="rounded-md"
@@ -102,7 +102,7 @@ export function OpenAppCallback({
 
         <div className="space-y-3">
           <h1 className="text-4xl font-semibold text-zinc-50 sm:text-5xl">
-            Opening Orionly...
+            Opening Orion...
           </h1>
           <p className="text-sm text-zinc-400 sm:text-base">
             Your browser should prompt you to open the app automatically.
@@ -117,7 +117,7 @@ export function OpenAppCallback({
               className="inline-flex items-center gap-2 text-brand underline decoration-brand-dark underline-offset-4 transition hover:text-brand-light"
             >
               <ExternalLink className="h-4 w-4" />
-              Click here to open Orionly.
+              Click here to open Orion.
             </button>
           </div>
         ) : null}

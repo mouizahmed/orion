@@ -54,8 +54,8 @@ function MainBar({
             aria-label="Start session"
           >
             <img
-              src="/orionly-mark.png"
-              alt="Orionly logo"
+              src="/orion-mark.png"
+              alt="Orion logo"
               className="h-6 w-6 object-cover p-0.5"
               draggable={false}
             />

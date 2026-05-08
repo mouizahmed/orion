@@ -7,8 +7,8 @@ import { OnboardingFrame } from '@/components/onboarding/OnboardingFrame'
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell'
 import { authOnboardingSteps } from '@/components/onboarding/steps'
 
-const TERMS_URL = 'https://orionly.app/terms'
-const PRIVACY_URL = 'https://orionly.app/privacy'
+const TERMS_URL = 'https://orion.app/terms'
+const PRIVACY_URL = 'https://orion.app/privacy'
 
 function TermsAgreement({
   checked,

@@ -9,7 +9,7 @@ let tray: Tray | null = null
 function getTrayIconPath() {
   const publicDir = process.env.VITE_PUBLIC
   if (!publicDir) return null
-  return path.join(publicDir, 'orionly-app-icon.png')
+  return path.join(publicDir, 'orion-app-icon.png')
 }
 
 export function destroyTray() {
@@ -31,7 +31,7 @@ export function setupTray(options: { onQuit: () => void }) {
   const trayImage = image.isEmpty() ? image : image.resize({ width: 16, height: 16 })
 
   tray = new Tray(trayImage)
-  tray.setToolTip('Orionly')
+  tray.setToolTip('Orion')
 
   const buildMenu = () =>
     Menu.buildFromTemplate([

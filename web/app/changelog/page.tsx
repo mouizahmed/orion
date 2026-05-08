@@ -24,7 +24,7 @@ export default function ChangelogPage() {
               Changelog
             </h1>
             <p className="mt-5 text-lg font-medium leading-8 text-zinc-400 md:text-xl">
-              Product updates, fixes, and improvements for Orionly.
+              Product updates, fixes, and improvements for Orion.
             </p>
           </div>
 

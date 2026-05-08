@@ -1,4 +1,4 @@
-import { OrionlyLogo } from '@/components/onboarding/OrionlyLogo'
+import { OrionLogo } from '@/components/onboarding/OrionLogo'
 
 const DEMO_BACKGROUND_IMAGE = '/onboarding-demo-background.png'
 
@@ -23,7 +23,7 @@ function DemoBackground({
 export function LargeLogoVisual() {
   return (
     <div className="flex h-full items-center justify-center [-webkit-app-region:drag]">
-      <OrionlyLogo className="h-44 w-44" />
+      <OrionLogo className="h-44 w-44" />
     </div>
   )
 }

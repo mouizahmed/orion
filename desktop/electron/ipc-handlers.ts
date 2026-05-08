@@ -29,7 +29,7 @@ type IntegrationResult = {
 }
 
 function defaultLocalRecordingsPath() {
-  return path.join(app.getPath('documents'), 'Orionly Recordings')
+  return path.join(app.getPath('documents'), 'Orion Recordings')
 }
 
 function isIntegrationProvider(value: unknown): value is IntegrationProvider {
@@ -341,7 +341,7 @@ export function setupIpcHandlers() {
     try {
       ensureWritableDirectory(selectedPath)
     } catch {
-      dialog.showErrorBox('Folder not writable', 'Choose a folder where Orionly can save recordings.')
+      dialog.showErrorBox('Folder not writable', 'Choose a folder where Orion can save recordings.')
       return readRecordingSettings()
     }
 
@@ -483,10 +483,10 @@ export function setupIpcHandlers() {
       process.env.APP_ROOT || '',
       'native',
       'macos',
-      'OrionlyAudioCapture',
+      'OrionAudioCapture',
       '.build',
       'release',
-      'OrionlyAudioCapture',
+      'OrionAudioCapture',
     )
 
     try {

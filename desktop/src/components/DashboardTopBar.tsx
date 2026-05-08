@@ -271,7 +271,7 @@ export default function DashboardTopBar({
         }
       />
       <div className="relative z-10 flex items-center gap-2">
-        <img src="/orionly-mark.svg" alt="Orionly Logo" className="h-6 w-6" />
+        <img src="/orion-mark.svg" alt="Orion Logo" className="h-6 w-6" />
         <SidebarTrigger />
 
         <div

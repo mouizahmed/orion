@@ -31,7 +31,7 @@ interface FirebaseAuthContextType {
 
 const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(undefined)
 
-const CACHED_USER_KEY = 'orionly:cached-user'
+const CACHED_USER_KEY = 'orion:cached-user'
 
 function loadCachedUser(uid: string): User | null {
   try {
@@ -63,7 +63,7 @@ const LOGOUT_STORAGE_KEYS = [
   CACHED_USER_KEY,
 ]
 
-const LOGOUT_STORAGE_PREFIXES = ['orionly:local-meeting-']
+const LOGOUT_STORAGE_PREFIXES = ['orion:local-meeting-']
 
 export function clearKnownSessionStorage() {
   for (const key of LOGOUT_STORAGE_KEYS) {

@@ -18,14 +18,14 @@ export default function NotepadTopBar({ onMouseDown, onCreateNote, onOpenSetting
 
       <div className="flex items-center gap-2">
         <img
-          src="/orionly-mark.png"
-          alt="Orionly logo"
+          src="/orion-mark.png"
+          alt="Orion logo"
           className="h-6 w-6 rounded-md border border-white/10 bg-white/15 object-cover p-0.5"
           draggable={false}
         />
         <div className="flex flex-col leading-tight">
           <span className="text-[10px] font-semibold uppercase tracking-[0.26em] text-white/40">
-            Orionly
+            Orion
           </span>
           <span className="text-sm font-medium text-white">
             AI Notepad

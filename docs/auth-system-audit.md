@@ -8,7 +8,7 @@ Scope: backend OAuth/session endpoints, one-time auth code handling, Electron ma
 
 ### Addressed: Custom-protocol interception can redeem desktop login
 
-Original issue: the web bridge put both `code` and `state` into `orionly://auth-complete`, and `/auth/complete` accepted exactly those two public values. A malicious local app or protocol-handler hijack that received that URL could call `/auth/complete` and get the Firebase custom token.
+Original issue: the web bridge put both `code` and `state` into `orion://auth-complete`, and `/auth/complete` accepted exactly those two public values. A malicious local app or protocol-handler hijack that received that URL could call `/auth/complete` and get the Firebase custom token.
 
 Status: addressed on 2026-05-05.
 
@@ -17,7 +17,7 @@ Resolution:
 - Electron generates a high-entropy desktop-only PKCE-style `code_verifier`.
 - Electron sends only `code_challenge=base64url(sha256(code_verifier))` and `code_challenge_method=S256` to `/auth/start`.
 - Backend stores the challenge in `oauth_state:{state}` and copies it into the one-time auth code.
-- The browser and `orionly://auth-complete` URL still carry only `code` and `state`; they never carry the verifier.
+- The browser and `orion://auth-complete` URL still carry only `code` and `state`; they never carry the verifier.
 - Electron redeems `/auth/complete` with `{ code, state, code_verifier }`.
 - Backend hashes the verifier and rejects completion unless it matches the stored challenge.
 
@@ -231,7 +231,7 @@ Relevant files:
 
 ### Addressed: Dormant web-login path could mint unbound one-time codes
 
-`platform=web` was accepted by `/auth/start` without requiring an auth verifier challenge, while the shared web callback page still forwarded any returned `code` and `state` into `orionly://auth-complete`. Even though the product does not currently expose web login, this left a reachable half-implemented path that could bypass the desktop verifier binding.
+`platform=web` was accepted by `/auth/start` without requiring an auth verifier challenge, while the shared web callback page still forwarded any returned `code` and `state` into `orion://auth-complete`. Even though the product does not currently expose web login, this left a reachable half-implemented path that could bypass the desktop verifier binding.
 
 Status: addressed on 2026-05-05.
 
@@ -240,7 +240,7 @@ Resolution:
 - Web login is now disabled by default at `/auth/start`.
 - The backend only accepts `platform=web` when `ENABLE_WEB_LOGIN` is explicitly enabled.
 - Any enabled app-login platform, including future web login, must provide a valid S256 verifier challenge.
-- The web callback page only bridges callbacks into `orionly://auth-complete` when `platform=desktop`.
+- The web callback page only bridges callbacks into `orion://auth-complete` when `platform=desktop`.
 - Non-desktop auth callbacks now show an unsupported-login state instead of attempting to open the desktop app.
 
 Relevant files:

@@ -19,7 +19,7 @@ desktop auth UI
   -> Google redirects to /auth/callback
   -> backend creates or updates users row
   -> backend creates Firebase custom token
-  -> web callback opens orionly://auth-complete?code=...
+  -> web callback opens orion://auth-complete?code=...
   -> Electron exchanges code at /auth/complete
   -> renderer signs into Firebase with custom token
 ```
@@ -42,7 +42,7 @@ Use three distinct concepts:
 
 ```txt
 Application user
-  Stable Orionly-owned user record.
+  Stable Orion-owned user record.
   Stored in users.
   Used as Firebase UID and backend user_id.
 
@@ -96,7 +96,7 @@ backend:
   redirect to frontend callback
 
 desktop:
-  receives orionly://auth-complete
+  receives orion://auth-complete
   exchanges one-time app auth code
   signs into Firebase with custom token
 ```
@@ -199,7 +199,7 @@ create index if not exists user_auth_identities_provider_email_idx
 
 Why both unique constraints:
 
-- `(provider, provider_user_id)` prevents one external account from linking to multiple Orionly users.
+- `(provider, provider_user_id)` prevents one external account from linking to multiple Orion users.
 - `(user_id, provider)` keeps one login identity per provider per app user for now.
 
 If a future provider supports multiple login identities per user under the same provider, revisit `unique (user_id, provider)`.

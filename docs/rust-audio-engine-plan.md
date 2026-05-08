@@ -2,11 +2,11 @@
 
 **Status:** Proposed  
 **Updated:** 2026-05-01  
-**Scope:** Build a production-ready native audio, transcription, speaker attribution, and AI meeting pipeline for Orionly. The old app can be used as reference, but the new implementation does not need to preserve old capture code, stale abstractions, or current WebSocket contracts.
+**Scope:** Build a production-ready native audio, transcription, speaker attribution, and AI meeting pipeline for Orion. The old app can be used as reference, but the new implementation does not need to preserve old capture code, stale abstractions, or current WebSocket contracts.
 
 ## Product Goal
 
-Orionly should feel like a reliable meeting intelligence app, not a prototype wrapper around browser audio APIs. The production architecture should support:
+Orion should feel like a reliable meeting intelligence app, not a prototype wrapper around browser audio APIs. The production architecture should support:
 
 - high-quality mic and system audio capture
 - local audio preprocessing
@@ -279,8 +279,8 @@ The Rust helper and Electron main communicate over two persistent connections, n
 
 ### Transport Per Platform
 
-- **macOS:** Unix domain sockets under the app temp/runtime directory. Socket names should include a helper instance or session id, for example `$TMPDIR/orionly/{session}/control.sock` and `$TMPDIR/orionly/{session}/audio.sock`.
-- **Windows:** Named pipes with per-user ACLs. Pipe names should include a helper instance or session id, for example `\\.\pipe\orionly-{session}-control` and `\\.\pipe\orionly-{session}-audio`.
+- **macOS:** Unix domain sockets under the app temp/runtime directory. Socket names should include a helper instance or session id, for example `$TMPDIR/orion/{session}/control.sock` and `$TMPDIR/orion/{session}/audio.sock`.
+- **Windows:** Named pipes with per-user ACLs. Pipe names should include a helper instance or session id, for example `\\.\pipe\orion-{session}-control` and `\\.\pipe\orion-{session}-audio`.
 
 The helper should clean up stale macOS socket files before binding. Electron main should get the concrete socket/pipe names from the helper startup path or initial ready metadata rather than relying on global fixed names.
 
@@ -314,7 +314,7 @@ Electron main should treat a closed control channel as a helper crash. It should
 
 ## Audio Format And Streaming Protocol
 
-Use a first-party Orionly realtime protocol instead of inheriting the current interleaved PCM assumptions.
+Use a first-party Orion realtime protocol instead of inheriting the current interleaved PCM assumptions.
 
 Initial standard:
 
@@ -418,7 +418,7 @@ System audio is a first-class source, not a display-capture side effect.
 macOS target behavior:
 
 - capture mixed system output for meeting audio
-- exclude Orionly's own audio from capture to avoid feedback
+- exclude Orion's own audio from capture to avoid feedback
 - expose whether capture is system-output or fallback mode
 - require explicit user permission where macOS requires it
 

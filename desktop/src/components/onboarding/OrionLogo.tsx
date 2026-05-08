@@ -1,9 +1,9 @@
 import { cn } from '@/lib/utils'
 
-export function OrionlyLogo({ className }: { className?: string }) {
+export function OrionLogo({ className }: { className?: string }) {
   return (
     <img
-      src="/orionly-mark.svg"
+      src="/orion-mark.svg"
       alt=""
       className={cn('pointer-events-none shrink-0 select-none [-webkit-user-drag:none]', className)}
       draggable={false}

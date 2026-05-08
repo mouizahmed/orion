@@ -9,12 +9,12 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "Orionly",
+  title: "Orion",
   description: "AI meeting assistant that makes you smarter.",
   icons: {
-    icon: "/orionly-mark.svg",
-    shortcut: "/orionly-mark.svg",
-    apple: "/orionly-mark.svg",
+    icon: "/orion-mark.svg",
+    shortcut: "/orion-mark.svg",
+    apple: "/orion-mark.svg",
   },
 };
 

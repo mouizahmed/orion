@@ -221,11 +221,11 @@ export default function DashboardSidebar({
           <p className="text-xs leading-5 text-neutral-500 dark:text-neutral-400">
             Need help? Email{' '}
             <a
-              href="mailto:support@orionly.app"
+              href="mailto:support@orion.app"
               className="font-medium text-neutral-700 underline-offset-2 hover:underline dark:text-neutral-200"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             >
-              support@orionly.app
+              support@orion.app
             </a>
           </p>
         </div>

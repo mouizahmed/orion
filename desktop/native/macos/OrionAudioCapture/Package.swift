@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "OrionlyAudioCapture",
+    name: "OrionAudioCapture",
     platforms: [
         .macOS(.v14)
     ],
     targets: [
         .executableTarget(
-            name: "OrionlyAudioCapture",
+            name: "OrionAudioCapture",
             path: "Sources",
             linkerSettings: [
                 .linkedFramework("CoreAudio"),

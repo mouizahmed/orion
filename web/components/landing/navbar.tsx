@@ -29,15 +29,15 @@ export default function Navbar() {
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <Image
-                  src="/orionly-mark.svg"
-                  alt="Orionly Logo"
+                  src="/orion-mark.svg"
+                  alt="Orion Logo"
                   width={32}
                   height={32}
                   draggable={false}
                   className="pointer-events-none h-8 w-8 select-none"
                 />
                 <span className="pointer-events-none text-sm font-semibold text-white">
-                  Orionly
+                  Orion
                 </span>
               </Link>
 

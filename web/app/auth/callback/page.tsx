@@ -13,7 +13,7 @@ function buildProtocolUrl(params: { code?: string; error?: string; errorDescript
   if (params.error) query.set("error", params.error);
   if (params.errorDescription) query.set("error_description", params.errorDescription);
   if (params.state) query.set("state", params.state);
-  return `orionly://auth-complete?${query.toString()}`;
+  return `orion://auth-complete?${query.toString()}`;
 }
 
 function AuthCallbackContent() {
@@ -43,7 +43,7 @@ function AuthCallbackContent() {
       failureBody={
         isDesktopCallback
           ? "Authentication was cancelled or failed. You can return to the homepage and try again."
-          : "Web login is not available yet. Open Orionly and sign in from the desktop app."
+          : "Web login is not available yet. Open Orion and sign in from the desktop app."
       }
       showManualOpen={Boolean(isDesktopCallback && code)}
     />

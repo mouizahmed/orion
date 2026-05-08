@@ -64,7 +64,7 @@ export function setupProtocolHandler() {
   if (process.defaultApp) {
     if (process.argv.length >= 2) {
       const success = app.setAsDefaultProtocolClient(
-        'orionly',
+        'orion',
         process.execPath,
         [path.resolve(process.argv[1])],
       )
@@ -73,7 +73,7 @@ export function setupProtocolHandler() {
       }
     }
   } else {
-    const success = app.setAsDefaultProtocolClient('orionly')
+    const success = app.setAsDefaultProtocolClient('orion')
     if (!success) {
       console.log('Protocol registration failed in production mode')
     }
@@ -82,7 +82,7 @@ export function setupProtocolHandler() {
 
 export function setupProtocolEvents() {
   app.on('second-instance', (_event, commandLine) => {
-    const url = commandLine.find((arg) => arg.startsWith('orionly://'))
+    const url = commandLine.find((arg) => arg.startsWith('orion://'))
     if (url) {
       handleProtocolUrl(url)
       return
@@ -102,7 +102,7 @@ export function setupProtocolEvents() {
 
   app.on('ready', () => {
     const protocolUrl = process.argv.find((arg) =>
-      arg.startsWith('orionly://'),
+      arg.startsWith('orion://'),
     )
     if (protocolUrl) {
       handleProtocolUrl(protocolUrl)
@@ -111,7 +111,7 @@ export function setupProtocolEvents() {
 }
 
 async function handleProtocolUrl(url: string) {
-  if (!url || typeof url !== 'string' || !url.startsWith('orionly://')) {
+  if (!url || typeof url !== 'string' || !url.startsWith('orion://')) {
     return
   }
 
@@ -270,7 +270,7 @@ async function completeAuthenticationWithCode(code: string, state: string, codeV
 
 export function checkInitialProtocolUrl() {
   const initialProtocolUrl = process.argv.find((arg) =>
-    arg.startsWith('orionly://'),
+    arg.startsWith('orion://'),
   )
   if (initialProtocolUrl) {
     setTimeout(() => handleProtocolUrl(initialProtocolUrl), 1000)

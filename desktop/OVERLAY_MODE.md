@@ -1,7 +1,7 @@
 # Overlay Mode Architecture
 
 ## Overview
-Overlay Mode transforms Orionly into an AI-powered assistant that provides contextual insights and note-taking capabilities while overlaying on top of other applications. This mode supports both meeting scenarios (with audio) and general screen analysis (screen-only).
+Overlay Mode transforms Orion into an AI-powered assistant that provides contextual insights and note-taking capabilities while overlaying on top of other applications. This mode supports both meeting scenarios (with audio) and general screen analysis (screen-only).
 
 ## Mode Types
 

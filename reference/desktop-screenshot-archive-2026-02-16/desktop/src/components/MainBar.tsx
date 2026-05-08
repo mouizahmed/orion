@@ -60,7 +60,7 @@ function MainBar({
           >
             <img
               src="/logo.png"
-              alt="Orionly logo"
+              alt="Orion logo"
               className="h-6 w-6 object-cover p-0.5"
               draggable={false}
             />

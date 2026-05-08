@@ -1106,12 +1106,12 @@ export default function DashboardSettingsPage({
             <div className="px-2">
               <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Custom vocabulary</div>
               <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                Define key terms or product names. Orionly will transcribe them more accurately.
+                Define key terms or product names. Orion will transcribe them more accurately.
               </div>
             </div>
             <div className="relative">
               <textarea
-                placeholder="e.g. Orionly, Salesforce, BANT, SPICED, ..."
+                placeholder="e.g. Orion, Salesforce, BANT, SPICED, ..."
                 maxLength={350}
                 className="min-h-24 w-full resize-none rounded-lg border border-neutral-200 bg-white/60 px-3 py-3 pr-24 text-xs text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-white/20 dark:focus:ring-white/10"
                 style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -1188,7 +1188,7 @@ export default function DashboardSettingsPage({
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
                 <SettingRow
                   label="Include sharing link in the email body"
-                  value="e.g. You can review the full meeting notes here: https://orionly.so/m/..."
+                  value="e.g. You can review the full meeting notes here: https://orion.so/m/..."
                   action={<ToggleSwitch enabled />}
                 />
               </div>
@@ -1306,7 +1306,7 @@ export default function DashboardSettingsPage({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent align="end">
-                        <SelectItem value="server">Orionly server</SelectItem>
+                        <SelectItem value="server">Orion server</SelectItem>
                         <SelectItem value="local">Local only</SelectItem>
                       </SelectContent>
                     </Select>
@@ -1403,7 +1403,7 @@ export default function DashboardSettingsPage({
               <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
                 <SettingRow
                   label="Launch on Startup"
-                  value="This will launch Orionly automatically when your system starts."
+                  value="This will launch Orion automatically when your system starts."
                   action={<ToggleSwitch enabled />}
                 />
               </div>

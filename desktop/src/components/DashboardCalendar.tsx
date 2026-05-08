@@ -15,6 +15,7 @@ import { listNotesByEvent } from '@/lib/notes-client'
 import type { NoteRecord } from '@/types/note'
 import { NoteRow } from '@/components/NoteRow'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
+import { CalendarEventRow } from '@/components/CalendarEventRow'
 import { cn } from '@/lib/utils'
 import { dateKey, formatTime } from '@/lib/calendar-utils'
 
@@ -473,24 +474,12 @@ export function DashboardCalendar({
                       <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">{formatDayHeading(group.date)}</div>
                       <div className="space-y-0.5">
                         {group.events.map((event) => (
-                          <button
+                          <CalendarEventRow
                             key={event.id}
-                            type="button"
+                            event={event}
+                            selected={selectedEvent?.id === event.id}
                             onClick={() => toggleSelectedEvent(event)}
-                            className={cn(
-                              'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors',
-                              selectedEvent?.id === event.id ? 'bg-neutral-100 dark:bg-white/10' : 'hover:bg-neutral-100/70 dark:hover:bg-white/[0.06]',
-                            )}
-                          >
-                            <span className="h-8 w-1 rounded-full" style={{ backgroundColor: event.color }} />
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">{event.title}</div>
-                              <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{event.allDay ? 'All day' : formatTimeRange(event)}</div>
-                              {event.accountEmail ? (
-                                <div className="mt-0.5 truncate text-xs text-neutral-400 dark:text-neutral-500">{event.accountEmail}</div>
-                              ) : null}
-                            </div>
-                          </button>
+                          />
                         ))}
                       </div>
                     </div>

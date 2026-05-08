@@ -4,7 +4,7 @@
 
 Separate application sign-in from calendar account connection.
 
-Orionly should let users sign in without granting calendar access, then explicitly connect one or more Google Calendar and Microsoft Outlook accounts from desktop settings.
+Orion should let users sign in without granting calendar access, then explicitly connect one or more Google Calendar and Microsoft Outlook accounts from desktop settings.
 
 ## Current State
 
@@ -48,7 +48,7 @@ Current desktop behavior:
 
 ### Disconnect
 
-Disconnect should remove Orionly's access to that calendar account.
+Disconnect should remove Orion's access to that calendar account.
 
 Minimum behavior:
 
@@ -153,7 +153,7 @@ Enable RLS on both tables.
 
 Policies should allow a user to access rows where `user_id` matches the authenticated app user. The backend currently uses its own API and Firebase auth, so direct Supabase client access may not be used yet, but policies should still be defined to keep the schema safe if direct access is added later.
 
-If direct Supabase access is added, the client JWT must include the Orionly/Firebase user ID in a stable claim such as `app_user_id`. Policies can then use `auth.jwt() ->> 'app_user_id' = user_id`. Do not rely on `auth.uid()` unless `users.id` is migrated to Supabase auth UUIDs.
+If direct Supabase access is added, the client JWT must include the Orion/Firebase user ID in a stable claim such as `app_user_id`. Policies can then use `auth.jwt() ->> 'app_user_id' = user_id`. Do not rely on `auth.uid()` unless `users.id` is migrated to Supabase auth UUIDs.
 
 ## Repository Layer
 
@@ -359,12 +359,12 @@ The desktop app does not need a new Firebase token after a calendar connection. 
 Recommended desktop callback shape:
 
 ```txt
-orionly://integrations/callback?success=true&provider=google&feature=calendar
+orion://integrations/callback?success=true&provider=google&feature=calendar
 ```
 
 Implementation mapping:
 
-- Backend callback redirects desktop integrations to the `orionly://integrations/callback` deep link instead of issuing a login one-time code.
+- Backend callback redirects desktop integrations to the `orion://integrations/callback` deep link instead of issuing a login one-time code.
 - `desktop/electron/protocol-handler.ts` should add an `integrations/callback` branch alongside the existing auth callback branch.
 - The protocol handler sends an IPC event such as `integration:connection-completed` to the renderer with `{ success, provider, feature, error? }`.
 - `desktop/electron/preload.ts` exposes a listener such as `onIntegrationConnectionCompleted`.
@@ -460,7 +460,7 @@ type CalendarEvent struct {
 }
 ```
 
-`ID` should be a stable Orionly event ID, not just the provider event ID:
+`ID` should be a stable Orion event ID, not just the provider event ID:
 
 ```txt
 google:{connectionID}:{calendarID}:{providerEventID}
@@ -668,7 +668,7 @@ create policy calendar_preferences_user_write
   with check (auth.jwt() ->> 'app_user_id' = user_id);
 ```
 
-These RLS policies assume direct clients receive a Supabase-compatible JWT with an `app_user_id` claim containing the Orionly/Firebase user ID. If only the Go backend accesses the database with the service connection, RLS documents intent but is not the main enforcement layer. If direct client writes to `integration_connections` are ever needed, add narrowly scoped write policies; do not let clients write provider tokens directly.
+These RLS policies assume direct clients receive a Supabase-compatible JWT with an `app_user_id` claim containing the Orion/Firebase user ID. If only the Go backend accesses the database with the service connection, RLS documents intent but is not the main enforcement layer. If direct client writes to `integration_connections` are ever needed, add narrowly scoped write policies; do not let clients write provider tokens directly.
 
 ## Security And Privacy
 

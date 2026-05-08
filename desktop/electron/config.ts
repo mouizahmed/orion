@@ -22,7 +22,7 @@ function getBackendUrl(): string {
   // Default URLs based on environment
   const defaultUrls = {
     development: 'http://localhost:8080',
-    production: 'https://api.orionly.app',
+    production: 'https://api.orion.app',
   }
 
   // Use environment variable if provided and valid

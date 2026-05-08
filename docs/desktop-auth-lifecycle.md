@@ -66,7 +66,7 @@ AuthWelcome
   -> electronAPI.authenticateWithGoogle()
   -> main opens backend /auth/start?platform=desktop
   -> backend owns OAuth state and callback validation
-  -> web callback opens orionly://auth-complete?code=...
+  -> web callback opens orion://auth-complete?code=...
   -> main exchanges one-time code with backend /auth/complete
   -> main sends auth-session-updated to the auth callback window
   -> primary renderer signs into Firebase with custom token

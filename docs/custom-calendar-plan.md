@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build a native, read-only Orionly calendar surface instead of embedding Google Calendar. The calendar should help users see meetings, start notes/transcripts, and connect calendar events to Orionly workflows without becoming a full calendar app.
+Build a native, read-only Orion calendar surface instead of embedding Google Calendar. The calendar should help users see meetings, start notes/transcripts, and connect calendar events to Orion workflows without becoming a full calendar app.
 
 ## Data Shape
 
@@ -39,7 +39,7 @@ Create helpers for:
 
 ## Calendar Shell
 
-Add a native Orionly calendar page with:
+Add a native Orion calendar page with:
 
 - view switcher: `Agenda`, `Week`, `Month`
 - previous / next buttons
@@ -55,7 +55,7 @@ Show upcoming events as rows grouped by day:
 - time range
 - calendar color
 - join link if present
-- click row opens event details and Orionly actions
+- click row opens event details and Orion actions
 
 ## Week View
 

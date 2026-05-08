@@ -1,7 +1,6 @@
-import { MapPin, Users } from 'lucide-react'
-
 import type { CalendarEvent } from '@/hooks/useCalendarEvents'
-import { dateKey, formatTime, isSameDay } from '@/lib/calendar-utils'
+import { CalendarEventRow } from '@/components/CalendarEventRow'
+import { dateKey, isSameDay } from '@/lib/calendar-utils'
 
 function eventDisplayDate(event: CalendarEvent) {
   const date = new Date(event.start)
@@ -29,10 +28,6 @@ function formatMeetingDate(event: CalendarEvent) {
   return formatDateBadge(eventDisplayDate(event))
 }
 
-function formatMeetingTime(event: CalendarEvent) {
-  if (event.allDay) return 'All day'
-  return `${formatTime(event.start)}-${formatTime(event.end)}`
-}
 
 export function UpcomingMeetings({
   events,
@@ -120,45 +115,12 @@ export function UpcomingMeetings({
                   </div>
                 ) : (
                   group.meetings.map((meeting) => (
-                    <button
+                    <CalendarEventRow
                       key={meeting.id}
-                      type="button"
-                      onClick={() => onSelect?.(meeting)}
-                      className={`block w-full rounded-lg border border-transparent text-left transition-colors ${onSelect ? 'cursor-pointer hover:bg-neutral-100/70 dark:hover:bg-white/[0.06]' : 'cursor-default'}`}
-                    >
-                      <div
-                        className="min-w-0 border-l-2 py-1 pl-3"
-                        style={{ borderLeftColor: meeting.color || '#9f73f2' }}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">
-                            {meeting.title}
-                          </span>
-                        </div>
-                        <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                          {formatMeetingTime(meeting)}
-                        </p>
-                        {(meeting.calendarName || meeting.accountEmail) && (
-                          <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-                            {[meeting.calendarName, meeting.accountEmail].filter(Boolean).join(' - ')}
-                          </p>
-                        )}
-                        {meeting.location && (
-                          <p className="mt-0.5 flex min-w-0 items-center gap-1 text-xs text-neutral-500">
-                            <MapPin className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{meeting.location}</span>
-                          </p>
-                        )}
-                        {meeting.attendees && meeting.attendees.length > 0 && (
-                          <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-500">
-                            <Users className="h-3 w-3 shrink-0" />
-                            <span>
-                              {meeting.attendees.length} attendee{meeting.attendees.length !== 1 ? 's' : ''}
-                            </span>
-                          </p>
-                        )}
-                      </div>
-                    </button>
+                      event={meeting}
+                      variant="border"
+                      onClick={onSelect ? () => onSelect(meeting) : undefined}
+                    />
                   ))
                 )}
               </div>

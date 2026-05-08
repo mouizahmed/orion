@@ -48,7 +48,7 @@ const featureSections = [
       {
         title: "Works where calls happen",
         description:
-          "Use Orionly with Zoom, Google Meet, Teams, or recordings you already have.",
+          "Use Orion with Zoom, Google Meet, Teams, or recordings you already have.",
       },
       {
         title: "Import existing recordings",
@@ -66,7 +66,7 @@ const featureSections = [
       {
         title: "Gets smarter over time",
         description:
-          "Orionly learns from every meeting, so each transcript, note, and decision makes future answers more useful.",
+          "Orion learns from every meeting, so each transcript, note, and decision makes future answers more useful.",
       },
       {
         title: "Enhance notes with AI",

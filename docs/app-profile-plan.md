@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make `users.name` and `users.avatar_url` the Orionly-owned app profile. OAuth providers should seed the profile on first login, but after account creation Google and Microsoft should behave as login identities, not as the ongoing source of truth for the app profile.
+Make `users.name` and `users.avatar_url` the Orion-owned app profile. OAuth providers should seed the profile on first login, but after account creation Google and Microsoft should behave as login identities, not as the ongoing source of truth for the app profile.
 
 ## Current Model
 

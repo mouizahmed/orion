@@ -1,6 +1,6 @@
-# Orionly Web
+# Orion Web
 
-Next.js marketing and callback app for Orionly.
+Next.js marketing and callback app for Orion.
 
 ## Development
 

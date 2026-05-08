@@ -1,9 +1,9 @@
 // vite.config.ts
-import { defineConfig } from "file:///C:/Users/mouiz/git/orionly/apps/desktop/node_modules/vite/dist/node/index.js";
+import { defineConfig } from "file:///C:/Users/mouiz/git/orion/apps/desktop/node_modules/vite/dist/node/index.js";
 import path from "node:path";
-import electron from "file:///C:/Users/mouiz/git/orionly/apps/desktop/node_modules/vite-plugin-electron/dist/simple.mjs";
-import react from "file:///C:/Users/mouiz/git/orionly/apps/desktop/node_modules/@vitejs/plugin-react/dist/index.js";
-var __vite_injected_original_dirname = "C:\\Users\\mouiz\\git\\orionly\\apps\\desktop";
+import electron from "file:///C:/Users/mouiz/git/orion/apps/desktop/node_modules/vite-plugin-electron/dist/simple.mjs";
+import react from "file:///C:/Users/mouiz/git/orion/apps/desktop/node_modules/@vitejs/plugin-react/dist/index.js";
+var __vite_injected_original_dirname = "C:\\Users\\mouiz\\git\\orion\\apps\\desktop";
 var vite_config_default = defineConfig({
   // Use relative base path for Electron apps
   base: "./",

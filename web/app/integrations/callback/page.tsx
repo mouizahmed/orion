@@ -20,7 +20,7 @@ function buildProtocolUrl(params: {
   if (params.feature) query.set("feature", params.feature);
   if (params.error) query.set("error", params.error);
   if (params.errorDescription) query.set("error_description", params.errorDescription);
-  return `orionly://integrations/callback?${query.toString()}`;
+  return `orion://integrations/callback?${query.toString()}`;
 }
 
 function IntegrationCallbackContent() {
@@ -39,7 +39,7 @@ function IntegrationCallbackContent() {
       protocolUrl={protocolUrl}
       error={error}
       failureTitle="Connection Failed"
-      failureBody="Calendar connection was cancelled or failed. Return to Orionly and try again."
+      failureBody="Calendar connection was cancelled or failed. Return to Orion and try again."
     />
   );
 }

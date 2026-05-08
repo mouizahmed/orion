@@ -35,7 +35,7 @@ func init() {
 func allowedCORSOrigins() []string {
 	raw := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if raw == "" {
-		raw = "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,https://orionly.com,https://www.orionly.com"
+		raw = "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,https://orion.com,https://www.orion.com"
 	}
 
 	origins := make([]string, 0)
