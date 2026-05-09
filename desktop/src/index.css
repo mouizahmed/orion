@@ -146,24 +146,24 @@ body {
 }
 
 /* Match dashboard editor scrollbar styling to sidebar. */
-.mdx-editor-root.dashboard-editor::-webkit-scrollbar {
+.mdx-editor-root.dashboard-editor > div:not([role="toolbar"])::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-.mdx-editor-root.dashboard-editor::-webkit-scrollbar-track {
+.mdx-editor-root.dashboard-editor > div:not([role="toolbar"])::-webkit-scrollbar-track {
   background: transparent;
   border-radius: 999px;
 }
 
-.mdx-editor-root.dashboard-editor::-webkit-scrollbar-thumb {
+.mdx-editor-root.dashboard-editor > div:not([role="toolbar"])::-webkit-scrollbar-thumb {
   background-color: rgb(82 82 82);
   border-radius: 999px;
   border: 1px solid transparent;
   background-clip: content-box;
 }
 
-.mdx-editor-root.dashboard-editor::-webkit-scrollbar-thumb:hover {
+.mdx-editor-root.dashboard-editor > div:not([role="toolbar"])::-webkit-scrollbar-thumb:hover {
   background-color: rgb(115 115 115);
 }
 
@@ -528,14 +528,20 @@ h1 {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .mdx-editor-root.dashboard-editor .mdx-content-editable {
   padding: 0.625rem 0.75rem;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.mdx-editor-root.dashboard-editor > div:not([role="toolbar"]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] {
@@ -545,17 +551,17 @@ h1 {
   align-items: center;
   padding: 0.45rem 0.5rem;
   border-bottom: 1px solid rgb(229 229 229 / 0.8);
-  background: rgb(255 255 255 / 0.48);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.58);
-  backdrop-filter: blur(12px);
+  background: rgb(255 255 255 / 1);
+  box-shadow: none;
   flex: 0 0 auto;
   overflow: visible;
+  border-radius: 0 !important;
 }
 
 .dark .mdx-editor-root.dashboard-editor [role="toolbar"] {
   border-bottom-color: rgb(255 255 255 / 0.1);
-  background: rgb(255 255 255 / 0.025);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
+  background: #171417;
+  box-shadow: none;
 }
 
 /* Normalize inconsistent item spacing coming from library defaults. */
@@ -674,6 +680,7 @@ h1 {
 .mdx-editor-root.dashboard-editor [role="toolbar"] button:not([data-slot="dropdown-item"]),
 .mdx-editor-root.dashboard-editor [role="toolbar"] [role="button"],
 .mdx-editor-root.dashboard-editor [role="toolbar"] select {
+  cursor: pointer !important;
   border: 1px solid rgb(229 229 229 / 1) !important;
   background: rgb(255 255 255 / 0.7) !important;
   color: rgb(64 64 64 / 1) !important;
@@ -713,10 +720,13 @@ h1 {
 }
 
 .dark .mdx-editor-root.dashboard-editor [role="toolbar"] [data-state="on"],
-.dark .mdx-editor-root.dashboard-editor [role="toolbar"] [aria-pressed="true"] {
-  background: rgb(255 255 255 / 0.12) !important;
-  border-color: rgb(255 255 255 / 0.2) !important;
+.dark .mdx-editor-root.dashboard-editor [role="toolbar"] [aria-pressed="true"],
+.dark .mdx-editor-root.dashboard-editor [role="toolbar"] button[data-state="on"] {
+  background: rgb(255 255 255 / 0.18) !important;
+  background-color: rgb(255 255 255 / 0.18) !important;
+  border-color: rgb(255 255 255 / 0.45) !important;
   color: rgb(255 255 255 / 1) !important;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1) !important;
 }
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] button:not([data-slot="dropdown-item"]):disabled,
@@ -752,7 +762,7 @@ h1 {
 }
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] .dashboard-block-type-trigger {
-  width: 9rem !important;
+  width: fit-content !important;
   justify-content: space-between !important;
   line-height: 1rem !important;
 }
