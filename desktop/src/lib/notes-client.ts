@@ -3,6 +3,16 @@ import { auth } from '@/config/firebase'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
+type ApiLinkedEvent = {
+  id: string
+  provider_event_id: string
+  connection_id: string
+  calendar_id: string
+  title: string
+  start: string
+  color?: string
+}
+
 type ApiNote = {
   id: string
   user_id: string
@@ -11,9 +21,18 @@ type ApiNote = {
   note_markdown: string
   created_at: string
   updated_at: string
-  provider_event_id?: string | null
-  connection_id?: string | null
-  calendar_id?: string | null
+  calendar_event_id?: string | null
+  linked_event?: ApiLinkedEvent | null
+}
+
+export type LinkedEventDetail = {
+  id: string
+  providerEventId: string
+  connectionId: string
+  calendarId: string
+  title: string
+  start: string
+  color: string
 }
 
 function toNoteRecord(note: ApiNote): NoteRecord {
@@ -24,9 +43,7 @@ function toNoteRecord(note: ApiNote): NoteRecord {
     noteMarkdown: note.note_markdown ?? '',
     createdAt: Date.parse(note.created_at),
     updatedAt: Date.parse(note.updated_at),
-    providerEventId: note.provider_event_id ?? undefined,
-    connectionId: note.connection_id ?? undefined,
-    calendarId: note.calendar_id ?? undefined,
+    calendarEventId: note.calendar_event_id ?? undefined,
   }
 }
 
@@ -90,7 +107,7 @@ export async function listNotesPage(params: {
   return { notes, hasMore, nextCursor }
 }
 
-export async function getNote(userId: string | undefined, noteId: string): Promise<NoteRecord | null> {
+export async function getNote(userId: string | undefined, noteId: string): Promise<{ note: NoteRecord; linkedEvent: LinkedEventDetail | null } | null> {
   void userId
   const idToken = await getIdToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}`, {
@@ -99,7 +116,22 @@ export async function getNote(userId: string | undefined, noteId: string): Promi
       Authorization: `Bearer ${idToken}`,
     },
   })
-  return payload.note ? toNoteRecord(payload.note) : null
+  if (!payload.note) return null
+  const le = payload.note.linked_event
+  return {
+    note: toNoteRecord(payload.note),
+    linkedEvent: le
+      ? {
+          id: le.id,
+          providerEventId: le.provider_event_id,
+          connectionId: le.connection_id,
+          calendarId: le.calendar_id,
+          title: le.title,
+          start: le.start,
+          color: le.color ?? '#9f73f2',
+        }
+      : null,
+  }
 }
 
 export async function createNote(
@@ -109,9 +141,7 @@ export async function createNote(
     title?: string
     folderId?: string | null
     noteMarkdown?: string
-    providerEventId?: string
-    connectionId?: string
-    calendarId?: string
+    calendarEventId?: string
   },
 ): Promise<NoteRecord> {
   void userId
@@ -127,9 +157,7 @@ export async function createNote(
       title: initial?.title,
       folder_id: initial?.folderId ?? null,
       note_markdown: initial?.noteMarkdown,
-      provider_event_id: initial?.providerEventId,
-      connection_id: initial?.connectionId,
-      calendar_id: initial?.calendarId,
+      calendar_event_id: initial?.calendarEventId,
     }),
   })
   if (!payload.note) {
@@ -145,9 +173,7 @@ export async function updateNote(
     title?: string
     folderId?: string | null
     noteMarkdown?: string
-    providerEventId?: string | null
-    connectionId?: string | null
-    calendarId?: string | null
+    calendarEventId?: string | null
   },
 ): Promise<NoteRecord | null> {
   void userId
@@ -163,9 +189,7 @@ export async function updateNote(
       title: patch.title,
       folder_id: 'folderId' in patch ? (patch.folderId ?? '') : undefined,
       note_markdown: patch.noteMarkdown,
-      provider_event_id: 'providerEventId' in patch ? (patch.providerEventId ?? '') : undefined,
-      connection_id: 'connectionId' in patch ? (patch.connectionId ?? '') : undefined,
-      calendar_id: 'calendarId' in patch ? (patch.calendarId ?? '') : undefined,
+      calendar_event_id: 'calendarEventId' in patch ? (patch.calendarEventId ?? '') : undefined,
     }),
   })
   return payload.note ? toNoteRecord(payload.note) : null
@@ -237,17 +261,13 @@ export async function uploadNoteImage(noteId: string, file: File): Promise<strin
 }
 
 export async function listNotesByEvent(
-  connectionId: string,
-  calendarId: string,
-  providerEventId: string,
+  calendarEventId: string,
   cursor?: string | null,
   limit = 20,
 ): Promise<{ notes: NoteRecord[]; hasMore: boolean; nextCursor?: string }> {
   const idToken = await getIdToken()
   const url = new URL(`${API_BASE_URL}/notes/by-event`)
-  url.searchParams.set('connection_id', connectionId)
-  url.searchParams.set('calendar_id', calendarId)
-  url.searchParams.set('provider_event_id', providerEventId)
+  url.searchParams.set('calendar_event_id', calendarEventId)
   url.searchParams.set('limit', String(limit))
   if (cursor) url.searchParams.set('cursor', cursor)
   const payload = await fetchJson<{

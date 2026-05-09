@@ -23,7 +23,6 @@ export function NotesTree({
   folders,
   notes,
   isLoading,
-  error,
   folderPagination,
   onLoadMore,
   selectedFolderId,
@@ -42,8 +41,7 @@ export function NotesTree({
   folders: FolderRecord[]
   notes: NoteRecord[]
   isLoading: boolean
-  error: string | null
-  folderPagination: Record<string, { hasMore: boolean; isLoading: boolean }>
+  folderPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean }>
   onLoadMore: (folderId: string | null) => void
   selectedFolderId: string | null
   selectedNoteId: string | null

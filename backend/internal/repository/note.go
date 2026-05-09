@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -28,19 +29,17 @@ func NewNoteRepository(db *database.DB) *NoteRepository {
 
 func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 	query := `
-		INSERT INTO notes (user_id, folder_id, title, note_markdown, provider_event_id, connection_id, calendar_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO notes (user_id, folder_id, title, note_markdown, calendar_event_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		          provider_event_id, connection_id::text, calendar_id
+		          calendar_event_id::text
 	`
 
 	folderID := toNullString(note.FolderID)
-	providerEventID := toNullString(note.ProviderEventID)
-	connectionID := toNullString(note.ConnectionID)
-	calendarID := toNullString(note.CalendarID)
+	calendarEventID := toNullString(note.CalendarEventID)
 
 	var created models.Note
-	var folder, deletedNull, provEventID, connID, calID sql.NullString
+	var folder, calEvID sql.NullString
 	var deleted sql.NullTime
 	err := r.db.QueryRow(
 		query,
@@ -48,9 +47,7 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		folderID,
 		note.Title,
 		note.NoteMarkdown,
-		providerEventID,
-		connectionID,
-		calendarID,
+		calendarEventID,
 	).Scan(
 		&created.ID,
 		&created.UserID,
@@ -60,27 +57,21 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		&created.CreatedAt,
 		&created.UpdatedAt,
 		&deleted,
-		&provEventID,
-		&connID,
-		&calID,
+		&calEvID,
 	)
-	_ = deletedNull
 	if err != nil {
 		return nil, fmt.Errorf("failed to create note: %w", err)
 	}
 
 	created.FolderID = fromNullString(folder)
 	created.DeletedAt = fromNullTime(deleted)
-	created.ProviderEventID = fromNullString(provEventID)
-	created.ConnectionID = fromNullString(connID)
-	created.CalendarID = fromNullString(calID)
+	created.CalendarEventID = fromNullString(calEvID)
 	return &created, nil
 }
 
-func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, unfiled bool, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]models.Note, error) {
+func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, unfiled bool, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]models.NoteSummary, error) {
 	baseQuery := `
-		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		SELECT id, folder_id, title, created_at, updated_at, calendar_event_id::text
 		FROM notes
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
@@ -110,31 +101,22 @@ func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, 
 	}
 	defer rows.Close()
 
-	notes := []models.Note{}
+	notes := []models.NoteSummary{}
 	for rows.Next() {
-		var note models.Note
-		var folder, provEventID, connID, calID sql.NullString
-		var deleted sql.NullTime
+		var note models.NoteSummary
+		var folder, calEvID sql.NullString
 		if err := rows.Scan(
 			&note.ID,
-			&note.UserID,
 			&folder,
 			&note.Title,
-			&note.NoteMarkdown,
 			&note.CreatedAt,
 			&note.UpdatedAt,
-			&deleted,
-			&provEventID,
-			&connID,
-			&calID,
+			&calEvID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
 		note.FolderID = fromNullString(folder)
-		note.DeletedAt = fromNullTime(deleted)
-		note.ProviderEventID = fromNullString(provEventID)
-		note.ConnectionID = fromNullString(connID)
-		note.CalendarID = fromNullString(calID)
+		note.CalendarEventID = fromNullString(calEvID)
 		notes = append(notes, note)
 	}
 
@@ -143,6 +125,80 @@ func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, 
 	}
 
 	return notes, nil
+}
+
+func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteDetail, error) {
+	query := `
+		SELECT
+			n.id, n.folder_id, n.title, n.note_markdown, n.created_at, n.updated_at,
+			n.calendar_event_id::text,
+			e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
+			e.title, e.start_at, e.end_at, e.all_day,
+			COALESCE(e.color, s.color, ''), COALESCE(e.calendar_name, s.name, ''),
+			COALESCE(e.meeting_link, ''), COALESCE(e.event_link, ''),
+			COALESCE(e.location, ''), COALESCE(e.organizer, ''),
+			COALESCE(e.attendees, '[]'::jsonb)
+		FROM notes n
+		LEFT JOIN calendar_events e ON e.id = n.calendar_event_id
+		LEFT JOIN calendar_sources s
+			ON s.user_id = e.user_id
+			AND s.connection_id = e.connection_id
+			AND s.calendar_id = e.calendar_id
+		WHERE n.id = $1 AND n.user_id = $2 AND n.deleted_at IS NULL
+		LIMIT 1
+	`
+
+	var detail models.NoteDetail
+	var folder, calEvID sql.NullString
+	var evID, evProvider, evConnID, evCalID, evProvEventID sql.NullString
+	var evTitle sql.NullString
+	var evStart, evEnd sql.NullTime
+	var evAllDay sql.NullBool
+	var evColor, evCalName, evMeetingLink, evEventLink, evLocation, evOrganizer sql.NullString
+	var evAttendeesJSON []byte
+
+	err := r.db.QueryRow(query, noteID, userID).Scan(
+		&detail.ID, &folder, &detail.Title, &detail.NoteMarkdown, &detail.CreatedAt, &detail.UpdatedAt,
+		&calEvID,
+		&evID, &evProvider, &evConnID, &evCalID, &evProvEventID,
+		&evTitle, &evStart, &evEnd, &evAllDay,
+		&evColor, &evCalName, &evMeetingLink, &evEventLink, &evLocation, &evOrganizer,
+		&evAttendeesJSON,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("note not found")
+		}
+		return nil, fmt.Errorf("failed to get note: %w", err)
+	}
+
+	detail.FolderID = fromNullString(folder)
+	detail.CalendarEventID = fromNullString(calEvID)
+
+	if evID.Valid {
+		attendees := []models.CalendarAttendee{}
+		_ = json.Unmarshal(evAttendeesJSON, &attendees)
+		detail.LinkedEvent = &models.LinkedEventDetail{
+			ID:              evID.String,
+			Provider:        evProvider.String,
+			ConnectionID:    evConnID.String,
+			CalendarID:      evCalID.String,
+			ProviderEventID: evProvEventID.String,
+			Title:           evTitle.String,
+			Start:           evStart.Time,
+			End:             evEnd.Time,
+			AllDay:          evAllDay.Bool,
+			Color:           evColor.String,
+			CalendarName:    evCalName.String,
+			MeetingLink:     evMeetingLink.String,
+			EventLink:       evEventLink.String,
+			Location:        evLocation.String,
+			OrganizerEmail:  evOrganizer.String,
+			Attendees:       attendees,
+		}
+	}
+
+	return &detail, nil
 }
 
 func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivityQuery) ([]models.Note, error) {
@@ -166,7 +222,7 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 
 	sqlQuery := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		       calendar_event_id::text
 		FROM notes
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
@@ -200,7 +256,7 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 	notes := []models.Note{}
 	for rows.Next() {
 		var note models.Note
-		var folder, provEventID, connID, calID sql.NullString
+		var folder, calEvID sql.NullString
 		var deleted sql.NullTime
 		if err := rows.Scan(
 			&note.ID,
@@ -211,17 +267,13 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 			&note.CreatedAt,
 			&note.UpdatedAt,
 			&deleted,
-			&provEventID,
-			&connID,
-			&calID,
+			&calEvID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan activity note: %w", err)
 		}
 		note.FolderID = fromNullString(folder)
 		note.DeletedAt = fromNullTime(deleted)
-		note.ProviderEventID = fromNullString(provEventID)
-		note.ConnectionID = fromNullString(connID)
-		note.CalendarID = fromNullString(calID)
+		note.CalendarEventID = fromNullString(calEvID)
 		notes = append(notes, note)
 	}
 
@@ -235,14 +287,14 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 func (r *NoteRepository) GetNoteByID(userID, noteID string) (*models.Note, error) {
 	query := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		       calendar_event_id::text
 		FROM notes
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		LIMIT 1
 	`
 
 	var note models.Note
-	var folder, provEventID, connID, calID sql.NullString
+	var folder, calEvID sql.NullString
 	var deleted sql.NullTime
 	err := r.db.QueryRow(query, noteID, userID).Scan(
 		&note.ID,
@@ -253,9 +305,7 @@ func (r *NoteRepository) GetNoteByID(userID, noteID string) (*models.Note, error
 		&note.CreatedAt,
 		&note.UpdatedAt,
 		&deleted,
-		&provEventID,
-		&connID,
-		&calID,
+		&calEvID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -266,9 +316,7 @@ func (r *NoteRepository) GetNoteByID(userID, noteID string) (*models.Note, error
 
 	note.FolderID = fromNullString(folder)
 	note.DeletedAt = fromNullTime(deleted)
-	note.ProviderEventID = fromNullString(provEventID)
-	note.ConnectionID = fromNullString(connID)
-	note.CalendarID = fromNullString(calID)
+	note.CalendarEventID = fromNullString(calEvID)
 	return &note, nil
 }
 
@@ -299,22 +347,18 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 		SET folder_id = $3,
 			title = $4,
 			note_markdown = $5,
-			provider_event_id = $6,
-			connection_id = $7,
-			calendar_id = $8,
+			calendar_event_id = $6,
 			updated_at = NOW()
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		RETURNING id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		          provider_event_id, connection_id::text, calendar_id
+		          calendar_event_id::text
 	`
 
 	folderID := toNullString(note.FolderID)
-	providerEventID := toNullString(note.ProviderEventID)
-	connectionID := toNullString(note.ConnectionID)
-	calendarID := toNullString(note.CalendarID)
+	calendarEventID := toNullString(note.CalendarEventID)
 
 	var updated models.Note
-	var folder, provEventID, connID, calID sql.NullString
+	var folder, calEvID sql.NullString
 	var deleted sql.NullTime
 	err := r.db.QueryRow(
 		query,
@@ -323,9 +367,7 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 		folderID,
 		note.Title,
 		note.NoteMarkdown,
-		providerEventID,
-		connectionID,
-		calendarID,
+		calendarEventID,
 	).Scan(
 		&updated.ID,
 		&updated.UserID,
@@ -335,9 +377,7 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 		&updated.CreatedAt,
 		&updated.UpdatedAt,
 		&deleted,
-		&provEventID,
-		&connID,
-		&calID,
+		&calEvID,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -348,9 +388,7 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 
 	updated.FolderID = fromNullString(folder)
 	updated.DeletedAt = fromNullTime(deleted)
-	updated.ProviderEventID = fromNullString(provEventID)
-	updated.ConnectionID = fromNullString(connID)
-	updated.CalendarID = fromNullString(calID)
+	updated.CalendarEventID = fromNullString(calEvID)
 	return &updated, nil
 }
 
@@ -392,7 +430,7 @@ func (r *NoteRepository) SearchNotes(userID, query string, folderID *string, lim
 	pattern := "%" + search + "%"
 	sqlQuery := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		       calendar_event_id::text
 		FROM notes
 		WHERE user_id = $1
 			AND deleted_at IS NULL
@@ -427,7 +465,7 @@ func (r *NoteRepository) SearchNotes(userID, query string, folderID *string, lim
 	notes := []models.Note{}
 	for rows.Next() {
 		var note models.Note
-		var folder, provEventID, connID, calID sql.NullString
+		var folder, calEvID sql.NullString
 		var deleted sql.NullTime
 		if err := rows.Scan(
 			&note.ID,
@@ -438,17 +476,13 @@ func (r *NoteRepository) SearchNotes(userID, query string, folderID *string, lim
 			&note.CreatedAt,
 			&note.UpdatedAt,
 			&deleted,
-			&provEventID,
-			&connID,
-			&calID,
+			&calEvID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note search row: %w", err)
 		}
 		note.FolderID = fromNullString(folder)
 		note.DeletedAt = fromNullTime(deleted)
-		note.ProviderEventID = fromNullString(provEventID)
-		note.ConnectionID = fromNullString(connID)
-		note.CalendarID = fromNullString(calID)
+		note.CalendarEventID = fromNullString(calEvID)
 		notes = append(notes, note)
 	}
 
@@ -504,7 +538,7 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 
 	query := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		       calendar_event_id::text
 		FROM notes
 		WHERE user_id = $1 AND deleted_at IS NULL
 		AND created_at >= $2 AND created_at < $3
@@ -521,7 +555,7 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 	notes := []models.Note{}
 	for rows.Next() {
 		var note models.Note
-		var folder, provEventID, connID, calID sql.NullString
+		var folder, calEvID sql.NullString
 		var deleted sql.NullTime
 		if err := rows.Scan(
 			&note.ID,
@@ -532,36 +566,30 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 			&note.CreatedAt,
 			&note.UpdatedAt,
 			&deleted,
-			&provEventID,
-			&connID,
-			&calID,
+			&calEvID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
 		note.FolderID = fromNullString(folder)
 		note.DeletedAt = fromNullTime(deleted)
-		note.ProviderEventID = fromNullString(provEventID)
-		note.ConnectionID = fromNullString(connID)
-		note.CalendarID = fromNullString(calID)
+		note.CalendarEventID = fromNullString(calEvID)
 		notes = append(notes, note)
 	}
 
 	return notes, rows.Err()
 }
 
-func (r *NoteRepository) ListNotesByEvent(userID, connectionID, calendarID, providerEventID string, limit int, cursorCreatedAt *time.Time, cursorID *string) ([]models.Note, error) {
+func (r *NoteRepository) ListNotesByEvent(userID, calendarEventID string, limit int, cursorCreatedAt *time.Time, cursorID *string) ([]models.Note, error) {
 	q := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       provider_event_id, connection_id::text, calendar_id
+		       calendar_event_id::text
 		FROM notes
 		WHERE user_id = $1
-		  AND connection_id = $2
-		  AND calendar_id = $3
-		  AND provider_event_id = $4
+		  AND calendar_event_id = $2
 		  AND deleted_at IS NULL`
 
-	args := []interface{}{userID, connectionID, calendarID, providerEventID}
-	argPos := 5
+	args := []interface{}{userID, calendarEventID}
+	argPos := 3
 	if cursorCreatedAt != nil && cursorID != nil && *cursorID != "" {
 		q += fmt.Sprintf(" AND (created_at, id) < ($%d, $%d)", argPos, argPos+1)
 		args = append(args, *cursorCreatedAt, *cursorID)
@@ -579,7 +607,7 @@ func (r *NoteRepository) ListNotesByEvent(userID, connectionID, calendarID, prov
 	notes := []models.Note{}
 	for rows.Next() {
 		var note models.Note
-		var folder, provEventID, connID, calID sql.NullString
+		var folder, calEvID sql.NullString
 		var deleted sql.NullTime
 		if err := rows.Scan(
 			&note.ID,
@@ -590,17 +618,13 @@ func (r *NoteRepository) ListNotesByEvent(userID, connectionID, calendarID, prov
 			&note.CreatedAt,
 			&note.UpdatedAt,
 			&deleted,
-			&provEventID,
-			&connID,
-			&calID,
+			&calEvID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
 		note.FolderID = fromNullString(folder)
 		note.DeletedAt = fromNullTime(deleted)
-		note.ProviderEventID = fromNullString(provEventID)
-		note.ConnectionID = fromNullString(connID)
-		note.CalendarID = fromNullString(calID)
+		note.CalendarEventID = fromNullString(calEvID)
 		notes = append(notes, note)
 	}
 

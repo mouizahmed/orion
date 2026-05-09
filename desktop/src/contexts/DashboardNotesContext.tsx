@@ -14,7 +14,7 @@ type DashboardNotesContextType = {
   notes: NoteRecord[]
   filteredNotes: NoteRecord[]
   folders: FolderRecord[]
-  folderPagination: Record<string, { hasMore: boolean; isLoading: boolean }>
+  folderPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean }>
   loadMoreForFolder: (folderId: string | null) => Promise<void>
   selectedFolderId: string | null
   selectFolder: (id: string | null) => void
@@ -30,7 +30,7 @@ type DashboardNotesContextType = {
   selectNote: (id: string | null) => void
   openCreateNoteDialog: () => void
   refresh: () => Promise<void>
-  createNewNote: (payload?: { title?: string; folderId?: string | null; eventLink?: { providerEventId: string; connectionId: string; calendarId: string } }) => Promise<NoteRecord | null>
+  createNewNote: (payload?: { title?: string; folderId?: string | null; calendarEventId?: string }) => Promise<NoteRecord | null>
   deleteById: (noteId: string) => Promise<boolean>
   evictNote: (noteId: string) => void
   optimisticPatch: (noteId: string, patch: Patch) => void
@@ -40,8 +40,7 @@ type DashboardNotesContextType = {
 const DashboardNotesContext = createContext<DashboardNotesContextType | null>(null)
 const UNFILED_ID = '__unfiled__'
 const PAGE_SIZE = 20
-const LS_SELECTED_NOTE = 'dashboard:selectedNoteId'
-const LS_SELECTED_FOLDER = 'dashboard:selectedFolderId'
+
 const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
 
 export function excerpt(markdown: string) {
@@ -65,7 +64,7 @@ export function DashboardNotesProvider({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
-  const [folderPagination, setFolderPagination] = useState<Record<string, { hasMore: boolean; isLoading: boolean; cursor?: string }>>({})
+  const [folderPagination, setFolderPagination] = useState<Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }>>({})
   const createInFlightRef = useRef(false)
 
   const refresh = useCallback(async () => {
@@ -80,11 +79,12 @@ export function DashboardNotesProvider({
         ...folderList.map((f) => listNotesPage({ folderId: f.id, limit: PAGE_SIZE })),
       ])
 
-      const nextPagination: Record<string, { hasMore: boolean; isLoading: boolean; cursor?: string }> = {}
+      const nextPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }> = {}
       const nextNotes: NoteRecord[] = []
 
       const unfiledResult = results[0]
       nextPagination[UNFILED_ID] = {
+        loaded: true,
         hasMore: unfiledResult.hasMore,
         isLoading: false,
         cursor: unfiledResult.nextCursor,
@@ -94,6 +94,7 @@ export function DashboardNotesProvider({
       folderList.forEach((folder, idx) => {
         const page = results[idx + 1]
         nextPagination[folder.id] = {
+          loaded: true,
           hasMore: page.hasMore,
           isLoading: false,
           cursor: page.nextCursor,
@@ -103,19 +104,8 @@ export function DashboardNotesProvider({
 
       setNotes(nextNotes)
       setFolderPagination(nextPagination)
-      setSelectedFolderId((current) => {
-        const saved = localStorage.getItem(LS_SELECTED_FOLDER)
-        const candidate = current ?? saved
-        if (!candidate) return null
-        if (folderList.some((f) => f.id === candidate)) return candidate
-        return null
-      })
-      setSelectedId((current) => {
-        const saved = localStorage.getItem(LS_SELECTED_NOTE)
-        const candidate = current ?? saved
-        if (candidate && nextNotes.some((n) => n.id === candidate)) return candidate
-        return null
-      })
+      setSelectedFolderId(null)
+      setSelectedId(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load notes')
       setNotes([])
@@ -149,14 +139,10 @@ export function DashboardNotesProvider({
 
   const selectNote = useCallback((id: string | null) => {
     setSelectedId(id)
-    if (id) localStorage.setItem(LS_SELECTED_NOTE, id)
-    else localStorage.removeItem(LS_SELECTED_NOTE)
   }, [])
 
   const selectFolder = useCallback((id: string | null) => {
     setSelectedFolderId(id)
-    if (id) localStorage.setItem(LS_SELECTED_FOLDER, id)
-    else localStorage.removeItem(LS_SELECTED_FOLDER)
   }, [])
 
   const openCreateNoteDialog = useCallback(() => {
@@ -167,7 +153,8 @@ export function DashboardNotesProvider({
     async (folderId: string | null) => {
       const key = folderId ?? UNFILED_ID
       const state = folderPagination[key]
-      if (!state || state.isLoading || !state.hasMore) return
+      if (!state || state.isLoading) return
+      if (state.loaded && !state.hasMore) return
 
       setFolderPagination((prev) => ({
         ...prev,
@@ -179,7 +166,7 @@ export function DashboardNotesProvider({
           folderId: folderId ?? undefined,
           unfiled: folderId ? false : true,
           limit: PAGE_SIZE,
-          cursor: state.cursor ?? null,
+          cursor: state.loaded ? (state.cursor ?? null) : null,
         })
 
         setNotes((prev) => {
@@ -196,7 +183,7 @@ export function DashboardNotesProvider({
 
         setFolderPagination((prev) => ({
           ...prev,
-          [key]: { hasMore: page.hasMore, isLoading: false, cursor: page.nextCursor },
+          [key]: { loaded: true, hasMore: page.hasMore, isLoading: false, cursor: page.nextCursor },
         }))
       } catch {
         setFolderPagination((prev) => ({
@@ -215,7 +202,7 @@ export function DashboardNotesProvider({
         setFolders((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
         setFolderPagination((prev) => ({
           ...prev,
-          [created.id]: { hasMore: false, isLoading: false },
+          [created.id]: { loaded: false, hasMore: false, isLoading: false },
         }))
         setSelectedFolderId(created.id)
         return created
@@ -237,7 +224,7 @@ export function DashboardNotesProvider({
         return next
       })
       setSelectedFolderId((current) => {
-        if (current === folderId) { localStorage.removeItem(LS_SELECTED_FOLDER); return null }
+        if (current === folderId) return null
         return current
       })
       return true
@@ -275,7 +262,7 @@ export function DashboardNotesProvider({
     [userId],
   )
 
-  const createNewNote = useCallback(async (payload?: { title?: string; folderId?: string | null; eventLink?: { providerEventId: string; connectionId: string; calendarId: string } }) => {
+  const createNewNote = useCallback(async (payload?: { title?: string; folderId?: string | null; calendarEventId?: string }) => {
     if (createInFlightRef.current) return null
     try {
       createInFlightRef.current = true
@@ -284,9 +271,7 @@ export function DashboardNotesProvider({
       const created = await createNote(userId, {
         title,
         folderId: folderId ?? undefined,
-        providerEventId: payload?.eventLink?.providerEventId,
-        connectionId: payload?.eventLink?.connectionId,
-        calendarId: payload?.eventLink?.calendarId,
+        calendarEventId: payload?.calendarEventId,
       })
       setNotes((prev) => {
         const existing = prev.find((n) => n.id === created.id)
@@ -313,7 +298,6 @@ export function DashboardNotesProvider({
       setNotes((prev) => prev.filter((n) => n.id !== noteId))
       setSelectedId((current) => {
         if (current !== noteId) return current
-        localStorage.removeItem(LS_SELECTED_NOTE)
         const remaining = notes.filter((n) => n.id !== noteId)
         return remaining[0]?.id ?? null
       })
@@ -326,7 +310,6 @@ export function DashboardNotesProvider({
     setNotes((prev) => prev.filter((n) => n.id !== noteId))
     setSelectedId((current) => {
       if (current !== noteId) return current
-      localStorage.removeItem(LS_SELECTED_NOTE)
       return null
     })
   }, [])
@@ -365,7 +348,7 @@ export function DashboardNotesProvider({
       folderPagination: Object.fromEntries(
         Object.entries(folderPagination).map(([key, value]) => [
           key,
-          { hasMore: value.hasMore, isLoading: value.isLoading },
+          { loaded: value.loaded, hasMore: value.hasMore, isLoading: value.isLoading },
         ]),
       ),
       loadMoreForFolder,

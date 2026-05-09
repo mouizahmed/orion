@@ -87,7 +87,6 @@ export default function DashboardHome({
   const {
     events: calendarEvents,
     loading: calendarLoading,
-    error: calendarError,
     syncing: calendarSyncing,
   } = useCalendarEvents()
 
@@ -155,7 +154,7 @@ export default function DashboardHome({
                 <Settings2 className="h-3.5 w-3.5" />
               </Button>
               <Button
-                onClick={onOpenCalendar}
+                onClick={() => onOpenCalendar?.()}
                 variant="secondary"
                 size="sm"
                 style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   forwardRef,
   memo,
   useCallback,
@@ -15,6 +16,10 @@ import { Camera, Loader2, Sparkles } from 'lucide-react'
 import AISelectionPopover from './AISelectionPopover'
 import {
   MDXEditor,
+  activePlugins$,
+  allowedHeadingLevels$,
+  convertSelectionToNode$,
+  currentBlockType$,
   headingsPlugin,
   listsPlugin,
   quotePlugin,
@@ -30,15 +35,27 @@ import {
   CodeToggle,
   StrikeThroughSupSubToggles,
   ListsToggle,
-  BlockTypeSelect,
   CreateLink,
   InsertTable,
   InsertThematicBreak,
   Separator,
+  type BlockType,
+  type HEADING_LEVEL,
   type MDXEditorMethods,
 } from '@mdxeditor/editor'
+import { useCellValue, usePublisher } from '@mdxeditor/gurx'
+import { $createHeadingNode, $createQuoteNode, type HeadingTagType } from '@lexical/rich-text'
+import { $createParagraphNode } from 'lexical'
 import '@mdxeditor/editor/style.css'
 import { uploadNoteImage } from '@/lib/notes-client'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 type MarkdownEditorProps = {
   markdown: string
@@ -65,6 +82,65 @@ type ToolbarContentsProps = {
   canEnhance?: boolean
 }
 
+type BlockTypeOption = {
+  label: string
+  value: BlockType
+}
+
+function DashboardBlockTypeSelect() {
+  const convertSelectionToNode = usePublisher(convertSelectionToNode$)
+  const currentBlockType = useCellValue(currentBlockType$)
+  const activePlugins = useCellValue(activePlugins$)
+  const allowedHeadingLevels = useCellValue(allowedHeadingLevels$)
+
+  const hasQuote = activePlugins.includes('quote')
+  const hasHeadings = activePlugins.includes('headings')
+  if (!hasQuote && !hasHeadings) return null
+
+  const options: BlockTypeOption[] = [{ label: 'Paragraph', value: 'paragraph' }]
+  if (hasQuote) options.push({ label: 'Quote', value: 'quote' })
+  if (hasHeadings) {
+    options.push(...allowedHeadingLevels.map((level: HEADING_LEVEL) => ({
+      label: `Heading ${level}`,
+      value: `h${level}` as BlockType,
+    })))
+  }
+
+  const handleChange = (blockType: string) => {
+    switch (blockType as BlockType) {
+      case 'quote':
+        convertSelectionToNode(() => $createQuoteNode())
+        break
+      case 'paragraph':
+      case '':
+        convertSelectionToNode(() => $createParagraphNode())
+        break
+      default:
+        convertSelectionToNode(() => $createHeadingNode(blockType as HeadingTagType))
+    }
+  }
+
+  return (
+    <Select value={currentBlockType || 'paragraph'} onValueChange={handleChange}>
+      <SelectTrigger
+        className="dashboard-block-type-trigger"
+        title="Select block type"
+        style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+      >
+        <SelectValue placeholder="Block type" />
+      </SelectTrigger>
+      <SelectContent align="start" width="md">
+        {options.map((option, index) => (
+          <Fragment key={option.value}>
+            {index === 2 ? <SelectSeparator /> : null}
+            <SelectItem value={option.value} checkPosition="left">{option.label}</SelectItem>
+          </Fragment>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
 function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true }: ToolbarContentsProps) {
   return (
     <>
@@ -77,7 +153,7 @@ function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true }: 
       <Separator />
       <ListsToggle />
       <Separator />
-      <BlockTypeSelect />
+      <DashboardBlockTypeSelect />
       <Separator />
       <div role="group" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
         <CreateLink />
@@ -93,7 +169,7 @@ function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true }: 
             onClick={onEnhance}
             disabled={isEnhancing || !canEnhance}
             title="Enhance note with AI"
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-violet-400/25 bg-violet-500/15 px-3 text-xs font-medium leading-none text-violet-700 outline-none transition-colors hover:bg-violet-500/20 hover:text-violet-800 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:border-violet-300/20 dark:bg-violet-400/15 dark:text-violet-200 dark:hover:bg-violet-400/20 dark:hover:text-violet-100"
+            className="mdx-editor-enhance-button inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-medium leading-none outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
             {isEnhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}

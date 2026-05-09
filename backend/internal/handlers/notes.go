@@ -35,18 +35,14 @@ type CreateNoteRequest struct {
 	Title           *string `json:"title"`
 	FolderID        *string `json:"folder_id"`
 	NoteMarkdown    *string `json:"note_markdown"`
-	ProviderEventID *string `json:"provider_event_id"`
-	ConnectionID    *string `json:"connection_id"`
-	CalendarID      *string `json:"calendar_id"`
+	CalendarEventID *string `json:"calendar_event_id"`
 }
 
 type UpdateNoteRequest struct {
 	Title           *string `json:"title"`
 	FolderID        *string `json:"folder_id"`
 	NoteMarkdown    *string `json:"note_markdown"`
-	ProviderEventID *string `json:"provider_event_id"`
-	ConnectionID    *string `json:"connection_id"`
-	CalendarID      *string `json:"calendar_id"`
+	CalendarEventID *string `json:"calendar_event_id"`
 }
 
 type StopRecordingRequest struct {
@@ -472,7 +468,7 @@ func (h *NotesHandler) GetNote(c *gin.Context) {
 		return
 	}
 
-	note, err := h.noteRepo.GetNoteByID(userID, noteID)
+	note, err := h.noteRepo.GetNoteDetailByID(userID, noteID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
 		return
@@ -506,9 +502,7 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 		FolderID:        req.FolderID,
 		Title:           title,
 		NoteMarkdown:    derefString(req.NoteMarkdown),
-		ProviderEventID: req.ProviderEventID,
-		ConnectionID:    req.ConnectionID,
-		CalendarID:      req.CalendarID,
+		CalendarEventID: req.CalendarEventID,
 	}
 
 	if req.FolderID != nil && strings.TrimSpace(*req.FolderID) != "" {
@@ -524,8 +518,8 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 
 	// If this note is linked to a calendar event, return the existing note rather than
 	// creating a duplicate (one note per event per user).
-	if note.ProviderEventID != nil && note.ConnectionID != nil && note.CalendarID != nil {
-		existing, err := h.noteRepo.ListNotesByEvent(userID, *note.ConnectionID, *note.CalendarID, *note.ProviderEventID, 1, nil, nil)
+	if note.CalendarEventID != nil {
+		existing, err := h.noteRepo.ListNotesByEvent(userID, *note.CalendarEventID, 1, nil, nil)
 		if err == nil && len(existing) > 0 {
 			c.JSON(http.StatusOK, gin.H{"note": existing[0]})
 			return
@@ -561,7 +555,7 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 		return
 	}
 
-	if req.Title == nil && req.FolderID == nil && req.NoteMarkdown == nil && req.ProviderEventID == nil && req.ConnectionID == nil && req.CalendarID == nil {
+	if req.Title == nil && req.FolderID == nil && req.NoteMarkdown == nil && req.CalendarEventID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
 		return
 	}
@@ -595,25 +589,11 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 	if req.NoteMarkdown != nil {
 		existing.NoteMarkdown = *req.NoteMarkdown
 	}
-	if req.ProviderEventID != nil {
-		if *req.ProviderEventID == "" {
-			existing.ProviderEventID = nil
+	if req.CalendarEventID != nil {
+		if *req.CalendarEventID == "" {
+			existing.CalendarEventID = nil
 		} else {
-			existing.ProviderEventID = req.ProviderEventID
-		}
-	}
-	if req.ConnectionID != nil {
-		if *req.ConnectionID == "" {
-			existing.ConnectionID = nil
-		} else {
-			existing.ConnectionID = req.ConnectionID
-		}
-	}
-	if req.CalendarID != nil {
-		if *req.CalendarID == "" {
-			existing.CalendarID = nil
-		} else {
-			existing.CalendarID = req.CalendarID
+			existing.CalendarEventID = req.CalendarEventID
 		}
 	}
 
@@ -760,11 +740,9 @@ func (h *NotesHandler) GetNotesByEvent(c *gin.Context) {
 		return
 	}
 
-	connectionID := strings.TrimSpace(c.Query("connection_id"))
-	calendarID := strings.TrimSpace(c.Query("calendar_id"))
-	providerEventID := strings.TrimSpace(c.Query("provider_event_id"))
-	if connectionID == "" || calendarID == "" || providerEventID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_id, calendar_id, and provider_event_id are required"})
+	calendarEventID := strings.TrimSpace(c.Query("calendar_event_id"))
+	if calendarEventID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "calendar_event_id is required"})
 		return
 	}
 
@@ -798,7 +776,7 @@ func (h *NotesHandler) GetNotesByEvent(c *gin.Context) {
 	}
 
 	fetchLimit := limit + 1
-	notes, err := h.noteRepo.ListNotesByEvent(userID, connectionID, calendarID, providerEventID, fetchLimit, cursorTime, cursorID)
+	notes, err := h.noteRepo.ListNotesByEvent(userID, calendarEventID, fetchLimit, cursorTime, cursorID)
 	if err != nil {
 		log.Printf("notes: failed to list notes by event for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load notes"})

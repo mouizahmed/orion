@@ -249,6 +249,7 @@ func main() {
 		// Calendar routes
 		authenticated.GET("/calendar/calendars", calendarHandler.GetCalendars)
 		authenticated.GET("/calendar/upcoming", calendarHandler.GetUpcomingEvents)
+		authenticated.GET("/calendar/events/linked", calendarHandler.GetLinkedEvent)
 		authenticated.GET("/calendar/events/search", calendarHandler.SearchEvents)
 		authenticated.POST("/calendar/sync", calendarHandler.Sync)
 		authenticated.PATCH("/calendar/connections/:connectionID/calendars/:calendarID", calendarHandler.UpdateCalendarVisibility)

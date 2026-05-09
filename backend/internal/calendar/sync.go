@@ -461,7 +461,8 @@ func (s *Service) fetchGoogleEventsFull(ctx context.Context, connection *models.
 		}
 		pageToken = page.NextPageToken
 	}
-	return &calendarFetchResult{Events: s.buildGoogleEvents(allItems, connection, calendar), NextToken: nextSyncToken, WasFullSync: true}, nil
+	events, _ := s.buildGoogleEvents(allItems, connection, calendar)
+	return &calendarFetchResult{Events: events, NextToken: nextSyncToken, WasFullSync: true}, nil
 }
 
 func (s *Service) fetchGoogleEventsIncremental(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, syncToken string) (*calendarFetchResult, error) {
@@ -511,7 +512,9 @@ func (s *Service) fetchGoogleEventsIncremental(ctx context.Context, connection *
 		}
 		pageToken = page.NextPageToken
 	}
-	return &calendarFetchResult{Events: s.buildGoogleEvents(allItems, connection, calendar), Deleted: deleted, NextToken: nextSyncToken, WasFullSync: false}, nil
+	events, noLongerMeetings := s.buildGoogleEvents(allItems, connection, calendar)
+	deleted = append(deleted, noLongerMeetings...)
+	return &calendarFetchResult{Events: events, Deleted: deleted, NextToken: nextSyncToken, WasFullSync: false}, nil
 }
 
 func (s *Service) doGoogleGet(ctx context.Context, connection *models.IntegrationConnection, requestURL string) ([]byte, int, error) {
@@ -529,8 +532,9 @@ func (s *Service) doGoogleGet(ctx context.Context, connection *models.Integratio
 	return body, resp.StatusCode, err
 }
 
-func (s *Service) buildGoogleEvents(items []googleEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) []*models.CachedCalendarEvent {
+func (s *Service) buildGoogleEvents(items []googleEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) ([]*models.CachedCalendarEvent, []string) {
 	events := make([]*models.CachedCalendarEvent, 0, len(items))
+	var nonMeetingIDs []string
 	for _, item := range items {
 		if item.Status == "cancelled" {
 			continue
@@ -575,10 +579,13 @@ func (s *Service) buildGoogleEvents(items []googleEventItem, connection *models.
 			Organizer:     firstNonEmpty(item.Organizer.DisplayName, item.Organizer.Email),
 			AttendeesJSON: attendeesJSON,
 		}
-		event.IsMeeting = isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON)
+		if !isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON) {
+			nonMeetingIDs = append(nonMeetingIDs, event.ProviderID)
+			continue
+		}
 		events = append(events, event)
 	}
-	return events
+	return events, nonMeetingIDs
 }
 
 func (s *Service) fetchMicrosoftCalendars(ctx context.Context, connection *models.IntegrationConnection) ([]*models.CachedCalendarSource, error) {
@@ -637,7 +644,6 @@ func (s *Service) fetchMicrosoftEventsFull(ctx context.Context, connection *mode
 	values := url.Values{}
 	values.Set("startDateTime", start.Format(time.RFC3339))
 	values.Set("endDateTime", end.Format(time.RFC3339))
-	values.Set("$top", "250")
 	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
 	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView/delta?%s", url.PathEscape(calendar.ID), values.Encode())
 
@@ -645,7 +651,7 @@ func (s *Service) fetchMicrosoftEventsFull(ctx context.Context, connection *mode
 	var deltaLink string
 	nextURL := requestURL
 	for nextURL != "" {
-		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC"`)
+		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC", odata.maxpagesize=250`)
 		if err != nil {
 			return nil, err
 		}
@@ -663,7 +669,8 @@ func (s *Service) fetchMicrosoftEventsFull(ctx context.Context, connection *mode
 		}
 		nextURL = page.NextLink
 	}
-	return &calendarFetchResult{Events: s.buildMicrosoftEvents(allItems, connection, calendar), NextToken: deltaLink, WasFullSync: true}, nil
+	events, _ := s.buildMicrosoftEvents(allItems, connection, calendar)
+	return &calendarFetchResult{Events: events, NextToken: deltaLink, WasFullSync: true}, nil
 }
 
 func (s *Service) fetchMicrosoftEventsIncremental(ctx context.Context, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource, deltaLinkURL string) (*calendarFetchResult, error) {
@@ -672,7 +679,7 @@ func (s *Service) fetchMicrosoftEventsIncremental(ctx context.Context, connectio
 	var newDeltaLink string
 	nextURL := deltaLinkURL
 	for nextURL != "" {
-		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC"`)
+		body, err := s.doMicrosoftGet(ctx, connection, nextURL, `outlook.timezone="UTC", odata.maxpagesize=250`)
 		if err != nil {
 			return nil, err
 		}
@@ -696,11 +703,14 @@ func (s *Service) fetchMicrosoftEventsIncremental(ctx context.Context, connectio
 		}
 		nextURL = page.NextLink
 	}
-	return &calendarFetchResult{Events: s.buildMicrosoftEvents(allItems, connection, calendar), Deleted: deleted, NextToken: newDeltaLink, WasFullSync: false}, nil
+	events, noLongerMeetings := s.buildMicrosoftEvents(allItems, connection, calendar)
+	deleted = append(deleted, noLongerMeetings...)
+	return &calendarFetchResult{Events: events, Deleted: deleted, NextToken: newDeltaLink, WasFullSync: false}, nil
 }
 
-func (s *Service) buildMicrosoftEvents(items []microsoftEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) []*models.CachedCalendarEvent {
+func (s *Service) buildMicrosoftEvents(items []microsoftEventItem, connection *models.IntegrationConnection, calendar *models.CachedCalendarSource) ([]*models.CachedCalendarEvent, []string) {
 	events := make([]*models.CachedCalendarEvent, 0, len(items))
+	var nonMeetingIDs []string
 	for _, item := range items {
 		if item.Removed != nil {
 			continue
@@ -742,10 +752,13 @@ func (s *Service) buildMicrosoftEvents(items []microsoftEventItem, connection *m
 			Organizer:     firstNonEmpty(item.Organizer.EmailAddress.Name, item.Organizer.EmailAddress.Address),
 			AttendeesJSON: attendeesJSON,
 		}
-		event.IsMeeting = isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON)
+		if !isMeeting(event.Title, event.Description, event.Location, event.MeetingLink, attendeesJSON) {
+			nonMeetingIDs = append(nonMeetingIDs, event.ProviderID)
+			continue
+		}
 		events = append(events, event)
 	}
-	return events
+	return events, nonMeetingIDs
 }
 
 func (s *Service) doMicrosoftGet(ctx context.Context, connection *models.IntegrationConnection, requestURL string, prefer string) ([]byte, error) {

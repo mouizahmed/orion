@@ -15,7 +15,8 @@ import (
 type CalendarCacheRepository interface {
 	ListCalendarSources(ctx context.Context, userID string) ([]*models.CachedCalendarSource, error)
 	ListUpcomingEvents(ctx context.Context, userID string, now time.Time, limit int) ([]*models.CachedCalendarEvent, error)
-	SearchEvents(ctx context.Context, userID, query string, limit int) ([]*models.CachedCalendarEvent, error)
+	GetEventByProviderID(ctx context.Context, userID, connectionID, calendarID, providerEventID string) (*models.CachedCalendarEvent, error)
+	SearchEvents(ctx context.Context, userID, query string, limit int, excludeLinkedExceptNoteID *string) ([]*models.CachedCalendarEvent, error)
 	ListConnectionSyncStates(ctx context.Context, userID string) ([]*models.CalendarSyncState, error)
 	UpsertCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) error
 	UpsertCalendarEvents(ctx context.Context, userID string, connection *models.IntegrationConnection, events []*models.CachedCalendarEvent) error
@@ -78,11 +79,11 @@ func (r *calendarCacheRepository) ListCalendarSources(ctx context.Context, userI
 
 func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID string, now time.Time, limit int) ([]*models.CachedCalendarEvent, error) {
 	query := `
-		SELECT e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
+		SELECT e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
 			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
-			COALESCE(e.organizer, ''), e.is_meeting, e.attendees
+			COALESCE(e.organizer, ''), e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
 			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
@@ -92,7 +93,6 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 			ON p.user_id = e.user_id AND p.connection_id = e.connection_id AND p.calendar_id = e.calendar_id
 		WHERE e.user_id = $1
 			AND e.end_at >= $2
-			AND e.is_meeting = true
 			AND COALESCE(p.visible, s.primary_calendar OR s.selected) = true
 		ORDER BY e.start_at ASC
 		LIMIT $3
@@ -107,31 +107,65 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 	for rows.Next() {
 		var event models.CachedCalendarEvent
 		if err := rows.Scan(
-			&event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
+			&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
 			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
-			&event.IsMeeting, &event.AttendeesJSON,
+			&event.AttendeesJSON,
 		); err != nil {
 			return nil, err
 		}
-		event.ID = fmt.Sprintf("%s:%s:%s:%s", event.Provider, event.ConnectionID, event.CalendarID, event.ProviderID)
 		events = append(events, &event)
 	}
 	return events, rows.Err()
 }
 
-func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, query string, limit int) ([]*models.CachedCalendarEvent, error) {
+func (r *calendarCacheRepository) GetEventByProviderID(ctx context.Context, userID, connectionID, calendarID, providerEventID string) (*models.CachedCalendarEvent, error) {
+	query := `
+		SELECT e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
+			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
+			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
+			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
+			COALESCE(e.organizer, ''), e.attendees
+		FROM calendar_events e
+		JOIN calendar_sources s
+			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
+		JOIN integration_connections c
+			ON c.user_id = e.user_id AND c.id = e.connection_id AND c.status = 'active'
+		WHERE e.user_id = $1
+			AND e.connection_id = $2
+			AND e.calendar_id = $3
+			AND e.provider_event_id = $4
+		LIMIT 1
+	`
+
+	var event models.CachedCalendarEvent
+	if err := r.db.QueryRowContext(ctx, query, userID, connectionID, calendarID, providerEventID).Scan(
+		&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
+		&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
+		&event.Location, &event.Description, &event.MeetingLink,
+		&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
+		&event.AttendeesJSON,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &event, nil
+}
+
+func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, query string, limit int, excludeLinkedExceptNoteID *string) ([]*models.CachedCalendarEvent, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
 	pattern := "%" + strings.ReplaceAll(strings.TrimSpace(query), "%", "\\%") + "%"
 	sqlQuery := `
-		SELECT e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
+		SELECT e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
 			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
-			COALESCE(e.organizer, ''), e.is_meeting, e.attendees
+			COALESCE(e.organizer, ''), e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
 			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
@@ -140,7 +174,6 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 		LEFT JOIN calendar_preferences p
 			ON p.user_id = e.user_id AND p.connection_id = e.connection_id AND p.calendar_id = e.calendar_id
 		WHERE e.user_id = $1
-			AND e.is_meeting = true
 			AND COALESCE(p.visible, s.primary_calendar OR s.selected) = true
 	`
 	args := []interface{}{userID}
@@ -149,6 +182,27 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 		sqlQuery += fmt.Sprintf(" AND e.title ILIKE $%d", argPos)
 		args = append(args, pattern)
 		argPos++
+	}
+	// Exclude events already linked to a note, except for the note currently being edited
+	if excludeLinkedExceptNoteID != nil && *excludeLinkedExceptNoteID != "" {
+		sqlQuery += fmt.Sprintf(`
+			AND NOT EXISTS (
+				SELECT 1 FROM notes n
+				WHERE n.calendar_event_id = e.id
+				  AND n.deleted_at IS NULL
+				  AND n.user_id = e.user_id
+				  AND n.id != $%d
+			)`, argPos)
+		args = append(args, *excludeLinkedExceptNoteID)
+		argPos++
+	} else {
+		sqlQuery += `
+			AND NOT EXISTS (
+				SELECT 1 FROM notes n
+				WHERE n.calendar_event_id = e.id
+				  AND n.deleted_at IS NULL
+				  AND n.user_id = e.user_id
+			)`
 	}
 	sqlQuery += fmt.Sprintf(`
 		ORDER BY ABS(EXTRACT(EPOCH FROM (e.start_at - NOW()))) ASC
@@ -166,15 +220,14 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 	for rows.Next() {
 		var event models.CachedCalendarEvent
 		if err := rows.Scan(
-			&event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
+			&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
 			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
-			&event.IsMeeting, &event.AttendeesJSON,
+			&event.AttendeesJSON,
 		); err != nil {
 			return nil, err
 		}
-		event.ID = fmt.Sprintf("%s:%s:%s:%s", event.Provider, event.ConnectionID, event.CalendarID, event.ProviderID)
 		events = append(events, &event)
 	}
 	return events, rows.Err()
@@ -292,15 +345,15 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		return nil
 	}
 
-	const nParams = 19
+	const nParams = 18
 	placeholders := make([]string, len(events))
 	args := make([]interface{}, 0, len(events)*nParams)
 	for i, event := range events {
 		b := i * nParams
 		placeholders[i] = fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
 			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8, b+9, b+10,
-			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18, b+19,
+			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18,
 		)
 		attendees := event.AttendeesJSON
 		if len(attendees) == 0 {
@@ -311,14 +364,14 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 			nullString(event.AccountEmail), event.Title, event.Start, event.End, event.AllDay,
 			nullString(event.Location), nullString(event.Description), nullString(event.MeetingLink),
 			nullString(event.EventLink), nullString(event.CalendarName), nullString(event.Color), nullString(event.Organizer),
-			event.IsMeeting, attendees,
+			attendees,
 		)
 	}
 
 	query := `INSERT INTO calendar_events (
 		user_id, connection_id, calendar_id, provider_event_id, provider, account_email,
 		title, start_at, end_at, all_day, location, description, meeting_link, event_link, calendar_name,
-		color, organizer, is_meeting, attendees, synced_at, created_at, updated_at
+		color, organizer, attendees, synced_at, created_at, updated_at
 	) VALUES ` + strings.Join(placeholders, ",") + `
 	ON CONFLICT (user_id, connection_id, calendar_id, provider_event_id) DO UPDATE SET
 		provider = EXCLUDED.provider, account_email = EXCLUDED.account_email,
@@ -327,7 +380,7 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		location = EXCLUDED.location, description = EXCLUDED.description,
 		meeting_link = EXCLUDED.meeting_link, event_link = EXCLUDED.event_link, calendar_name = EXCLUDED.calendar_name,
 		color = EXCLUDED.color, organizer = EXCLUDED.organizer,
-		is_meeting = EXCLUDED.is_meeting, attendees = EXCLUDED.attendees,
+		attendees = EXCLUDED.attendees,
 		synced_at = EXCLUDED.synced_at, updated_at = EXCLUDED.updated_at`
 
 	_, err := r.db.ExecContext(ctx, query, args...)

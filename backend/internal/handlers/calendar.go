@@ -366,7 +366,13 @@ func (h *CalendarHandler) SearchEvents(c *gin.Context) {
 		limit = 20
 	}
 
-	events, err := h.cacheRepo.SearchEvents(c.Request.Context(), userID, query, limit)
+	noteID := strings.TrimSpace(c.Query("note_id"))
+	var excludeNoteID *string
+	if noteID != "" {
+		excludeNoteID = &noteID
+	}
+
+	events, err := h.cacheRepo.SearchEvents(c.Request.Context(), userID, query, limit, excludeNoteID)
 	if err != nil {
 		log.Printf("calendar: failed to search events for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search events"})
@@ -394,6 +400,53 @@ func (h *CalendarHandler) SearchEvents(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "success", "events": result})
+}
+
+func (h *CalendarHandler) GetLinkedEvent(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	connectionID := strings.TrimSpace(c.Query("connection_id"))
+	calendarID := strings.TrimSpace(c.Query("calendar_id"))
+	providerEventID := strings.TrimSpace(c.Query("provider_event_id"))
+	if connectionID == "" || calendarID == "" || providerEventID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_id, calendar_id, and provider_event_id are required"})
+		return
+	}
+
+	event, err := h.cacheRepo.GetEventByProviderID(c.Request.Context(), userID, connectionID, calendarID, providerEventID)
+	if err != nil {
+		log.Printf("calendar: failed to get linked event for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch event"})
+		return
+	}
+	if event == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Event not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "success",
+		"event": &CalendarEvent{
+			ID:           event.ID,
+			ProviderID:   event.ProviderID,
+			ConnectionID: event.ConnectionID,
+			AccountEmail: event.AccountEmail,
+			Title:        event.Title,
+			Start:        event.Start,
+			End:          event.End,
+			AllDay:       event.AllDay,
+			EventLink:    event.EventLink,
+			CalendarID:   event.CalendarID,
+			CalendarName: event.CalendarName,
+			Color:        event.Color,
+			Organizer:    event.Organizer,
+			Provider:     event.Provider,
+		},
+	})
 }
 
 func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarservice.SyncScope) {

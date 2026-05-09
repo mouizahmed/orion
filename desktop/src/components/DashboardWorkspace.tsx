@@ -3,8 +3,15 @@ import { cn } from '@/lib/utils'
 import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  DropdownIconSlot,
+  DropdownItem,
+  DropdownLabel,
+  DropdownPopover,
+  DropdownSeparator,
+} from '@/components/ui/dropdown-list'
 import { InfoBanner } from '@/components/ui/info-banner'
-import { updateNote, enhanceNote } from '@/lib/notes-client'
+import { updateNote, enhanceNote, getNote } from '@/lib/notes-client'
 import { toast } from 'sonner'
 import { auth } from '@/config/firebase'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
@@ -18,9 +25,7 @@ import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 type MeetingOption = {
-  providerId: string
-  connectionId: string
-  calendarId: string
+  id: string
   title: string
   start: string
   color: string
@@ -52,6 +57,7 @@ export default function DashboardWorkspace({
   const folderPickerRef = useRef<HTMLDivElement | null>(null)
   const [draftFolderId, setDraftFolderId] = useState('')
   const [draftNote, setDraftNote] = useState('')
+  const [isNoteLoading, setIsNoteLoading] = useState(false)
 
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceError, setEnhanceError] = useState<string | null>(null)
@@ -65,34 +71,79 @@ export default function DashboardWorkspace({
   const meetingPickerRef = useRef<HTMLDivElement | null>(null)
   const meetingSearchRef = useRef<HTMLInputElement | null>(null)
   const meetingSearchTimerRef = useRef<number | null>(null)
+  const linkedMeetingHydratedForRef = useRef<string | null>(null)
   const [meetingSearch, setMeetingSearch] = useState('')
   const [meetingResults, setMeetingResults] = useState<MeetingOption[]>([])
+  const [selectedLinkedMeeting, setSelectedLinkedMeeting] = useState<MeetingOption | null>(null)
   const [meetingResultsLoading, setMeetingResultsLoading] = useState(false)
   const [linkingMeeting, setLinkingMeeting] = useState(false)
 
   const saveTimerRef = useRef<number | null>(null)
   const lastLoadedIdRef = useRef<string | null>(null)
   const isHydratingDraftsRef = useRef(false)
+  const pendingDetailForRef = useRef<string | null>(null)
+  const noteMarkdownCache = useRef<Map<string, string>>(new Map())
+  const linkedMeetingCache = useRef<Map<string, MeetingOption | null>>(new Map())
+  const selectedIdRef = useRef(selectedId)
+  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
 
   // Hydrate drafts when a note is selected
   useEffect(() => {
     if (!selected) {
       lastLoadedIdRef.current = null
       isHydratingDraftsRef.current = false
+      pendingDetailForRef.current = null
       setDraftTitle('')
       setDraftFolderId('')
       setDraftNote('')
+      setSelectedLinkedMeeting(null)
+      setIsNoteLoading(false)
       setTranscriptOpen(false)
       return
     }
     if (lastLoadedIdRef.current === selected.id) return
     lastLoadedIdRef.current = selected.id
+    pendingDetailForRef.current = selected.id
     isHydratingDraftsRef.current = true
     setDraftTitle(selected.title)
     setDraftFolderId(selected.folderId ?? '')
-    setDraftNote(selected.noteMarkdown)
+    setDraftNote('')
+    setSelectedLinkedMeeting(linkedMeetingCache.current.get(selected.id) ?? null)
     setEnhanceError(null)
-  }, [selected])
+
+    const cached = noteMarkdownCache.current.get(selected.id)
+    if (cached !== undefined) {
+      pendingDetailForRef.current = null
+      setIsNoteLoading(false)
+      setDraftNote(cached)
+    } else {
+      setIsNoteLoading(true)
+      void getNote(userId, selected.id).then((result) => {
+        if (!result || pendingDetailForRef.current !== selected.id) return
+        noteMarkdownCache.current.set(selected.id, result.note.noteMarkdown)
+        replaceNote(result.note)
+        pendingDetailForRef.current = null
+        isHydratingDraftsRef.current = true
+        setIsNoteLoading(false)
+        setDraftNote(result.note.noteMarkdown)
+        if (result.linkedEvent) {
+          const le = result.linkedEvent
+          const option = { id: le.id, title: le.title, start: le.start, color: le.color }
+          linkedMeetingCache.current.set(selected.id, option)
+          setSelectedLinkedMeeting(option)
+          linkedMeetingHydratedForRef.current = le.id
+          setMeetingResults((prev) => {
+            const exists = prev.some((m) => m.id === le.id)
+            if (exists) return prev
+            return [option, ...prev]
+          })
+        } else {
+          linkedMeetingCache.current.set(selected.id, null)
+          setSelectedLinkedMeeting(null)
+        }
+      })
+    }
+  }, [replaceNote, selected, userId])
 
   // Sync AI-driven note edits into the local draft so the editor updates in real time
   useEffect(() => {
@@ -140,6 +191,7 @@ export default function DashboardWorkspace({
       const url = new URL(`${API_BASE_URL}/calendar/events/search`)
       url.searchParams.set('limit', '20')
       if (q.trim()) url.searchParams.set('q', q.trim())
+      if (selectedIdRef.current) url.searchParams.set('note_id', selectedIdRef.current)
       const res = await fetch(url.toString(), {
         headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
       })
@@ -159,9 +211,7 @@ export default function DashboardWorkspace({
       }
       if (data.status === 'success' && Array.isArray(data.events)) {
         setMeetingResults(data.events.map((e) => ({
-          providerId: e.provider_id ?? e.id,
-          connectionId: e.connection_id ?? '',
-          calendarId: e.calendar_id ?? e.provider,
+          id: e.id,
           title: e.title || 'Untitled event',
           start: e.start,
           color: e.color ?? '#9f73f2',
@@ -190,9 +240,29 @@ export default function DashboardWorkspace({
     }, 300)
   }
 
-  const linkedMeeting = selected?.providerEventId
-    ? (meetingResults.find((m) => m.providerId === selected.providerEventId && m.connectionId === selected.connectionId) ?? null)
+  const selectedCalendarEventId = selected?.calendarEventId ?? selectedLinkedMeeting?.id
+  const linkedMeeting = selectedCalendarEventId
+    ? (meetingResults.find((m) => m.id === selectedCalendarEventId) ?? selectedLinkedMeeting ?? null)
     : null
+  const displayedMeetingResults =
+    linkedMeeting && !meetingSearch.trim() && !meetingResults.some((m) => m.id === linkedMeeting.id)
+      ? [linkedMeeting, ...meetingResults]
+      : meetingResults
+
+  useEffect(() => {
+    if (!selectedCalendarEventId) {
+      linkedMeetingHydratedForRef.current = null
+      return
+    }
+    if (linkedMeetingHydratedForRef.current === selectedCalendarEventId) return
+    const alreadyLoaded = meetingResults.some((m) => m.id === selectedCalendarEventId)
+    if (alreadyLoaded) {
+      linkedMeetingHydratedForRef.current = selectedCalendarEventId
+      return
+    }
+    linkedMeetingHydratedForRef.current = selectedCalendarEventId
+    void searchMeetings('')
+  }, [meetingResults, searchMeetings, selectedCalendarEventId])
 
   const handleLinkMeeting = async (meeting: MeetingOption | null) => {
     if (!selectedId || linkingMeeting) return
@@ -200,11 +270,16 @@ export default function DashboardWorkspace({
     setMeetingPickerOpen(false)
     try {
       const updated = await updateNote(userId, selectedId, {
-        providerEventId: meeting?.providerId ?? '',
-        connectionId: meeting?.connectionId ?? '',
-        calendarId: meeting?.calendarId ?? '',
+        calendarEventId: meeting?.id ?? '',
       })
       if (updated) replaceNote(updated)
+      if (meeting) {
+        linkedMeetingCache.current.set(selectedId, meeting)
+        setSelectedLinkedMeeting(meeting)
+      } else {
+        linkedMeetingCache.current.set(selectedId, null)
+        setSelectedLinkedMeeting(null)
+      }
     } catch (err) {
       if (err instanceof Error && err.message === 'note not found') {
         evictNote(selectedId)
@@ -266,6 +341,9 @@ export default function DashboardWorkspace({
       isHydratingDraftsRef.current = false
       return
     }
+    if (pendingDetailForRef.current === selectedId) return
+    pendingDetailForRef.current = null
+    noteMarkdownCache.current.set(selectedId, draftNote)
     scheduleSave({
       title: draftTitle,
       folderId: draftFolderId || '',
@@ -280,6 +358,7 @@ export default function DashboardWorkspace({
     setEnhanceError(null)
     try {
       const { note } = await enhanceNote(selectedId)
+      noteMarkdownCache.current.set(selectedId, note.noteMarkdown)
       isHydratingDraftsRef.current = true
       setDraftNote(note.noteMarkdown)
       replaceNote(note)
@@ -315,8 +394,7 @@ export default function DashboardWorkspace({
   }
 
   if (isLoading) {
-    const hasSavedNote = Boolean(localStorage.getItem('dashboard:selectedNoteId'))
-    return hasSavedNote ? (
+    return (
       // Skeleton matching the note editor layout
       <div className="flex h-full min-h-0 gap-2">
         <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none">
@@ -333,10 +411,6 @@ export default function DashboardWorkspace({
             <div className="h-3 w-4/5 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
           </div>
         </div>
-      </div>
-    ) : (
-      <div className="h-full">
-        <DashboardHome onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} />
       </div>
     )
   }
@@ -382,29 +456,26 @@ export default function DashboardWorkspace({
               <span>{draftFolderId ? (folders.find((f) => f.id === draftFolderId)?.name ?? 'Folder') : 'No folder'}</span>
             </Button>
             {folderPickerOpen && (
-              <div className="absolute right-0 top-[calc(100%+4px)] z-30 min-w-[160px] rounded-lg border border-neutral-200 bg-white/95 py-1 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100">
-                <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">Add to folder</div>
+              <DropdownPopover width="md">
+                <DropdownLabel>Add to folder</DropdownLabel>
                 {[{ id: '', name: 'No folder' }, ...folders].map((f, i) => {
                   const active = (f.id === '' && !draftFolderId) || f.id === draftFolderId
                   return (
                     <Fragment key={f.id || '__none__'}>
                       {i === 1 && folders.length > 0 && (
-                        <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
+                        <DropdownSeparator />
                       )}
-                      <Button
-                        type="button"
-                        variant="ghost"
+                      <DropdownItem
                         onClick={() => { setDraftFolderId(f.id); setFolderPickerOpen(false) }}
-                        className="mx-1 h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 text-xs font-normal"
                       >
-                        <span className="w-3.5">{active ? <Check className="h-3.5 w-3.5" /> : null}</span>
+                        <DropdownIconSlot>{active ? <Check className="h-3.5 w-3.5" /> : null}</DropdownIconSlot>
                         <Folder className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" />
                         {f.name}
-                      </Button>
+                      </DropdownItem>
                     </Fragment>
                   )
                 })}
-              </div>
+              </DropdownPopover>
             )}
           </div>
           {/* Meeting link picker */}
@@ -416,11 +487,17 @@ export default function DashboardWorkspace({
               onClick={() => meetingPickerOpen ? setMeetingPickerOpen(false) : openMeetingPicker()}
               className="h-8 gap-1.5"
             >
-              <CalendarDays className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-[140px] truncate">
+              {isNoteLoading && selectedCalendarEventId && !linkedMeeting ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              ) : (
+                <CalendarDays className="h-3.5 w-3.5 shrink-0" />
+              )}
+              <span className="max-w-[140px] truncate leading-4">
                 {linkingMeeting
                   ? 'Saving…'
-                  : !selected?.providerEventId
+                  : isNoteLoading && selectedCalendarEventId && !linkedMeeting
+                  ? 'Loading…'
+                  : !selectedCalendarEventId
                   ? 'Select event'
                   : linkedMeeting
                   ? linkedMeeting.title
@@ -431,8 +508,8 @@ export default function DashboardWorkspace({
               <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
             </Button>
             {meetingPickerOpen && (
-              <div className="absolute right-0 top-[calc(100%+4px)] z-30 w-72 rounded-lg border border-neutral-200 bg-white/95 py-1 text-neutral-900 shadow-lg backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100">
-                <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+              <DropdownPopover width="lg">
+                <DropdownLabel>
                   <input
                     ref={meetingSearchRef}
                     value={meetingSearch}
@@ -440,57 +517,52 @@ export default function DashboardWorkspace({
                     placeholder="Search events…"
                     className="w-full bg-transparent outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
                   />
-                </div>
-                {selected?.providerEventId && !meetingSearch ? (
+                </DropdownLabel>
+                {selectedCalendarEventId && !meetingSearch ? (
                   <>
-                    <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
-                    <Button
-                      type="button"
-                      variant="ghost"
+                    <DropdownSeparator />
+                    <DropdownItem
                       onClick={() => void handleLinkMeeting(null)}
-                      className="mx-1 h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 text-xs font-normal"
                     >
-                      <span className="w-3.5"><X className="h-3.5 w-3.5" /></span>
+                      <DropdownIconSlot><X className="h-3.5 w-3.5" /></DropdownIconSlot>
                       Remove event link
-                    </Button>
+                    </DropdownItem>
                   </>
                 ) : null}
-                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
+                <DropdownSeparator />
                 {meetingResultsLoading ? (
                   <div className="flex items-center gap-2 px-4 py-2 text-xs text-neutral-400">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Searching…
                   </div>
-                ) : meetingResults.length === 0 ? (
+                ) : displayedMeetingResults.length === 0 ? (
                   <div className="px-3 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
                     {meetingSearch.trim() ? 'No matching events' : 'No events found'}
                   </div>
                 ) : (
                   <div className="max-h-56 overflow-y-auto sidebar-scrollbar">
-                    {meetingResults.map((meeting) => {
-                      const isLinked = selected?.providerEventId === meeting.providerId && selected?.connectionId === meeting.connectionId
+                    {displayedMeetingResults.map((meeting) => {
+                      const isLinked = selectedCalendarEventId === meeting.id
                       const date = new Date(meeting.start)
                       const dateLabel = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
                       return (
-                        <Button
-                          key={`${meeting.connectionId}-${meeting.providerId}`}
-                          type="button"
-                          variant="ghost"
+                        <DropdownItem
+                          key={meeting.id}
                           onClick={() => void handleLinkMeeting(meeting)}
-                          className="mx-1 h-auto min-h-8 w-[calc(100%-8px)] justify-start gap-2 rounded-full px-3 py-1.5 text-xs font-normal"
+                          layout="multiline"
                         >
-                          <span className="w-3.5 shrink-0">{isLinked ? <Check className="h-3.5 w-3.5" /> : null}</span>
+                          <DropdownIconSlot>{isLinked ? <Check className="h-3.5 w-3.5" /> : null}</DropdownIconSlot>
                           <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: meeting.color }} />
                           <span className="min-w-0 text-left">
-                            <span className="block truncate">{meeting.title}</span>
+                            <span className="block truncate leading-4">{meeting.title}</span>
                             <span className="block text-[11px] text-neutral-400 dark:text-neutral-500">{dateLabel}</span>
                           </span>
-                        </Button>
+                        </DropdownItem>
                       )
                     })}
                   </div>
                 )}
-              </div>
+              </DropdownPopover>
             )}
           </div>
 
@@ -522,18 +594,29 @@ export default function DashboardWorkspace({
 
         {/* Editor */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <MarkdownEditor
-            markdown={draftNote}
-            onChange={setDraftNote}
-            placeholder="Markdown notes…"
-            theme="auto"
-            showToolbar
-            className="h-full dashboard-editor"
-            noteId={selectedId}
-            onEnhance={handleEditorEnhance}
-            isEnhancing={isEnhancing}
-            canEnhance={Boolean(draftNote.trim())}
-          />
+          {isNoteLoading ? (
+            <div className="flex-1 space-y-3 p-5">
+              <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="mt-6 h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+              <div className="h-3 w-4/5 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+            </div>
+          ) : (
+            <MarkdownEditor
+              markdown={draftNote}
+              onChange={setDraftNote}
+              placeholder="Markdown notes…"
+              theme="auto"
+              showToolbar
+              className="h-full dashboard-editor"
+              noteId={selectedId}
+              onEnhance={handleEditorEnhance}
+              isEnhancing={isEnhancing}
+              canEnhance={Boolean(draftNote.trim())}
+            />
+          )}
         </div>
 
       </div>

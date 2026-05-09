@@ -39,7 +39,6 @@ type CachedCalendarEvent struct {
 	Color         string
 	Organizer     string
 	Provider      string
-	IsMeeting     bool
 	AttendeesJSON []byte
 }
 

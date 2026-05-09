@@ -1,8 +1,13 @@
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import {
+  SelectDropdownContent,
+  SelectDropdownItem,
+  SelectDropdownSeparator,
+} from "@/components/ui/dropdown-list"
 
 function Select({
   ...props
@@ -53,35 +58,23 @@ function SelectContent({
   children,
   position = "popper",
   align = "center",
+  width = "trigger",
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+}: React.ComponentProps<typeof SelectPrimitive.Content> & {
+  width?: React.ComponentProps<typeof SelectDropdownContent>["width"]
+}) {
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Content
-        data-slot="select-content"
-        className={cn(
-          "relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-2xl border border-neutral-200 bg-white/95 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
-          position === "popper" &&
-            "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
-          className
-        )}
-        position={position}
-        align={align}
-        {...props}
-      >
-        <SelectScrollUpButton />
-        <SelectPrimitive.Viewport
-          className={cn(
-            "p-1",
-            position === "popper" &&
-              "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
-          )}
-        >
-          {children}
-        </SelectPrimitive.Viewport>
-        <SelectScrollDownButton />
-      </SelectPrimitive.Content>
-    </SelectPrimitive.Portal>
+    <SelectDropdownContent
+      data-slot="select-content"
+      className={className}
+      position={position}
+      align={align}
+      width={width}
+      viewportClassName={position === "popper" ? "min-w-[var(--radix-select-trigger-width)]" : undefined}
+      {...props}
+    >
+      {children}
+    </SelectDropdownContent>
   )
 }
 
@@ -101,24 +94,20 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  checkPosition = "right",
   ...props
-}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+}: React.ComponentProps<typeof SelectPrimitive.Item> & {
+  checkPosition?: React.ComponentProps<typeof SelectDropdownItem>["checkPosition"]
+}) {
   return (
-    <SelectPrimitive.Item
+    <SelectDropdownItem
       data-slot="select-item"
-      className={cn(
-        "relative flex h-8 w-full cursor-pointer items-center gap-2 rounded-full py-1 pr-8 pl-2 text-xs text-neutral-700 outline-hidden select-none focus:bg-neutral-100 focus:text-neutral-950 dark:text-neutral-300 dark:focus:bg-white/10 dark:focus:text-white data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5 [&_svg:not([class*='text-'])]:text-neutral-400 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
-        className
-      )}
+      checkPosition={checkPosition}
+      className={className}
       {...props}
     >
-      <span className="absolute right-2 flex size-3.5 items-center justify-center">
-        <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" />
-        </SelectPrimitive.ItemIndicator>
-      </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-    </SelectPrimitive.Item>
+      {children}
+    </SelectDropdownItem>
   )
 }
 
@@ -126,13 +115,7 @@ function SelectSeparator({
   className,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Separator>) {
-  return (
-    <SelectPrimitive.Separator
-      data-slot="select-separator"
-      className={cn("pointer-events-none -mx-1 my-1 h-px bg-neutral-200 dark:bg-white/10", className)}
-      {...props}
-    />
-  )
+  return <SelectDropdownSeparator data-slot="select-separator" className={className} {...props} />
 }
 
 function SelectScrollUpButton({

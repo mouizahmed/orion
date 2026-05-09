@@ -29,7 +29,6 @@ export default function DashboardSidebar({
   const { user, logout } = useAuth()
   const {
     isLoading,
-    loadError,
     folders,
     folderPagination,
     loadMoreForFolder,
@@ -243,7 +242,6 @@ export default function DashboardSidebar({
               }}
               notes={filteredNotes}
               isLoading={isLoading}
-              error={loadError}
               folderPagination={folderPagination}
               onLoadMore={loadMoreForFolder}
               selectedFolderId={selectedFolderId}

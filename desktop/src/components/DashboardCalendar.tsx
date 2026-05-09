@@ -149,7 +149,7 @@ function EventDetail({
   const [linkedNotesCursor, setLinkedNotesCursor] = useState<string | undefined>(undefined)
   const [startingNote, setStartingNote] = useState(false)
 
-  const canLinkNotes = Boolean(event.connectionId && event.calendarId && event.providerId)
+  const canLinkNotes = Boolean(event.id)
   const calendarAction = getEventCalendarAction(event)
   const description = event.description ? normalizeDescription(event.description) : ''
 
@@ -157,7 +157,7 @@ function EventDetail({
     if (!canLinkNotes) return
     setLinkedNotesLoading(true)
     try {
-      const result = await listNotesByEvent(event.connectionId!, event.calendarId, event.providerId!)
+      const result = await listNotesByEvent(event.id)
       setLinkedNotes(result.notes)
       setLinkedNotesHasMore(result.hasMore)
       setLinkedNotesCursor(result.nextCursor)
@@ -166,13 +166,13 @@ function EventDetail({
     } finally {
       setLinkedNotesLoading(false)
     }
-  }, [canLinkNotes, event.connectionId, event.calendarId, event.providerId])
+  }, [canLinkNotes, event.id])
 
   const loadMoreLinkedNotes = useCallback(async () => {
     if (!canLinkNotes || linkedNotesLoadingMore || !linkedNotesHasMore) return
     setLinkedNotesLoadingMore(true)
     try {
-      const result = await listNotesByEvent(event.connectionId!, event.calendarId, event.providerId!, linkedNotesCursor)
+      const result = await listNotesByEvent(event.id, linkedNotesCursor)
       setLinkedNotes((prev) => {
         const existing = new Set(prev.map((n) => n.id))
         return [...prev, ...result.notes.filter((n) => !existing.has(n.id))]
@@ -184,7 +184,7 @@ function EventDetail({
     } finally {
       setLinkedNotesLoadingMore(false)
     }
-  }, [canLinkNotes, linkedNotesLoadingMore, linkedNotesHasMore, linkedNotesCursor, event.connectionId, event.calendarId, event.providerId])
+  }, [canLinkNotes, linkedNotesLoadingMore, linkedNotesHasMore, linkedNotesCursor, event.id])
 
   useEffect(() => {
     void refreshLinkedNotes()
@@ -356,7 +356,7 @@ export function DashboardCalendar({
   initialSelectedEventId?: string | null
 }) {
   const { createNewNote, selectNote } = useDashboardNotes()
-  const { events, loading, error, syncing } = useCalendarEvents()
+  const { events, loading, syncing } = useCalendarEvents()
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const consumedInitialEventRef = useRef<string | null>(null)
 
@@ -397,11 +397,7 @@ export function DashboardCalendar({
   const handleStartNote = useCallback(async (event: CalendarEvent) => {
     const created = await createNewNote({
       title: event.title,
-      eventLink: {
-        providerEventId: event.providerId ?? '',
-        connectionId: event.connectionId ?? '',
-        calendarId: event.calendarId,
-      },
+      calendarEventId: event.id,
     })
     if (created) {
       selectNote(created.id)
