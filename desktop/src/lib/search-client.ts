@@ -74,6 +74,7 @@ function toFolderRecord(folder: ApiFolder): FolderRecord {
   return {
     id: folder.id,
     name: folder.name,
+    noteCount: 0,
     createdAt: Date.parse(folder.created_at),
     updatedAt: Date.parse(folder.updated_at),
   }

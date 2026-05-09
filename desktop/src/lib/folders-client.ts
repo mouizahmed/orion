@@ -7,6 +7,7 @@ type ApiFolder = {
   id: string
   user_id: string
   name: string
+  note_count?: number
   created_at: string
   updated_at: string
 }
@@ -15,6 +16,7 @@ function toFolderRecord(folder: ApiFolder): FolderRecord {
   return {
     id: folder.id,
     name: folder.name,
+    noteCount: folder.note_count ?? 0,
     createdAt: Date.parse(folder.created_at),
     updatedAt: Date.parse(folder.updated_at),
   }

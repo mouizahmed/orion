@@ -11,6 +11,7 @@ import type { NoteRecord } from '@/types/note'
 type TreeFolder = {
   id: string
   name: string
+  noteCount: number
   noteIds: string[]
 }
 
@@ -27,7 +28,6 @@ export function NotesTree({
   onLoadMore,
   selectedFolderId,
   selectedNoteId,
-  search,
   onSelectFolder,
   onSelectNote,
   onCreateFolder,
@@ -45,16 +45,15 @@ export function NotesTree({
   onLoadMore: (folderId: string | null) => void
   selectedFolderId: string | null
   selectedNoteId: string | null
-  search: string
   onSelectFolder: (id: string | null) => void
   onSelectNote: (noteId: string) => void
   onCreateFolder: () => void
   onCreateNote: () => void
-  onRenameFolder: (folderId: string, name: string) => Promise<void>
-  onDeleteFolder: (folderId: string) => Promise<void>
-  onRenameNote: (noteId: string, title: string) => Promise<void>
-  onDeleteNote: (noteId: string) => Promise<void>
-  onMoveNote: (noteId: string, folderId: string | null) => Promise<void>
+  onRenameFolder: (folderId: string, name: string) => Promise<boolean>
+  onDeleteFolder: (folderId: string) => Promise<boolean>
+  onRenameNote: (noteId: string, title: string) => Promise<boolean>
+  onDeleteNote: (noteId: string) => Promise<boolean>
+  onMoveNote: (noteId: string, folderId: string | null) => Promise<boolean>
 }) {
   const [treeExpanded, setTreeExpanded] = useState(true)
   const [folderExpansions, setFolderExpansions] = useState<Record<string, boolean>>({})
@@ -78,11 +77,18 @@ export function NotesTree({
 
   const commitRename = async (type: 'note' | 'folder', id: string) => {
     const val = renameValue.trim()
+    if (!val) {
+      setRenamingId(null)
+      setRenameValue('')
+      return
+    }
     setRenamingId(null)
     setRenameValue('')
-    if (!val) return
-    if (type === 'folder') await onRenameFolder(id, val)
-    else await onRenameNote(id, val)
+    const ok = type === 'folder' ? await onRenameFolder(id, val) : await onRenameNote(id, val)
+    if (!ok) {
+      setRenamingId(id)
+      setRenameValue(val)
+    }
   }
 
   const cancelRename = () => {
@@ -98,7 +104,7 @@ export function NotesTree({
 
   const treeFolders = useMemo<TreeFolder[]>(() => {
     const byFolder = new Map<string, TreeFolder>()
-    for (const f of folders) byFolder.set(f.id, { id: f.id, name: f.name, noteIds: [] })
+    for (const f of folders) byFolder.set(f.id, { id: f.id, name: f.name, noteCount: f.noteCount, noteIds: [] })
     for (const n of notes) {
       if (n.folderId) {
         const node = byFolder.get(n.folderId)
@@ -110,8 +116,12 @@ export function NotesTree({
 
   const unfiledNoteIds = useMemo(() => notes.filter((n) => !n.folderId).map((n) => n.id), [notes])
 
-  const toggleFolder = (id: string) => {
-    setFolderExpansions((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }))
+  const handleExpandFolder = (id: string) => {
+    const nowExpanded = !(folderExpansions[id] ?? false)
+    setFolderExpansions((prev) => ({ ...prev, [id]: nowExpanded }))
+    if (nowExpanded && !folderPagination[id]?.loaded) {
+      onLoadMore(id)
+    }
   }
 
   const renderNoteRow = (noteId: string, indented: boolean) => {
@@ -208,15 +218,14 @@ export function NotesTree({
   }
 
   const renderFolderRow = (f: TreeFolder) => {
-    const hasChildren = f.noteIds.length > 0
+    const hasLoadedChildren = f.noteIds.length > 0
     const isExpanded = folderExpansions[f.id] ?? false
     const isFolderActive = selectedFolderId === f.id
     const pagination = folderPagination[f.id]
-    const showLoadMore = !search.trim() && pagination?.hasMore
-    const canExpand = hasChildren || showLoadMore
+    const isLoadingNotes = pagination?.isLoading ?? false
+    const showLoadMore = pagination?.loaded && pagination?.hasMore
+    const canExpand = f.noteCount > 0 || hasLoadedChildren
     const isMenuOpen = openMenu?.kind === 'folder' && openMenu.id === f.id
-
-    if (search.trim() && !hasChildren) return null
 
     return (
       <div key={f.id} className="relative min-w-0">
@@ -228,15 +237,12 @@ export function NotesTree({
             embedded
             className="min-w-0 flex-1 rounded-none pr-2 pl-0 text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => {
-              onSelectFolder(f.id)
-              if (hasChildren) toggleFolder(f.id)
-            }}
+            onClick={() => onSelectFolder(f.id)}
           >
             {canExpand ? (
               <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center">
                 <span
-                  onClick={(e) => { e.stopPropagation(); toggleFolder(f.id) }}
+                  onClick={(e) => { e.stopPropagation(); handleExpandFolder(f.id) }}
                   className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full hover:bg-neutral-100 dark:hover:bg-white/8"
                 >
                   {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -245,7 +251,7 @@ export function NotesTree({
             ) : (
               <span className="h-8 w-8 flex-shrink-0" />
             )}
-            {isExpanded && hasChildren ? (
+            {isExpanded && hasLoadedChildren ? (
               <FolderOpen size={14} className="flex-shrink-0 text-violet-600 transition-colors group-hover/row:text-violet-700 dark:text-violet-400 dark:group-hover/row:text-violet-300" />
             ) : (
               <Folder size={14} className="flex-shrink-0 text-violet-600 transition-colors group-hover/row:text-violet-700 dark:text-violet-400 dark:group-hover/row:text-violet-300" />
@@ -303,16 +309,28 @@ export function NotesTree({
           </div>
         )}
 
-        {isExpanded && (hasChildren || showLoadMore) ? (
+        {isExpanded ? (
           <div className="mt-1 space-y-1">
-            {f.noteIds.map((noteId) => renderNoteRow(noteId, true))}
-            {showLoadMore ? (
-              <LoadMoreButton
-                indented
-                isLoading={pagination?.isLoading}
-                onClick={() => onLoadMore(f.id)}
-              />
-            ) : null}
+            {isLoadingNotes && !hasLoadedChildren ? (
+              <>
+                {[70, 55, 80].map((w, i) => (
+                  <div key={i} className="flex h-8 items-center gap-2 pl-8 pr-2">
+                    <div className="h-3 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" style={{ width: `${w}%` }} />
+                  </div>
+                ))}
+              </>
+            ) : (
+              <>
+                {f.noteIds.map((noteId) => renderNoteRow(noteId, true))}
+                {showLoadMore ? (
+                  <LoadMoreButton
+                    indented
+                    isLoading={isLoadingNotes}
+                    onClick={() => onLoadMore(f.id)}
+                  />
+                ) : null}
+              </>
+            )}
           </div>
         ) : null}
       </div>
@@ -369,7 +387,7 @@ export function NotesTree({
 
                 {unfiledNoteIds.map((noteId) => renderNoteRow(noteId, false))}
 
-                {!search.trim() && folderPagination['__unfiled__']?.hasMore ? (
+                {folderPagination['__unfiled__']?.hasMore ? (
                   <LoadMoreButton
                     isLoading={folderPagination['__unfiled__']?.isLoading}
                     onClick={() => onLoadMore(null)}

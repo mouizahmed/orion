@@ -71,38 +71,30 @@ export function DashboardNotesProvider({
     setIsLoading(true)
     setLoadError(null)
     try {
-      const folderList = await listFolders(userId)
-      setFolders(folderList)
-
-      const results = await Promise.all([
+      const [folderList, unfiledResult] = await Promise.all([
+        listFolders(userId),
         listNotesPage({ unfiled: true, limit: PAGE_SIZE }),
-        ...folderList.map((f) => listNotesPage({ folderId: f.id, limit: PAGE_SIZE })),
       ])
 
-      const nextPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }> = {}
-      const nextNotes: NoteRecord[] = []
+      setFolders(folderList)
+      setNotes(unfiledResult.notes)
 
-      const unfiledResult = results[0]
-      nextPagination[UNFILED_ID] = {
-        loaded: true,
-        hasMore: unfiledResult.hasMore,
-        isLoading: false,
-        cursor: unfiledResult.nextCursor,
-      }
-      nextNotes.push(...unfiledResult.notes)
-
-      folderList.forEach((folder, idx) => {
-        const page = results[idx + 1]
-        nextPagination[folder.id] = {
+      const nextPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }> = {
+        [UNFILED_ID]: {
           loaded: true,
-          hasMore: page.hasMore,
+          hasMore: unfiledResult.hasMore,
           isLoading: false,
-          cursor: page.nextCursor,
+          cursor: unfiledResult.nextCursor,
+        },
+      }
+      for (const folder of folderList) {
+        nextPagination[folder.id] = {
+          loaded: false,
+          hasMore: folder.noteCount > 0,
+          isLoading: false,
         }
-        nextNotes.push(...page.notes)
-      })
+      }
 
-      setNotes(nextNotes)
       setFolderPagination(nextPagination)
       setSelectedFolderId(null)
       setSelectedId(null)
@@ -202,7 +194,7 @@ export function DashboardNotesProvider({
         setFolders((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
         setFolderPagination((prev) => ({
           ...prev,
-          [created.id]: { loaded: false, hasMore: false, isLoading: false },
+          [created.id]: { loaded: true, hasMore: false, isLoading: false },
         }))
         setSelectedFolderId(created.id)
         return created
@@ -218,6 +210,7 @@ export function DashboardNotesProvider({
       const ok = await deleteFolderApi(userId, folderId)
       if (!ok) return false
       setFolders((prev) => prev.filter((f) => f.id !== folderId))
+      setNotes((prev) => prev.filter((n) => n.folderId !== folderId))
       setFolderPagination((prev) => {
         const next = { ...prev }
         delete next[folderId]

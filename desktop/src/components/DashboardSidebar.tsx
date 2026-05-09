@@ -37,11 +37,10 @@ export default function DashboardSidebar({
     createFolder,
     deleteFolder,
     renameFolder,
-    filteredNotes,
+    notes,
     selectedId,
     selectNote,
     openCreateNoteDialog,
-    search,
     deleteById,
     renameNote,
     moveNote,
@@ -240,13 +239,12 @@ export default function DashboardSidebar({
                 openNotesPage()
                 openCreateNoteDialog()
               }}
-              notes={filteredNotes}
+              notes={notes}
               isLoading={isLoading}
               folderPagination={folderPagination}
               onLoadMore={loadMoreForFolder}
               selectedFolderId={selectedFolderId}
               selectedNoteId={selectedId}
-              search={search}
               onSelectFolder={(folderId) => {
                 openNotesPage()
                 selectFolder(folderId)
@@ -255,11 +253,11 @@ export default function DashboardSidebar({
                 openNotesPage()
                 selectNote(noteId)
               }}
-              onRenameFolder={async (id, name) => { await renameFolder(id, name) }}
-              onDeleteFolder={async (id) => { await deleteFolder(id) }}
-              onRenameNote={async (id, title) => { await renameNote(id, title) }}
-              onDeleteNote={async (id) => { await deleteById(id) }}
-              onMoveNote={async (id, folderId) => { await moveNote(id, folderId) }}
+              onRenameFolder={(id, name) => renameFolder(id, name)}
+              onDeleteFolder={(id) => deleteFolder(id)}
+              onRenameNote={(id, title) => renameNote(id, title)}
+              onDeleteNote={(id) => deleteById(id)}
+              onMoveNote={(id, folderId) => moveNote(id, folderId)}
             />
           </div>
         </>
