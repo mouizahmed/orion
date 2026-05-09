@@ -27,7 +27,8 @@ import {
   registerKeyboardShortcuts,
   unregisterKeyboardShortcuts,
 } from './shortcuts'
-import { setupIpcHandlers, stopSystemAudioCapture } from './ipc-handlers'
+import { setupIpcHandlers, stopSystemAudioCapture, getCurrentAuthToken } from './ipc-handlers'
+import { config } from './config'
 import { destroyTray, setupTray } from './tray'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -107,6 +108,25 @@ if (!gotTheLock) {
 
     // Setup IPC handlers
     setupIpcHandlers()
+
+    // Inject Authorization header on image proxy requests. <img> tags don't send
+    // auth headers automatically, so the main process adds them here.
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: ['<all_urls>'] },
+      (details, callback) => {
+        const isImageProxy =
+          details.url.startsWith(config.backendUrl) &&
+          /\/api\/notes\/[^/]+\/images\/[^/]+$/.test(new URL(details.url).pathname)
+        const token = getCurrentAuthToken()
+        if (isImageProxy && token) {
+          callback({
+            requestHeaders: { ...details.requestHeaders, Authorization: `Bearer ${token}` },
+          })
+        } else {
+          callback({ requestHeaders: details.requestHeaders })
+        }
+      },
+    )
 
     const registerOverlayShortcuts = () => {
       const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {

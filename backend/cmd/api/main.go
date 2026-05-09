@@ -231,6 +231,7 @@ func main() {
 		authenticated.GET("/notes/:noteID/versions", notesHandler.ListVersions)
 		authenticated.POST("/notes/:noteID/revert/:versionID", notesHandler.RevertToVersion)
 		authenticated.POST("/notes/:noteID/images", notesHandler.UploadImage)
+		authenticated.GET("/notes/:noteID/images/:imageID", notesHandler.ProxyImage)
 		authenticated.DELETE("/notes/:noteID/images/:imageID", notesHandler.DeleteImage)
 		authenticated.POST("/notes/:noteID/recording/start", notesHandler.StartRecording)
 		authenticated.POST("/notes/:noteID/recording/:sessionID/stop", notesHandler.StopRecording)

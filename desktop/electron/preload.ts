@@ -194,6 +194,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   notifyStateChanged: (payload: AuthStateChangedPayload) => {
     ipcRenderer.send('auth:state-changed', payload)
   },
+  refreshToken: (idToken: string) => {
+    ipcRenderer.send('auth:refresh-token', { idToken })
+  },
 
   // Event listeners
   onAuthSessionUpdated: (callback: (data: unknown) => void) => {

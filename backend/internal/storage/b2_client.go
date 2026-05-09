@@ -15,11 +15,12 @@ import (
 )
 
 type B2Client struct {
-	bucketName string
-	bucketID   string
-	apiURL     string
-	authToken  string
-	httpClient *http.Client
+	bucketName  string
+	bucketID    string
+	apiURL      string
+	downloadURL string
+	authToken   string
+	httpClient  *http.Client
 }
 
 // B2 Native API structures
@@ -27,6 +28,7 @@ type B2AuthorizeResponse struct {
 	AuthorizationToken string `json:"authorizationToken"`
 	APIURL             string `json:"apiUrl"`
 	AccountID          string `json:"accountId"`
+	DownloadURL        string `json:"downloadUrl"`
 }
 
 type B2StartLargeFileRequest struct {
@@ -125,6 +127,7 @@ func (b *B2Client) authorizeB2() error {
 
 	b.authToken = authResp.AuthorizationToken
 	b.apiURL = authResp.APIURL
+	b.downloadURL = authResp.DownloadURL
 
 	return nil
 }
@@ -457,6 +460,66 @@ func (b *B2Client) DeleteFile(fileName string) error {
 	}
 
 	return nil
+}
+
+type B2GetDownloadAuthRequest struct {
+	BucketID               string `json:"bucketId"`
+	FileNamePrefix         string `json:"fileNamePrefix"`
+	ValidDurationInSeconds int    `json:"validDurationInSeconds"`
+}
+
+type B2GetDownloadAuthResponse struct {
+	AuthorizationToken string `json:"authorizationToken"`
+}
+
+// GetSignedDownloadURL returns a time-limited signed URL for a private B2 file.
+// The client is redirected to this URL directly, so image bytes flow from B2's CDN
+// to the client without passing through this server.
+func (b *B2Client) GetSignedDownloadURL(b2FileName string, validSeconds int) (string, error) {
+	reqBody := B2GetDownloadAuthRequest{
+		BucketID:               b.bucketID,
+		FileNamePrefix:         b2FileName,
+		ValidDurationInSeconds: validSeconds,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	req, err := http.NewRequest("POST", b.apiURL+"/b2api/v2/b2_get_download_authorization", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", b.authToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := b.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("b2_get_download_authorization failed (%d): %s", resp.StatusCode, string(body))
+	}
+
+	var authResp B2GetDownloadAuthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		return "", err
+	}
+
+	// Build signed URL: each path segment is individually percent-encoded
+	segments := strings.Split(b2FileName, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	encodedFileName := strings.Join(segments, "/")
+
+	signedURL := fmt.Sprintf("%s/file/%s/%s?Authorization=%s",
+		b.downloadURL,
+		url.PathEscape(b.bucketName),
+		encodedFileName,
+		url.QueryEscape(authResp.AuthorizationToken),
+	)
+	return signedURL, nil
 }
 
 // Get file URL with proper URL encoding for special characters

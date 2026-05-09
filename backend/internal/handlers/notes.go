@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,14 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/mouizahmed/justscribe-backend/internal/storage"
 )
+
+func backendBaseURL() string {
+	base := os.Getenv("BASE_URL")
+	if base == "" {
+		base = "http://localhost:8080"
+	}
+	return strings.TrimRight(base, "/")
+}
 
 type NotesHandler struct {
 	noteRepo        *repository.NoteRepository
@@ -913,7 +922,43 @@ func (h *NotesHandler) UploadImage(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"url": created.PublicURL})
+	proxyURL := fmt.Sprintf("%s/api/notes/%s/images/%s", backendBaseURL(), noteID, created.ID)
+	c.JSON(http.StatusOK, gin.H{"url": proxyURL})
+}
+
+func (h *NotesHandler) ProxyImage(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	noteID := strings.TrimSpace(c.Param("noteID"))
+	imageID := strings.TrimSpace(c.Param("imageID"))
+	if noteID == "" || imageID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "note id and image id are required"})
+		return
+	}
+
+	att, err := h.attachmentRepo.GetByID(userID, imageID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "image not found"})
+		return
+	}
+
+	if att.NoteID != noteID {
+		c.JSON(http.StatusNotFound, gin.H{"error": "image not found"})
+		return
+	}
+
+	signedURL, err := h.b2Client.GetSignedDownloadURL(att.B2FileName, 3600)
+	if err != nil {
+		log.Printf("notes: failed to generate signed URL for %s: %v", att.B2FileName, err)
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to retrieve image"})
+		return
+	}
+
+	c.Redirect(http.StatusFound, signedURL)
 }
 
 func (h *NotesHandler) DeleteImage(c *gin.Context) {

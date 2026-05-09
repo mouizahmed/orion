@@ -214,6 +214,22 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
+  // Keep the main process token fresh so the webRequest interceptor can authorize image proxy requests.
+  // Firebase tokens expire after 60 min; push a refresh every 45 min.
+  useEffect(() => {
+    if (!user) return
+    const REFRESH_MS = 45 * 60 * 1000
+    const id = setInterval(async () => {
+      try {
+        const token = await getIdToken()
+        window.electronAPI?.refreshToken?.(token)
+      } catch {
+        // ignore — next interval will retry
+      }
+    }, REFRESH_MS)
+    return () => clearInterval(id)
+  }, [user, getIdToken])
+
   const value = useMemo<FirebaseAuthContextType>(
     () => ({
       user,

@@ -40,6 +40,14 @@ function normalizeIdToken(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
+// Stored auth token used by the webRequest interceptor in main.ts to inject
+// Authorization headers on image proxy requests (which <img> tags don't send headers for).
+let currentAuthToken: string | null = null
+
+export function getCurrentAuthToken(): string | null {
+  return currentAuthToken
+}
+
 export function stopSystemAudioCapture() {
   if (systemAudioProcess) {
     systemAudioProcess.kill('SIGTERM')
@@ -108,6 +116,19 @@ function ensureWritableDirectory(dirPath: string) {
 }
 
 export function setupIpcHandlers() {
+  // Capture auth token from the existing auth:state-changed event so the
+  // webRequest interceptor can inject Authorization headers on image proxy requests.
+  ipcMain.on('auth:state-changed', (_event, payload?: { isAuthenticated?: boolean; idToken?: unknown }) => {
+    const token = normalizeIdToken(payload?.idToken)
+    currentAuthToken = payload?.isAuthenticated ? token : null
+  })
+
+  // Periodic refresh: renderer pushes a fresh token every 45 min.
+  ipcMain.on('auth:refresh-token', (_event, payload?: { idToken?: unknown }) => {
+    const token = normalizeIdToken(payload?.idToken)
+    if (token) currentAuthToken = token
+  })
+
   // Window control IPC handlers
   ipcMain.on('window-drag-start', (event, { mouseX, mouseY }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
