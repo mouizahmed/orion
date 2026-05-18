@@ -95,6 +95,7 @@ func main() {
 	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
+	noteShareRepo := repository.NewNoteShareRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
 	noteAttachmentRepo := repository.NewNoteAttachmentRepository(db)
@@ -152,6 +153,7 @@ func main() {
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, aiClient, indexQueue)
+	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()
@@ -239,6 +241,12 @@ func main() {
 		authenticated.DELETE("/notes/:noteID/images/:imageID", notesHandler.DeleteImage)
 		authenticated.POST("/notes/:noteID/recording/start", notesHandler.StartRecording)
 		authenticated.POST("/notes/:noteID/recording/:sessionID/stop", notesHandler.StopRecording)
+
+		// Note share routes
+		authenticated.GET("/notes/:noteID/shares", noteSharesHandler.ListShares)
+		authenticated.POST("/notes/:noteID/shares", noteSharesHandler.CreateShare)
+		authenticated.PATCH("/notes/:noteID/shares/:email", noteSharesHandler.UpdateShare)
+		authenticated.DELETE("/notes/:noteID/shares/:email", noteSharesHandler.DeleteShare)
 
 		// Folder routes
 		authenticated.GET("/folders", folderHandler.ListFolders)

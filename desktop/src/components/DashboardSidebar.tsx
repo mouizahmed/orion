@@ -30,14 +30,15 @@ export default function DashboardSidebar({
   const {
     isLoading,
     folders,
-    folderPagination,
+    folderPages,
+    noteSummariesById,
+    selectedNote,
     loadMoreForFolder,
     selectedFolderId,
     selectFolder,
     createFolder,
     deleteFolder,
     renameFolder,
-    notes,
     selectedId,
     selectNote,
     openCreateNoteDialog,
@@ -194,17 +195,18 @@ export default function DashboardSidebar({
           <div className="min-h-0 flex-1 p-1">
             <NotesTree
               folders={folders}
+              noteSummariesById={noteSummariesById}
+              folderPages={folderPages}
+              selectedNoteDetail={selectedNote}
+              isLoading={isLoading}
+              onLoadMore={loadMoreForFolder}
+              selectedFolderId={selectedFolderId}
+              selectedNoteId={selectedId}
               onCreateFolder={() => setShowCreateFolderDialog(true)}
               onCreateNote={() => {
                 openNotesPage()
                 openCreateNoteDialog()
               }}
-              notes={notes}
-              isLoading={isLoading}
-              folderPagination={folderPagination}
-              onLoadMore={loadMoreForFolder}
-              selectedFolderId={selectedFolderId}
-              selectedNoteId={selectedId}
               onSelectFolder={(folderId) => {
                 openNotesPage()
                 selectFolder(folderId)

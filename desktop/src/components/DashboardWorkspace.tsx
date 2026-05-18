@@ -11,7 +11,7 @@ import {
   DropdownSeparator,
 } from '@/components/ui/dropdown-list'
 import { InfoBanner } from '@/components/ui/info-banner'
-import { updateNote, enhanceNote, getNote } from '@/lib/notes-client'
+import { updateNote, enhanceNote } from '@/lib/notes-client'
 import { toast } from 'sonner'
 import { auth } from '@/config/firebase'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
@@ -50,15 +50,14 @@ export default function DashboardWorkspace({
   onOpenNotes,
   initialCalendarEventId,
 }: DashboardWorkspaceProps) {
-  const { folders, selectedId, selected, optimisticPatch, replaceNote, evictNote, isLoading } = useDashboardNotes()
+  const { folders, selectedId, selectedNote, selectedNoteLoading, noteSummariesById, optimisticPatch, replaceNote, evictNote, isLoading } = useDashboardNotes()
 
   const [draftTitle, setDraftTitle] = useState('')
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
   const folderPickerRef = useRef<HTMLDivElement | null>(null)
   const [draftFolderId, setDraftFolderId] = useState('')
   const [draftNote, setDraftNote] = useState('')
-  const [isNoteLoading, setIsNoteLoading] = useState(false)
-
+  const [hydratedNoteId, setHydratedNoteId] = useState<string | null>(null)
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceError, setEnhanceError] = useState<string | null>(null)
 
@@ -81,69 +80,50 @@ export default function DashboardWorkspace({
   const saveTimerRef = useRef<number | null>(null)
   const lastLoadedIdRef = useRef<string | null>(null)
   const isHydratingDraftsRef = useRef(false)
-  const pendingDetailForRef = useRef<string | null>(null)
-  const noteMarkdownCache = useRef<Map<string, string>>(new Map())
   const linkedMeetingCache = useRef<Map<string, MeetingOption | null>>(new Map())
   const selectedIdRef = useRef(selectedId)
   useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
 
-  // Hydrate drafts when a note is selected
+  // Hydrate drafts when selected note detail arrives from context
   useEffect(() => {
-    if (!selected) {
+    if (!selectedNote) {
       lastLoadedIdRef.current = null
       isHydratingDraftsRef.current = false
-      pendingDetailForRef.current = null
+      setHydratedNoteId(null)
       setDraftTitle('')
       setDraftFolderId('')
       setDraftNote('')
       setSelectedLinkedMeeting(null)
-      setIsNoteLoading(false)
       setTranscriptOpen(false)
       return
     }
-    if (lastLoadedIdRef.current === selected.id) return
-    lastLoadedIdRef.current = selected.id
-    pendingDetailForRef.current = selected.id
+    if (lastLoadedIdRef.current === selectedNote.id) return
+    lastLoadedIdRef.current = selectedNote.id
     isHydratingDraftsRef.current = true
-    setDraftTitle(selected.title)
-    setDraftFolderId(selected.folderId ?? '')
-    setDraftNote('')
-    setSelectedLinkedMeeting(linkedMeetingCache.current.get(selected.id) ?? null)
+    setDraftTitle(selectedNote.title)
+    setDraftFolderId(selectedNote.folderId ?? '')
+    setDraftNote(selectedNote.noteMarkdown)
+    setMeetingResults([])
+    setMeetingSearch('')
     setEnhanceError(null)
 
-    const cached = noteMarkdownCache.current.get(selected.id)
-    if (cached !== undefined) {
-      pendingDetailForRef.current = null
-      setIsNoteLoading(false)
-      setDraftNote(cached)
-    } else {
-      setIsNoteLoading(true)
-      void getNote(userId, selected.id).then((result) => {
-        if (!result || pendingDetailForRef.current !== selected.id) return
-        noteMarkdownCache.current.set(selected.id, result.note.noteMarkdown)
-        replaceNote(result.note)
-        pendingDetailForRef.current = null
-        isHydratingDraftsRef.current = true
-        setIsNoteLoading(false)
-        setDraftNote(result.note.noteMarkdown)
-        if (result.linkedEvent) {
-          const le = result.linkedEvent
-          const option = { id: le.id, title: le.title, start: le.start, color: le.color }
-          linkedMeetingCache.current.set(selected.id, option)
-          setSelectedLinkedMeeting(option)
-          linkedMeetingHydratedForRef.current = le.id
-          setMeetingResults((prev) => {
-            const exists = prev.some((m) => m.id === le.id)
-            if (exists) return prev
-            return [option, ...prev]
-          })
-        } else {
-          linkedMeetingCache.current.set(selected.id, null)
-          setSelectedLinkedMeeting(null)
-        }
+    if (selectedNote.linkedEvent) {
+      const le = selectedNote.linkedEvent
+      const option: MeetingOption = { id: le.id, title: le.title, start: le.start, color: le.color }
+      linkedMeetingCache.current.set(selectedNote.id, option)
+      setSelectedLinkedMeeting(option)
+      linkedMeetingHydratedForRef.current = le.id
+      setMeetingResults((prev) => {
+        const exists = prev.some((m) => m.id === le.id)
+        if (exists) return prev
+        return [option, ...prev]
       })
+    } else {
+      linkedMeetingCache.current.set(selectedNote.id, null)
+      setSelectedLinkedMeeting(null)
     }
-  }, [replaceNote, selected, userId])
+    setHydratedNoteId(selectedNote.id)
+  }, [selectedNote])
 
   // Sync AI-driven note edits into the local draft so the editor updates in real time
   useEffect(() => {
@@ -240,9 +220,15 @@ export default function DashboardWorkspace({
     }, 300)
   }
 
-  const selectedCalendarEventId = selected?.calendarEventId ?? selectedLinkedMeeting?.id
+  const selectedCalendarEventId =
+    selectedNote?.calendarEventId ??
+    (selectedNoteLoading && selectedId ? noteSummariesById[selectedId]?.calendarEventId : undefined) ??
+    selectedLinkedMeeting?.id
+  const linkedMeetingFromDetail: MeetingOption | null = selectedNote?.linkedEvent
+    ? { id: selectedNote.linkedEvent.id, title: selectedNote.linkedEvent.title, start: selectedNote.linkedEvent.start, color: selectedNote.linkedEvent.color }
+    : null
   const linkedMeeting = selectedCalendarEventId
-    ? (meetingResults.find((m) => m.id === selectedCalendarEventId) ?? selectedLinkedMeeting ?? null)
+    ? (meetingResults.find((m) => m.id === selectedCalendarEventId) ?? selectedLinkedMeeting ?? linkedMeetingFromDetail ?? null)
     : null
   const displayedMeetingResults =
     linkedMeeting && !meetingSearch.trim() && !meetingResults.some((m) => m.id === linkedMeeting.id)
@@ -319,7 +305,7 @@ export default function DashboardWorkspace({
       if (!selectedId) return
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
 
-      optimisticPatch(selectedId, patch)
+      optimisticPatch(selectedId, { title: patch.title, folderId: patch.folderId })
 
       saveTimerRef.current = window.setTimeout(() => {
         void updateNote(userId, selectedId, patch).then((updated) => {
@@ -341,9 +327,6 @@ export default function DashboardWorkspace({
       isHydratingDraftsRef.current = false
       return
     }
-    if (pendingDetailForRef.current === selectedId) return
-    pendingDetailForRef.current = null
-    noteMarkdownCache.current.set(selectedId, draftNote)
     scheduleSave({
       title: draftTitle,
       folderId: draftFolderId || '',
@@ -358,7 +341,6 @@ export default function DashboardWorkspace({
     setEnhanceError(null)
     try {
       const { note } = await enhanceNote(selectedId)
-      noteMarkdownCache.current.set(selectedId, note.noteMarkdown)
       isHydratingDraftsRef.current = true
       setDraftNote(note.noteMarkdown)
       replaceNote(note)
@@ -487,7 +469,7 @@ export default function DashboardWorkspace({
               onClick={() => meetingPickerOpen ? setMeetingPickerOpen(false) : openMeetingPicker()}
               className="h-8 gap-1.5"
             >
-              {isNoteLoading && selectedCalendarEventId && !linkedMeeting ? (
+              {selectedNoteLoading && selectedCalendarEventId && !linkedMeeting ? (
                 <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
               ) : (
                 <CalendarDays className="h-3.5 w-3.5 shrink-0" />
@@ -495,7 +477,7 @@ export default function DashboardWorkspace({
               <span className="max-w-[140px] truncate leading-4">
                 {linkingMeeting
                   ? 'Saving…'
-                  : isNoteLoading && selectedCalendarEventId && !linkedMeeting
+                  : selectedNoteLoading && selectedCalendarEventId && !linkedMeeting
                   ? 'Loading…'
                   : !selectedCalendarEventId
                   ? 'Select event'
@@ -594,7 +576,7 @@ export default function DashboardWorkspace({
 
         {/* Editor */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {isNoteLoading ? (
+          {selectedNoteLoading || hydratedNoteId !== selectedId ? (
             <div className="flex-1 space-y-3 p-5">
               <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
               <div className="h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />

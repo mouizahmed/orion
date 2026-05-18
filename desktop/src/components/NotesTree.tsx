@@ -6,7 +6,15 @@ import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { NoteRow } from '@/components/NoteRow'
 import { cn } from '@/lib/utils'
 import type { FolderRecord } from '@/types/folder'
-import type { NoteRecord } from '@/types/note'
+import type { NoteDetail, NoteSummary } from '@/types/note'
+import { UNFILED_ID } from '@/contexts/DashboardNotesContext'
+
+type FolderPage = {
+  noteIds: string[]
+  hasMore: boolean
+  isLoading: boolean
+  loaded: boolean
+}
 
 type TreeFolder = {
   id: string
@@ -22,9 +30,10 @@ type OpenMenu =
 
 export function NotesTree({
   folders,
-  notes,
+  noteSummariesById,
+  folderPages,
+  selectedNoteDetail,
   isLoading,
-  folderPagination,
   onLoadMore,
   selectedFolderId,
   selectedNoteId,
@@ -39,9 +48,10 @@ export function NotesTree({
   onMoveNote,
 }: {
   folders: FolderRecord[]
-  notes: NoteRecord[]
+  noteSummariesById: Record<string, NoteSummary>
+  folderPages: Record<string, FolderPage>
+  selectedNoteDetail: NoteDetail | null
   isLoading: boolean
-  folderPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean }>
   onLoadMore: (folderId: string | null) => void
   selectedFolderId: string | null
   selectedNoteId: string | null
@@ -61,7 +71,6 @@ export function NotesTree({
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
-  // Close menu on outside click
   useEffect(() => {
     if (!openMenu) return
     const handler = () => setOpenMenu(null)
@@ -77,55 +86,56 @@ export function NotesTree({
 
   const commitRename = async (type: 'note' | 'folder', id: string) => {
     const val = renameValue.trim()
-    if (!val) {
-      setRenamingId(null)
-      setRenameValue('')
-      return
-    }
+    if (!val) { setRenamingId(null); setRenameValue(''); return }
     setRenamingId(null)
     setRenameValue('')
     const ok = type === 'folder' ? await onRenameFolder(id, val) : await onRenameNote(id, val)
-    if (!ok) {
-      setRenamingId(id)
-      setRenameValue(val)
-    }
+    if (!ok) { setRenamingId(id); setRenameValue(val) }
   }
 
-  const cancelRename = () => {
-    setRenamingId(null)
-    setRenameValue('')
-  }
+  const cancelRename = () => { setRenamingId(null); setRenameValue('') }
 
-  const notesById = useMemo(() => {
-    const map = new Map<string, NoteRecord>()
-    for (const n of notes) map.set(n.id, n)
-    return map
-  }, [notes])
-
+  // Build tree folders from folderPages (page noteIds are already in order from API)
   const treeFolders = useMemo<TreeFolder[]>(() => {
-    const byFolder = new Map<string, TreeFolder>()
-    for (const f of folders) byFolder.set(f.id, { id: f.id, name: f.name, noteCount: f.noteCount, noteIds: [] })
-    for (const n of notes) {
-      if (n.folderId) {
-        const node = byFolder.get(n.folderId)
-        if (node) node.noteIds.push(n.id)
-      }
-    }
-    return [...byFolder.values()].sort((a, b) => a.name.localeCompare(b.name))
-  }, [folders, notes])
+    return folders
+      .map((f) => {
+        const page = folderPages[f.id]
+        let noteIds = page?.noteIds ?? []
+        // Inject selected note at top if it belongs to this folder but isn't in the loaded page
+        if (
+          selectedNoteDetail &&
+          selectedNoteDetail.folderId === f.id &&
+          !noteIds.includes(selectedNoteDetail.id)
+        ) {
+          noteIds = [selectedNoteDetail.id, ...noteIds]
+        }
+        return { id: f.id, name: f.name, noteCount: f.noteCount, noteIds }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [folders, folderPages, selectedNoteDetail])
 
-  const unfiledNoteIds = useMemo(() => notes.filter((n) => !n.folderId).map((n) => n.id), [notes])
+  const unfiledNoteIds = useMemo(() => {
+    const ids = folderPages[UNFILED_ID]?.noteIds ?? []
+    if (
+      selectedNoteDetail &&
+      !selectedNoteDetail.folderId &&
+      !ids.includes(selectedNoteDetail.id)
+    ) {
+      return [selectedNoteDetail.id, ...ids]
+    }
+    return ids
+  }, [folderPages, selectedNoteDetail])
 
   const handleExpandFolder = (id: string) => {
     const nowExpanded = !(folderExpansions[id] ?? false)
     setFolderExpansions((prev) => ({ ...prev, [id]: nowExpanded }))
-    if (nowExpanded && !folderPagination[id]?.loaded) {
+    if (nowExpanded && !folderPages[id]?.loaded) {
       onLoadMore(id)
     }
   }
 
   const renderNoteRow = (noteId: string, indented: boolean) => {
-    const n = notesById.get(noteId)
+    const n = noteSummariesById[noteId]
     if (!n) return null
     const active = n.id === selectedNoteId
     const isMenuOpen = openMenu?.kind === 'note' && openMenu.id === n.id
@@ -218,12 +228,12 @@ export function NotesTree({
   }
 
   const renderFolderRow = (f: TreeFolder) => {
+    const page = folderPages[f.id]
     const hasLoadedChildren = f.noteIds.length > 0
     const isExpanded = folderExpansions[f.id] ?? false
     const isFolderActive = selectedFolderId === f.id
-    const pagination = folderPagination[f.id]
-    const isLoadingNotes = pagination?.isLoading ?? false
-    const showLoadMore = pagination?.loaded && pagination?.hasMore
+    const isLoadingNotes = page?.isLoading ?? false
+    const showLoadMore = page?.loaded && page?.hasMore
     const canExpand = f.noteCount > 0 || hasLoadedChildren
     const isMenuOpen = openMenu?.kind === 'folder' && openMenu.id === f.id
 
@@ -294,9 +304,7 @@ export function NotesTree({
             onMouseDown={(e) => e.stopPropagation()}
             className="absolute right-0 top-8 z-50 min-w-[140px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
           >
-            <SidebarMenuItemButton
-              onClick={() => startRename(f.id, f.name)}
-            >
+            <SidebarMenuItemButton onClick={() => startRename(f.id, f.name)}>
               Rename
             </SidebarMenuItemButton>
             <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
@@ -384,12 +392,10 @@ export function NotesTree({
             ) : (
               <div className="space-y-1 min-w-0">
                 {treeFolders.map(renderFolderRow)}
-
                 {unfiledNoteIds.map((noteId) => renderNoteRow(noteId, false))}
-
-                {folderPagination['__unfiled__']?.hasMore ? (
+                {folderPages[UNFILED_ID]?.hasMore ? (
                   <LoadMoreButton
-                    isLoading={folderPagination['__unfiled__']?.isLoading}
+                    isLoading={folderPages[UNFILED_ID]?.isLoading}
                     onClick={() => onLoadMore(null)}
                   />
                 ) : null}

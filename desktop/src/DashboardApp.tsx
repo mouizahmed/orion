@@ -1,6 +1,5 @@
 import { DashboardAuthRoot, useAuth } from '@/contexts/AuthContext'
 import { ChatProvider } from '@/contexts/ChatContext'
-import ChatWidget from '@/components/ChatWidget'
 import DashboardWorkspace from '@/components/DashboardWorkspace'
 import DashboardTopBar from '@/components/DashboardTopBar'
 import DashboardSidebar from '@/components/DashboardSidebar'
@@ -23,13 +22,13 @@ function useDashboardNoteIdFromUrl() {
 }
 
 function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null }) {
-  const { notes, selectNote } = useDashboardNotes()
+  const { noteSummariesById, selectNote } = useDashboardNotes()
   const initialAppliedRef = useRef(false)
 
   useEffect(() => {
     if (initialAppliedRef.current) return
     if (!initialNoteId) return
-    const exists = notes.some((n) => n.id === initialNoteId)
+    const exists = initialNoteId in noteSummariesById
     if (exists) {
       selectNote(initialNoteId)
       initialAppliedRef.current = true
@@ -38,7 +37,7 @@ function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null
       url.searchParams.delete('noteId')
       window.history.replaceState(null, '', url.toString())
     }
-  }, [initialNoteId, notes, selectNote])
+  }, [initialNoteId, noteSummariesById, selectNote])
 
   useEffect(() => {
     const unsubscribe = desktopApi.dashboard.onSelectNote((payload) => {
@@ -130,7 +129,7 @@ function DashboardContent() {
           </div>
         </div>
       </div>
-      {viewMode === 'notes' ? <ChatWidget variant="dashboard" /> : null}
+      {/* {viewMode === 'notes' ? <ChatWidget variant="dashboard" /> : null} */}
     </DashboardNotesProvider>
   )
 }

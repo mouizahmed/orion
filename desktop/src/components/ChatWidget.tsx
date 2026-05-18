@@ -51,7 +51,7 @@ export default function ChatWidget({ variant = 'dashboard' }: ChatWidgetProps) {
     loadConversations,
   } = useChat()
 
-  const { selected: selectedNote } = useDashboardNotes()
+  const { selectedNote } = useDashboardNotes()
 
   // Reload scoped conversations when the selected note changes
   useEffect(() => {

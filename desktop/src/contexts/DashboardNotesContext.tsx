@@ -1,33 +1,62 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { NoteRecord } from '@/types/note'
+import type { NoteDetail, NoteRecord, NoteShare, NoteSummary } from '@/types/note'
 import type { FolderRecord } from '@/types/folder'
 import { CreateNoteDialog } from '@/components/dialog/CreateNoteDialog'
 import { createFolder as createFolderApi, deleteFolder as deleteFolderApi, listFolders, renameFolder as renameFolderApi } from '@/lib/folders-client'
-import { createNote, deleteNote, listNotesPage, updateNote } from '@/lib/notes-client'
+import {
+  createNote,
+  deleteNote,
+  getNote,
+  listNotesPage,
+  updateNote,
+  listNoteShares,
+  createNoteShare,
+  updateNoteShare,
+  deleteNoteShare,
+} from '@/lib/notes-client'
 
-type Patch = Partial<Pick<NoteRecord, 'title' | 'folderId' | 'noteMarkdown'>>
+export const UNFILED_ID = '__unfiled__'
+const PAGE_SIZE = 20
+
+type FolderPage = {
+  noteIds: string[]
+  hasMore: boolean
+  cursor?: string
+  isLoading: boolean
+  loaded: boolean
+}
+
+type SharesEntry = {
+  shares: NoteShare[]
+  loaded: boolean
+  loading: boolean
+}
+
+type Patch = Partial<Pick<NoteSummary, 'title' | 'folderId'>>
 
 type DashboardNotesContextType = {
   isLoading: boolean
   loadError: string | null
-  notes: NoteRecord[]
-  filteredNotes: NoteRecord[]
+  notes: NoteSummary[]
+  noteSummariesById: Record<string, NoteSummary>
+  folderPages: Record<string, { noteIds: string[]; hasMore: boolean; isLoading: boolean; loaded: boolean }>
   folders: FolderRecord[]
-  folderPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean }>
+  selectedNote: NoteDetail | null
+  selectedNoteLoading: boolean
+  noteSharesByNoteId: Record<string, SharesEntry>
   loadMoreForFolder: (folderId: string | null) => Promise<void>
   selectedFolderId: string | null
+  selectedId: string | null
+  search: string
+  setSearch: (value: string) => void
   selectFolder: (id: string | null) => void
+  selectNote: (id: string | null) => void
   createFolder: (name: string) => Promise<FolderRecord | null>
   deleteFolder: (folderId: string) => Promise<boolean>
   renameFolder: (folderId: string, name: string) => Promise<boolean>
   renameNote: (noteId: string, title: string) => Promise<boolean>
   moveNote: (noteId: string, folderId: string | null) => Promise<boolean>
-  selectedId: string | null
-  selected: NoteRecord | null
-  search: string
-  setSearch: (value: string) => void
-  selectNote: (id: string | null) => void
   openCreateNoteDialog: () => void
   refresh: () => Promise<void>
   createNewNote: (payload?: { title?: string; folderId?: string | null; calendarEventId?: string }) => Promise<NoteRecord | null>
@@ -35,18 +64,23 @@ type DashboardNotesContextType = {
   evictNote: (noteId: string) => void
   optimisticPatch: (noteId: string, patch: Patch) => void
   replaceNote: (note: NoteRecord) => void
+  loadSharesForNote: (noteId: string) => Promise<void>
+  createShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
+  updateShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
+  removeShare: (noteId: string, email: string) => Promise<boolean>
 }
 
 const DashboardNotesContext = createContext<DashboardNotesContextType | null>(null)
-const UNFILED_ID = '__unfiled__'
-const PAGE_SIZE = 20
 
-const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
-
-export function excerpt(markdown: string) {
-  const text = markdown.replace(/[#*_`>[\]()-]/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!text) return 'No content yet.'
-  return text.length > 90 ? `${text.slice(0, 90).trim()}…` : text
+function summaryFromRecord(note: NoteRecord): NoteSummary {
+  return {
+    id: note.id,
+    title: note.title,
+    folderId: note.folderId,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    calendarEventId: note.calendarEventId,
+  }
 }
 
 export function DashboardNotesProvider({
@@ -56,16 +90,37 @@ export function DashboardNotesProvider({
   userId?: string
   children: React.ReactNode
 }) {
-  const [notes, setNotes] = useState<NoteRecord[]>([])
+  const [noteSummariesById, setNoteSummariesById] = useState<Record<string, NoteSummary>>({})
+  const [folderPages, setFolderPages] = useState<Record<string, FolderPage>>({})
   const [folders, setFolders] = useState<FolderRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null)
+  const [selectedNoteLoading, setSelectedNoteLoading] = useState(false)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
-  const [folderPagination, setFolderPagination] = useState<Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }>>({})
+  const [noteSharesByNoteId, setNoteSharesByNoteId] = useState<Record<string, SharesEntry>>({})
   const createInFlightRef = useRef(false)
+
+  const notes = useMemo(
+    () => Object.values(noteSummariesById).sort((a, b) => b.updatedAt - a.updatedAt),
+    [noteSummariesById],
+  )
+
+  const fetchAndSetSelectedNote = useCallback(async (id: string) => {
+    setSelectedNoteLoading(true)
+    try {
+      const result = await getNote(userId, id)
+      if (result) {
+        setSelectedNote(result)
+        setNoteSummariesById((prev) => ({ ...prev, [id]: summaryFromRecord(result) }))
+      }
+    } finally {
+      setSelectedNoteLoading(false)
+    }
+  }, [userId])
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
@@ -77,61 +132,60 @@ export function DashboardNotesProvider({
       ])
 
       setFolders(folderList)
-      setNotes(unfiledResult.notes)
 
-      const nextPagination: Record<string, { loaded: boolean; hasMore: boolean; isLoading: boolean; cursor?: string }> = {
+      const summaries: Record<string, NoteSummary> = {}
+      for (const n of unfiledResult.notes) summaries[n.id] = n
+      setNoteSummariesById(summaries)
+
+      const pages: Record<string, FolderPage> = {
         [UNFILED_ID]: {
-          loaded: true,
+          noteIds: unfiledResult.notes.map((n) => n.id),
           hasMore: unfiledResult.hasMore,
-          isLoading: false,
           cursor: unfiledResult.nextCursor,
+          isLoading: false,
+          loaded: true,
         },
       }
       for (const folder of folderList) {
-        nextPagination[folder.id] = {
-          loaded: false,
+        pages[folder.id] = {
+          noteIds: [],
           hasMore: folder.noteCount > 0,
+          cursor: undefined,
           isLoading: false,
+          loaded: false,
         }
       }
-
-      setFolderPagination(nextPagination)
+      setFolderPages(pages)
       setSelectedFolderId(null)
       setSelectedId(null)
+      setSelectedNote(null)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load notes')
-      setNotes([])
+      setNoteSummariesById({})
+      setFolderPages({})
       setFolders([])
-      setFolderPagination({})
       setSelectedFolderId(null)
       setSelectedId(null)
+      setSelectedNote(null)
     } finally {
       setIsLoading(false)
     }
-  }, [userId])
+  }, [userId, fetchAndSetSelectedNote])
 
   useEffect(() => {
     void refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  const filteredNotes = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return notes.filter((n) => {
-      if (!q) return true
-      const hay = `${n.title}\n${excerpt(n.noteMarkdown)}`.toLowerCase()
-      return hay.includes(q)
-    })
-  }, [notes, search])
-
-  const selected = useMemo(
-    () => (selectedId ? notes.find((n) => n.id === selectedId) ?? null : null),
-    [notes, selectedId],
-  )
-
   const selectNote = useCallback((id: string | null) => {
+    if (!id) {
+      setSelectedId(null)
+      setSelectedNote(null)
+      return
+    }
     setSelectedId(id)
-  }, [])
+    void fetchAndSetSelectedNote(id)
+  }, [fetchAndSetSelectedNote])
 
   const selectFolder = useCallback((id: string | null) => {
     setSelectedFolderId(id)
@@ -144,47 +198,65 @@ export function DashboardNotesProvider({
   const loadMoreForFolder = useCallback(
     async (folderId: string | null) => {
       const key = folderId ?? UNFILED_ID
-      const state = folderPagination[key]
-      if (!state || state.isLoading) return
-      if (state.loaded && !state.hasMore) return
+      setFolderPages((prev) => {
+        const state = prev[key]
+        if (!state || state.isLoading) return prev
+        if (state.loaded && !state.hasMore) return prev
+        return { ...prev, [key]: { ...state, isLoading: true } }
+      })
 
-      setFolderPagination((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], isLoading: true },
-      }))
+      // Read current state for cursor — use a snapshot via functional update
+      let cursor: string | undefined
+      let alreadyLoaded = false
+      setFolderPages((prev) => {
+        const state = prev[key]
+        if (!state) return prev
+        cursor = state.cursor
+        alreadyLoaded = state.loaded && !state.hasMore
+        return prev
+      })
+
+      if (alreadyLoaded) return
 
       try {
         const page = await listNotesPage({
           folderId: folderId ?? undefined,
           unfiled: folderId ? false : true,
           limit: PAGE_SIZE,
-          cursor: state.loaded ? (state.cursor ?? null) : null,
+          cursor: cursor ?? null,
         })
 
-        setNotes((prev) => {
-          const existing = new Set(prev.map((n) => n.id))
-          const merged = [...prev]
-          for (const n of page.notes) {
-            if (!existing.has(n.id)) {
-              merged.push(n)
-              existing.add(n.id)
-            }
+        setNoteSummariesById((prev) => {
+          const next = { ...prev }
+          for (const n of page.notes) next[n.id] = n
+          return next
+        })
+
+        setFolderPages((prev) => {
+          const state = prev[key]
+          if (!state) return prev
+          const existingIds = new Set(state.noteIds)
+          const newIds = page.notes.filter((n) => !existingIds.has(n.id)).map((n) => n.id)
+          return {
+            ...prev,
+            [key]: {
+              loaded: true,
+              hasMore: page.hasMore,
+              cursor: page.nextCursor,
+              isLoading: false,
+              noteIds: [...state.noteIds, ...newIds],
+            },
           }
-          return merged
         })
-
-        setFolderPagination((prev) => ({
-          ...prev,
-          [key]: { loaded: true, hasMore: page.hasMore, isLoading: false, cursor: page.nextCursor },
-        }))
       } catch {
-        setFolderPagination((prev) => ({
-          ...prev,
-          [key]: { ...prev[key], isLoading: false },
-        }))
+        setFolderPages((prev) => {
+          const state = prev[key]
+          if (!state) return prev
+          return { ...prev, [key]: { ...state, isLoading: false } }
+        })
       }
     },
-    [folderPagination],
+    [],
   )
 
   const createFolder = useCallback(
@@ -192,9 +264,9 @@ export function DashboardNotesProvider({
       try {
         const created = await createFolderApi(userId, name)
         setFolders((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name)))
-        setFolderPagination((prev) => ({
+        setFolderPages((prev) => ({
           ...prev,
-          [created.id]: { loaded: true, hasMore: false, isLoading: false },
+          [created.id]: { noteIds: [], loaded: true, hasMore: false, isLoading: false },
         }))
         setSelectedFolderId(created.id)
         return created
@@ -210,16 +282,22 @@ export function DashboardNotesProvider({
       const ok = await deleteFolderApi(userId, folderId)
       if (!ok) return false
       setFolders((prev) => prev.filter((f) => f.id !== folderId))
-      setNotes((prev) => prev.filter((n) => n.folderId !== folderId))
-      setFolderPagination((prev) => {
+      // Remove folder's notes from summaries
+      setFolderPages((prev) => {
+        const page = prev[folderId]
+        if (page) {
+          const removedIds = new Set(page.noteIds)
+          setNoteSummariesById((s) => {
+            const next = { ...s }
+            for (const id of removedIds) delete next[id]
+            return next
+          })
+        }
         const next = { ...prev }
         delete next[folderId]
         return next
       })
-      setSelectedFolderId((current) => {
-        if (current === folderId) return null
-        return current
-      })
+      setSelectedFolderId((current) => (current === folderId ? null : current))
       return true
     },
     [userId],
@@ -239,7 +317,13 @@ export function DashboardNotesProvider({
     async (noteId: string, title: string) => {
       const updated = await updateNote(userId, noteId, { title })
       if (!updated) return false
-      setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, title: updated.title } : n)))
+      setNoteSummariesById((prev) => ({
+        ...prev,
+        [noteId]: { ...prev[noteId], title: updated.title },
+      }))
+      setSelectedNote((prev) =>
+        prev?.id === noteId ? { ...prev, title: updated.title } : prev,
+      )
       return true
     },
     [userId],
@@ -249,7 +333,24 @@ export function DashboardNotesProvider({
     async (noteId: string, folderId: string | null) => {
       const updated = await updateNote(userId, noteId, { folderId })
       if (!updated) return false
-      setNotes((prev) => prev.map((n) => (n.id === noteId ? { ...n, folderId: updated.folderId } : n)))
+      setNoteSummariesById((prev) => ({
+        ...prev,
+        [noteId]: { ...prev[noteId], folderId: updated.folderId },
+      }))
+      setFolderPages((prev) => {
+        const next: Record<string, FolderPage> = {}
+        for (const [key, page] of Object.entries(prev)) {
+          next[key] = { ...page, noteIds: page.noteIds.filter((id) => id !== noteId) }
+        }
+        const newKey = folderId ?? UNFILED_ID
+        if (next[newKey]?.loaded) {
+          next[newKey] = { ...next[newKey], noteIds: [noteId, ...next[newKey].noteIds] }
+        }
+        return next
+      })
+      setSelectedNote((prev) =>
+        prev?.id === noteId ? { ...prev, folderId: updated.folderId } : prev,
+      )
       return true
     },
     [userId],
@@ -266,97 +367,202 @@ export function DashboardNotesProvider({
         folderId: folderId ?? undefined,
         calendarEventId: payload?.calendarEventId,
       })
-      setNotes((prev) => {
-        const existing = prev.find((n) => n.id === created.id)
-        if (existing) {
-          return prev.map((n) => (n.id === created.id ? created : n))
-        }
-        return [created, ...prev]
+      const summary = summaryFromRecord(created)
+      setNoteSummariesById((prev) => ({ ...prev, [created.id]: summary }))
+      const key = folderId ?? UNFILED_ID
+      setFolderPages((prev) => {
+        const page = prev[key]
+        if (!page) return prev
+        const alreadyIn = page.noteIds.includes(created.id)
+        if (alreadyIn) return prev
+        return { ...prev, [key]: { ...page, noteIds: [created.id, ...page.noteIds] } }
       })
-      setSelectedId(created.id)
-      window.dispatchEvent(new Event(ACTIVITY_REFRESH_EVENT))
+      selectNote(created.id)
+      window.dispatchEvent(new Event('dashboard-activity-refresh'))
       return created
     } catch {
       return null
     } finally {
       createInFlightRef.current = false
     }
-  }, [userId])
+  }, [userId, selectNote])
 
   const deleteById = useCallback(
     async (noteId: string) => {
       const ok = await deleteNote(userId, noteId)
       if (!ok) return false
-
-      setNotes((prev) => prev.filter((n) => n.id !== noteId))
+      setNoteSummariesById((prev) => {
+        const next = { ...prev }
+        delete next[noteId]
+        return next
+      })
+      setFolderPages((prev) => {
+        const next: Record<string, FolderPage> = {}
+        for (const [key, page] of Object.entries(prev)) {
+          next[key] = { ...page, noteIds: page.noteIds.filter((id) => id !== noteId) }
+        }
+        return next
+      })
       setSelectedId((current) => {
         if (current !== noteId) return current
-        const remaining = notes.filter((n) => n.id !== noteId)
-        return remaining[0]?.id ?? null
+        setSelectedNote(null)
+        return null
       })
       return true
     },
-    [notes, userId],
+    [userId],
   )
 
   const evictNote = useCallback((noteId: string) => {
-    setNotes((prev) => prev.filter((n) => n.id !== noteId))
+    setNoteSummariesById((prev) => {
+      const next = { ...prev }
+      delete next[noteId]
+      return next
+    })
+    setFolderPages((prev) => {
+      const next: Record<string, FolderPage> = {}
+      for (const [key, page] of Object.entries(prev)) {
+        next[key] = { ...page, noteIds: page.noteIds.filter((id) => id !== noteId) }
+      }
+      return next
+    })
     setSelectedId((current) => {
       if (current !== noteId) return current
+      setSelectedNote(null)
       return null
     })
   }, [])
 
   const optimisticPatch = useCallback((noteId: string, patch: Patch) => {
-    setNotes((prev) =>
-      prev.map((n) => (n.id === noteId ? { ...n, ...patch, updatedAt: Date.now() } : n)),
-    )
+    setNoteSummariesById((prev) => {
+      const existing = prev[noteId]
+      if (!existing) return prev
+      return { ...prev, [noteId]: { ...existing, ...patch, updatedAt: Date.now() } }
+    })
+    setSelectedNote((prev) => {
+      if (!prev || prev.id !== noteId) return prev
+      return { ...prev, ...patch, updatedAt: Date.now() }
+    })
   }, [])
-
-  // Listen for AI-driven note edits and update local state in real time
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { noteId, content } = (e as CustomEvent<{ noteId: string; content: string }>).detail
-      if (noteId && content != null) {
-        optimisticPatch(noteId, { noteMarkdown: content })
-      }
-    }
-    window.addEventListener('note-updated-by-ai', handler)
-    return () => window.removeEventListener('note-updated-by-ai', handler)
-  }, [optimisticPatch])
 
   const replaceNote = useCallback((note: NoteRecord) => {
-    setNotes((prev) =>
-      prev.map((n) => (n.id === note.id ? note : n)),
-    )
+    const summary = summaryFromRecord(note)
+    setNoteSummariesById((prev) => ({ ...prev, [note.id]: summary }))
+    setSelectedNote((prev) => {
+      if (!prev || prev.id !== note.id) return prev
+      return {
+        ...prev,
+        ...summary,
+        noteMarkdown: note.noteMarkdown,
+      }
+    })
   }, [])
+
+  // ── Shares ────────────────────────────────────────────────────────────────
+
+  const loadSharesForNote = useCallback(async (noteId: string) => {
+    setNoteSharesByNoteId((prev) => ({
+      ...prev,
+      [noteId]: { shares: prev[noteId]?.shares ?? [], loaded: false, loading: true },
+    }))
+    try {
+      const shares = await listNoteShares(noteId)
+      setNoteSharesByNoteId((prev) => ({
+        ...prev,
+        [noteId]: { shares, loaded: true, loading: false },
+      }))
+    } catch {
+      setNoteSharesByNoteId((prev) => ({
+        ...prev,
+        [noteId]: { shares: prev[noteId]?.shares ?? [], loaded: false, loading: false },
+      }))
+    }
+  }, [])
+
+  const createShare = useCallback(async (noteId: string, email: string, role: 'viewer' | 'editor') => {
+    try {
+      const share = await createNoteShare(noteId, email, role)
+      setNoteSharesByNoteId((prev) => {
+        const entry = prev[noteId]
+        if (!entry) return { ...prev, [noteId]: { shares: [share], loaded: true, loading: false } }
+        const existing = entry.shares.filter((s) => s.email !== email)
+        return { ...prev, [noteId]: { ...entry, shares: [...existing, share] } }
+      })
+      return share
+    } catch {
+      return null
+    }
+  }, [])
+
+  const updateShare = useCallback(async (noteId: string, email: string, role: 'viewer' | 'editor') => {
+    try {
+      const share = await updateNoteShare(noteId, email, role)
+      setNoteSharesByNoteId((prev) => {
+        const entry = prev[noteId]
+        if (!entry) return prev
+        return {
+          ...prev,
+          [noteId]: {
+            ...entry,
+            shares: entry.shares.map((s) => (s.email === email ? share : s)),
+          },
+        }
+      })
+      return share
+    } catch {
+      return null
+    }
+  }, [])
+
+  const removeShare = useCallback(async (noteId: string, email: string) => {
+    const ok = await deleteNoteShare(noteId, email)
+    if (!ok) return false
+    setNoteSharesByNoteId((prev) => {
+      const entry = prev[noteId]
+      if (!entry) return prev
+      return {
+        ...prev,
+        [noteId]: { ...entry, shares: entry.shares.filter((s) => s.email !== email) },
+      }
+    })
+    return true
+  }, [])
+
+  // Expose folderPages without cursor (internal detail)
+  const folderPagesPublic = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(folderPages).map(([key, p]) => [
+          key,
+          { noteIds: p.noteIds, hasMore: p.hasMore, isLoading: p.isLoading, loaded: p.loaded },
+        ]),
+      ),
+    [folderPages],
+  )
 
   const value: DashboardNotesContextType = useMemo(
     () => ({
       isLoading,
       loadError,
       notes,
-      filteredNotes,
+      noteSummariesById,
+      folderPages: folderPagesPublic,
       folders,
-      folderPagination: Object.fromEntries(
-        Object.entries(folderPagination).map(([key, value]) => [
-          key,
-          { loaded: value.loaded, hasMore: value.hasMore, isLoading: value.isLoading },
-        ]),
-      ),
+      selectedNote,
+      selectedNoteLoading,
+      noteSharesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
+      selectedId,
+      search,
+      setSearch,
       selectFolder,
+      selectNote,
       createFolder,
       deleteFolder,
       renameFolder,
       renameNote,
       moveNote,
-      selectedId,
-      selected,
-      search,
-      setSearch,
-      selectNote,
       openCreateNoteDialog,
       refresh,
       createNewNote,
@@ -364,27 +570,33 @@ export function DashboardNotesProvider({
       evictNote,
       optimisticPatch,
       replaceNote,
+      loadSharesForNote,
+      createShare,
+      updateShare,
+      removeShare,
     }),
     [
       isLoading,
       loadError,
       notes,
-      filteredNotes,
+      noteSummariesById,
+      folderPagesPublic,
       folders,
-      folderPagination,
+      selectedNote,
+      selectedNoteLoading,
+      noteSharesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
+      selectedId,
+      search,
+      setSearch,
       selectFolder,
+      selectNote,
       createFolder,
       deleteFolder,
       renameFolder,
       renameNote,
       moveNote,
-      selectedId,
-      selected,
-      search,
-      setSearch,
-      selectNote,
       openCreateNoteDialog,
       refresh,
       createNewNote,
@@ -392,6 +604,10 @@ export function DashboardNotesProvider({
       evictNote,
       optimisticPatch,
       replaceNote,
+      loadSharesForNote,
+      createShare,
+      updateShare,
+      removeShare,
     ],
   )
 

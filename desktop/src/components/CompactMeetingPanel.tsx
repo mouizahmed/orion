@@ -87,7 +87,7 @@ function CompactMeetingPanel({
 
     try {
       const result = await getNote(userId, noteId)
-      setNote(result?.note ?? null)
+      setNote(result ?? null)
       if (!result) {
         setError('Note not found')
       }

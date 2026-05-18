@@ -1,16 +1,30 @@
-import type { NoteRecord, NoteVersion } from '@/types/note'
+import type { NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/types/note'
 import { auth } from '@/config/firebase'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+
+type ApiAttendee = {
+  name?: string
+  email: string
+}
 
 type ApiLinkedEvent = {
   id: string
   provider_event_id: string
   connection_id: string
   calendar_id: string
+  provider: string
   title: string
   start: string
+  end?: string
+  all_day?: boolean
   color?: string
+  calendar_name?: string
+  meeting_link?: string
+  event_link?: string
+  location?: string
+  organizer_email?: string
+  attendees?: ApiAttendee[]
 }
 
 type ApiNote = {
@@ -25,33 +39,89 @@ type ApiNote = {
   linked_event?: ApiLinkedEvent | null
 }
 
-export type LinkedEventDetail = {
+type ApiNoteSummary = {
   id: string
-  providerEventId: string
-  connectionId: string
-  calendarId: string
+  folder_id?: string | null
   title: string
-  start: string
-  color: string
+  created_at: string
+  updated_at: string
+  calendar_event_id?: string | null
 }
 
-function toNoteRecord(note: ApiNote): NoteRecord {
+type ApiNoteShare = {
+  id: string
+  note_id: string
+  shared_by: string
+  email: string
+  user_id?: string | null
+  role: 'viewer' | 'editor'
+  status: 'pending' | 'active'
+  created_at: string
+  updated_at: string
+}
+
+function toNoteSummary(note: ApiNoteSummary | ApiNote): NoteSummary {
   return {
     id: note.id,
     title: note.title,
     folderId: note.folder_id ?? undefined,
-    noteMarkdown: note.note_markdown ?? '',
     createdAt: Date.parse(note.created_at),
     updatedAt: Date.parse(note.updated_at),
     calendarEventId: note.calendar_event_id ?? undefined,
   }
 }
 
+function toNoteRecord(note: ApiNote): NoteRecord {
+  return {
+    ...toNoteSummary(note),
+    noteMarkdown: note.note_markdown ?? '',
+  }
+}
+
+function toNoteDetail(note: ApiNote): NoteDetail {
+  const le = note.linked_event
+  return {
+    ...toNoteRecord(note),
+    linkedEvent: le
+      ? {
+          id: le.id,
+          providerEventId: le.provider_event_id,
+          connectionId: le.connection_id,
+          calendarId: le.calendar_id,
+          provider: le.provider ?? '',
+          title: le.title,
+          start: le.start,
+          end: le.end,
+          allDay: le.all_day,
+          color: le.color ?? '#9f73f2',
+          calendarName: le.calendar_name,
+          meetingLink: le.meeting_link,
+          eventLink: le.event_link,
+          location: le.location,
+          organizerEmail: le.organizer_email,
+          attendees: (le.attendees ?? []).map((a) => ({ name: a.name, email: a.email })),
+        }
+      : null,
+  }
+}
+
+function toNoteShare(s: ApiNoteShare): NoteShare {
+  return {
+    id: s.id,
+    noteId: s.note_id,
+    sharedBy: s.shared_by,
+    email: s.email,
+    userId: s.user_id ?? undefined,
+    role: s.role,
+    status: s.status,
+    createdAt: s.created_at,
+    updatedAt: s.updated_at,
+  }
+}
+
 async function getIdToken() {
   const currentUser = auth.currentUser
-  if (!currentUser) {
-    throw new Error('Not authenticated')
-  }
+  if (!currentUser) throw new Error('Not authenticated')
   return await currentUser.getIdToken()
 }
 
@@ -64,9 +134,9 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
   return (await response.json()) as T
 }
 
-export async function listNotes(userId?: string): Promise<NoteRecord[]> {
+export async function listNotes(userId?: string): Promise<NoteSummary[]> {
   void userId
-  const collected: NoteRecord[] = []
+  const collected: NoteSummary[] = []
   let cursor: string | null = null
   do {
     const page = await listNotesPage({ limit: 100, cursor })
@@ -81,7 +151,7 @@ export async function listNotesPage(params: {
   unfiled?: boolean
   limit?: number
   cursor?: string | null
-}): Promise<{ notes: NoteRecord[]; nextCursor?: string; hasMore: boolean }> {
+}): Promise<{ notes: NoteSummary[]; nextCursor?: string; hasMore: boolean }> {
   const idToken = await getIdToken()
   const limit = params.limit ?? 20
   const url = new URL(`${API_BASE_URL}/notes`)
@@ -91,47 +161,27 @@ export async function listNotesPage(params: {
   if (params.unfiled) url.searchParams.set('unfiled', 'true')
 
   const payload = await fetchJson<{
-    notes: ApiNote[]
+    notes: ApiNoteSummary[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
   })
 
-  const notes = (payload.notes ?? []).map(toNoteRecord)
+  const notes = (payload.notes ?? []).map(toNoteSummary)
   const hasMore = Boolean(payload.pagination?.has_more)
   const nextCursor = payload.pagination?.next_cursor ?? undefined
 
   return { notes, hasMore, nextCursor }
 }
 
-export async function getNote(userId: string | undefined, noteId: string): Promise<{ note: NoteRecord; linkedEvent: LinkedEventDetail | null } | null> {
+export async function getNote(userId: string | undefined, noteId: string): Promise<NoteDetail | null> {
   void userId
   const idToken = await getIdToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
   })
   if (!payload.note) return null
-  const le = payload.note.linked_event
-  return {
-    note: toNoteRecord(payload.note),
-    linkedEvent: le
-      ? {
-          id: le.id,
-          providerEventId: le.provider_event_id,
-          connectionId: le.connection_id,
-          calendarId: le.calendar_id,
-          title: le.title,
-          start: le.start,
-          color: le.color ?? '#9f73f2',
-        }
-      : null,
-  }
+  return toNoteDetail(payload.note)
 }
 
 export async function createNote(
@@ -160,9 +210,7 @@ export async function createNote(
       calendar_event_id: initial?.calendarEventId,
     }),
   })
-  if (!payload.note) {
-    throw new Error('Failed to create note')
-  }
+  if (!payload.note) throw new Error('Failed to create note')
   return toNoteRecord(payload.note)
 }
 
@@ -213,16 +261,12 @@ export async function enhanceNote(noteId: string): Promise<{ note: NoteRecord; v
   return { note: toNoteRecord(payload.note), versionId: payload.version_id ?? '' }
 }
 
-
 export async function listVersions(noteId: string): Promise<NoteVersion[]> {
   const idToken = await getIdToken()
   const payload = await fetchJson<{ versions: NoteVersion[] }>(
     `${API_BASE_URL}/notes/${noteId}/versions`,
     {
-      headers: {
-        Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
-      },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
     },
   )
   return payload.versions ?? []
@@ -274,10 +318,7 @@ export async function listNotesByEvent(
     notes: ApiNote[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
-    },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
   })
   return {
     notes: (payload.notes ?? []).map(toNoteRecord),
@@ -291,10 +332,69 @@ export async function deleteNote(userId: string | undefined, noteId: string): Pr
   const idToken = await getIdToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}`, {
     method: 'DELETE',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+  })
+  return true
+}
+
+// ── Note shares ──────────────────────────────────────────────────────────────
+
+export async function listNoteShares(noteId: string): Promise<NoteShare[]> {
+  const idToken = await getIdToken()
+  const payload = await fetchJson<{ shares: ApiNoteShare[] }>(
+    `${API_BASE_URL}/notes/${noteId}/shares`,
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` } },
+  )
+  return (payload.shares ?? []).map(toNoteShare)
+}
+
+export async function createNoteShare(
+  noteId: string,
+  email: string,
+  role: 'viewer' | 'editor',
+): Promise<NoteShare> {
+  const idToken = await getIdToken()
+  const payload = await fetchJson<{ share: ApiNoteShare }>(
+    `${API_BASE_URL}/notes/${noteId}/shares`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ email, role }),
     },
+  )
+  return toNoteShare(payload.share)
+}
+
+export async function updateNoteShare(
+  noteId: string,
+  email: string,
+  role: 'viewer' | 'editor',
+): Promise<NoteShare> {
+  const idToken = await getIdToken()
+  const payload = await fetchJson<{ share: ApiNoteShare }>(
+    `${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ role }),
+    },
+  )
+  return toNoteShare(payload.share)
+}
+
+export async function deleteNoteShare(noteId: string, email: string): Promise<boolean> {
+  const idToken = await getIdToken()
+  await fetchJson(`${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
   })
   return true
 }

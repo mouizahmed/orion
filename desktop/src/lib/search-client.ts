@@ -1,6 +1,6 @@
 import { auth } from '@/config/firebase'
 import type { FolderRecord } from '@/types/folder'
-import type { NoteRecord } from '@/types/note'
+import type { NoteSummary } from '@/types/note'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -42,7 +42,7 @@ type SearchResponse = {
 }
 
 export type SearchResultPage = {
-  notes: NoteRecord[]
+  notes: NoteSummary[]
   folders: FolderRecord[]
   pagination: {
     limit: number
@@ -59,12 +59,11 @@ export type SearchResultPage = {
   }
 }
 
-function toNoteRecord(note: ApiNote): NoteRecord {
+function toNoteSummary(note: ApiNote): NoteSummary {
   return {
     id: note.id,
     title: note.title,
     folderId: note.folder_id ?? undefined,
-    noteMarkdown: note.note_markdown ?? '',
     createdAt: Date.parse(note.created_at),
     updatedAt: Date.parse(note.updated_at),
   }
@@ -144,7 +143,7 @@ export async function searchAll(params: {
   })
 
   return {
-    notes: (payload.notes ?? []).map(toNoteRecord),
+    notes: (payload.notes ?? []).map(toNoteSummary),
     folders: (payload.folders ?? []).map(toFolderRecord),
     pagination: {
       limit: payload.pagination?.limit ?? limit,

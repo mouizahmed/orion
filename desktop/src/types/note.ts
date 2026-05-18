@@ -1,11 +1,54 @@
-export type NoteRecord = {
+export type NoteSummary = {
   id: string
   title: string
   folderId?: string
-  noteMarkdown: string
   createdAt: number
   updatedAt: number
   calendarEventId?: string
+}
+
+export type NoteRecord = NoteSummary & {
+  noteMarkdown: string
+}
+
+export type CalendarAttendee = {
+  name?: string
+  email: string
+}
+
+export type LinkedEventDetail = {
+  id: string
+  providerEventId: string
+  connectionId: string
+  calendarId: string
+  provider: string
+  title: string
+  start: string
+  end?: string
+  allDay?: boolean
+  color: string
+  calendarName?: string
+  meetingLink?: string
+  eventLink?: string
+  location?: string
+  organizerEmail?: string
+  attendees: CalendarAttendee[]
+}
+
+export type NoteDetail = NoteRecord & {
+  linkedEvent: LinkedEventDetail | null
+}
+
+export type NoteShare = {
+  id: string
+  noteId: string
+  sharedBy: string
+  email: string
+  userId?: string
+  role: 'viewer' | 'editor'
+  status: 'pending' | 'active'
+  createdAt: string
+  updatedAt: string
 }
 
 export type NoteVersion = {
