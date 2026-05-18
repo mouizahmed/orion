@@ -120,7 +120,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize B2 client: %v", err)
 	}
-	avatarService := profile.NewAvatarService(b2Client)
+	publicB2Client, err := storage.NewB2ClientFor(os.Getenv("B2_PUBLIC_BUCKET_NAME"), os.Getenv("B2_PUBLIC_BUCKET_ID"))
+	if err != nil {
+		log.Fatalf("Failed to initialize public B2 client: %v", err)
+	}
+	avatarService := profile.NewAvatarService(publicB2Client)
 
 	// Initialize direct Redis client for OAuth codes
 	redisClient := redis.NewClient(&redis.Options{

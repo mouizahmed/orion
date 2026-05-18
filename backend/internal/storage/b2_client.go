@@ -90,6 +90,20 @@ func NewB2Client() (*B2Client, error) {
 	return b2Client, nil
 }
 
+func NewB2ClientFor(bucketName, bucketID string) (*B2Client, error) {
+	b2Client := &B2Client{
+		bucketName: bucketName,
+		bucketID:   bucketID,
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+	}
+
+	if err := b2Client.authorizeB2(); err != nil {
+		return nil, fmt.Errorf("failed to authorize with B2: %w", err)
+	}
+
+	return b2Client, nil
+}
+
 func (b *B2Client) GetBucketName() string {
 	return b.bucketName
 }
@@ -522,9 +536,12 @@ func (b *B2Client) GetSignedDownloadURL(b2FileName string, validSeconds int) (st
 	return signedURL, nil
 }
 
-// Get file URL with proper URL encoding for special characters
+// GetFileURL returns the public download URL for a file in the bucket.
 func (b *B2Client) GetFileURL(fileName string) string {
-	// URL encode the entire path to handle special characters, spaces, and emojis
-	encodedFileName := url.QueryEscape(fileName)
-	return fmt.Sprintf("https://f005.backblazeb2.com/file/%s/%s", b.bucketName, encodedFileName)
+	segments := strings.Split(fileName, "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	encodedFileName := strings.Join(segments, "/")
+	return fmt.Sprintf("%s/file/%s/%s", b.downloadURL, url.PathEscape(b.bucketName), encodedFileName)
 }

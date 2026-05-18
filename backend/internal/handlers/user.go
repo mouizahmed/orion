@@ -31,11 +31,15 @@ type updateCurrentUserRequest struct {
 }
 
 func renderUser(c *gin.Context, user *models.User) {
+	var avatarURL interface{}
+	if user.AvatarURL != nil && *user.AvatarURL != "" {
+		avatarURL = *user.AvatarURL
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":         user.ID,
 		"email":      user.Email,
 		"name":       user.Name,
-		"avatar_url": user.AvatarURL,
+		"avatar_url": avatarURL,
 		"plan":       user.Plan,
 		"status":     user.Status,
 		"created_at": user.CreatedAt,
@@ -183,3 +187,4 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 
 	renderUser(c, user)
 }
+

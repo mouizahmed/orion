@@ -47,8 +47,8 @@ export default function DashboardSidebar({
   } = useDashboardNotes()
 
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false)
-  const [profileImageFailed, setProfileImageFailed] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const avatarSrc = user?.picture ?? null
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const displayName = user?.name || user?.email || 'Account'
   const initials = displayName
@@ -57,46 +57,6 @@ export default function DashboardSidebar({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'S'
-
-  useEffect(() => {
-    setProfileImageFailed(false)
-  }, [user?.picture])
-
-  useEffect(() => {
-    if (!user?.picture || !profileImageFailed) return
-
-    const retryProfileImage = () => {
-      setProfileImageFailed(false)
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        retryProfileImage()
-      }
-    }
-
-    window.addEventListener('online', retryProfileImage)
-    window.addEventListener('focus', retryProfileImage)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      window.removeEventListener('online', retryProfileImage)
-      window.removeEventListener('focus', retryProfileImage)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [profileImageFailed, user?.picture])
-
-  useEffect(() => {
-    if (!user?.picture || !profileImageFailed) return
-
-    const retryTimer = window.setTimeout(() => {
-      setProfileImageFailed(false)
-    }, 30_000)
-
-    return () => {
-      window.clearTimeout(retryTimer)
-    }
-  }, [profileImageFailed, user?.picture])
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -275,16 +235,13 @@ export default function DashboardSidebar({
             onClick={() => setProfileMenuOpen((open) => !open)}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
-            {user?.picture && !profileImageFailed ? (
+            {avatarSrc ? (
               <img
-                src={user.picture}
+                src={avatarSrc}
                 alt=""
                 className="h-5 w-5 shrink-0 rounded-full object-cover"
                 draggable={false}
                 referrerPolicy="no-referrer"
-                onError={() => {
-                  setProfileImageFailed(true)
-                }}
               />
             ) : (
               <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">

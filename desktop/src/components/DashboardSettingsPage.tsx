@@ -450,7 +450,6 @@ export default function DashboardSettingsPage({
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
   const [recordingAction, setRecordingAction] = useState<ShortcutAction | null>(null)
   const [updatingAction, setUpdatingAction] = useState<ShortcutAction | null>(null)
-  const [profileImageFailed, setProfileImageFailed] = useState(false)
   const [calendarConnections, setCalendarConnections] = useState<IntegrationConnection[]>([])
   const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
   const [isLoadingCalendars, setIsLoadingCalendars] = useState(true)
@@ -461,6 +460,7 @@ export default function DashboardSettingsPage({
     storageLocation: 'server',
     localRecordingsPath: '',
   })
+  const avatarSrc = user?.picture ?? null
   const displayName = user?.name || user?.email || 'Account'
   const initials = displayName
     .split(/\s+/)
@@ -468,10 +468,6 @@ export default function DashboardSettingsPage({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'S'
-
-  useEffect(() => {
-    setProfileImageFailed(false)
-  }, [user?.picture])
 
   useEffect(() => {
     setProfileName(user?.name || '')
@@ -500,7 +496,6 @@ export default function DashboardSettingsPage({
     setProfileAction('avatar')
     try {
       await uploadProfileAvatar(file)
-      setProfileImageFailed(false)
     } catch (uploadError) {
       toast.error(uploadError instanceof Error ? uploadError.message : 'Failed to update avatar')
     } finally {
@@ -806,14 +801,13 @@ export default function DashboardSettingsPage({
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center gap-3 border-b border-neutral-200 px-3 py-3 dark:border-white/10">
                 <div className="shrink-0">
-                  {user?.picture && !profileImageFailed ? (
+                  {avatarSrc ? (
                     <img
-                      src={user.picture}
+                      src={avatarSrc}
                       alt=""
                       className="h-12 w-12 rounded-full object-cover"
                       draggable={false}
                       referrerPolicy="no-referrer"
-                      onError={() => setProfileImageFailed(true)}
                     />
                   ) : (
                     <div className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-200 text-sm font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">
