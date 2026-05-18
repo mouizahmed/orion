@@ -189,6 +189,7 @@ export function DashboardNotesProvider({
       return
     }
     setSelectedId(id)
+    window.dispatchEvent(new Event('dashboard-activity-refresh'))
     void fetchAndSetSelectedNote(id)
   }, [fetchAndSetSelectedNote])
 
@@ -438,6 +439,7 @@ export function DashboardNotesProvider({
       if (!prev || prev.id !== noteId) return prev
       return { ...prev, ...patch, updatedAt: Date.now() }
     })
+    window.dispatchEvent(new Event('dashboard-activity-refresh'))
   }, [])
 
   const replaceNote = useCallback((note: NoteRecord) => {
@@ -445,12 +447,9 @@ export function DashboardNotesProvider({
     setNoteSummariesById((prev) => ({ ...prev, [note.id]: summary }))
     setSelectedNote((prev) => {
       if (!prev || prev.id !== note.id) return prev
-      return {
-        ...prev,
-        ...summary,
-        noteMarkdown: note.noteMarkdown,
-      }
+      return { ...prev, ...summary, noteMarkdown: note.noteMarkdown }
     })
+    window.dispatchEvent(new Event('dashboard-activity-refresh'))
   }, [])
 
   // ── Shares ────────────────────────────────────────────────────────────────

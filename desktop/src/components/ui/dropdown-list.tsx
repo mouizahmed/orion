@@ -54,7 +54,7 @@ function dropdownItemClassName({
   layout?: DropdownItemLayout
 }) {
   return cn(
-    "relative mx-1 my-0.5 flex w-[calc(100%-8px)] cursor-pointer select-none items-center gap-2 rounded-full px-3 outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+    "relative mx-1 my-0.5 flex w-[calc(100%-8px)] cursor-pointer select-none items-center gap-2 rounded-full px-2 outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
     layout === "multiline" ? "h-auto min-h-8 py-1.5 text-xs leading-4" : cn(itemSizeClasses[size], "leading-none"),
     destructive
       ? "text-red-600 hover:bg-red-50 hover:text-red-700 focus:bg-red-50 focus:text-red-700 dark:text-red-300 dark:hover:bg-red-500/12 dark:hover:text-red-200 dark:focus:bg-red-500/12 dark:focus:text-red-200"
@@ -207,7 +207,9 @@ function SelectDropdownItem({
           </SelectPrimitive.ItemIndicator>
         </DropdownIconSlot>
       ) : null}
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemText asChild>
+        <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
+      </SelectPrimitive.ItemText>
       {checkPosition === "right" ? (
         <span className="absolute right-2 flex size-3.5 items-center justify-center">
           <SelectPrimitive.ItemIndicator>

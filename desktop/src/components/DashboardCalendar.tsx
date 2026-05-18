@@ -406,7 +406,7 @@ export function DashboardCalendar({
   }, [createNewNote, selectNote, onOpenNotes])
 
   return (
-    <div className="flex h-full min-h-0 gap-2">
+    <div className={cn('flex h-full min-h-0', hasDetailsPanel && 'gap-2')}>
       <DashboardPanel className="flex min-w-0 flex-1 flex-col">
         <DashboardPanelHeader>
           <div className="flex min-w-0 items-center gap-2">

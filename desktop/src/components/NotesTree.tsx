@@ -95,13 +95,14 @@ export function NotesTree({
 
   const cancelRename = () => { setRenamingId(null); setRenameValue('') }
 
-  // Build tree folders from folderPages (page noteIds are already in order from API)
+  const sortByUpdatedAt = (ids: string[]) =>
+    [...ids].sort((a, b) => (noteSummariesById[b]?.updatedAt ?? 0) - (noteSummariesById[a]?.updatedAt ?? 0))
+
   const treeFolders = useMemo<TreeFolder[]>(() => {
     return folders
       .map((f) => {
         const page = folderPages[f.id]
         let noteIds = page?.noteIds ?? []
-        // Inject selected note at top if it belongs to this folder but isn't in the loaded page
         if (
           selectedNoteDetail &&
           selectedNoteDetail.folderId === f.id &&
@@ -109,22 +110,19 @@ export function NotesTree({
         ) {
           noteIds = [selectedNoteDetail.id, ...noteIds]
         }
-        return { id: f.id, name: f.name, noteCount: f.noteCount, noteIds }
+        return { id: f.id, name: f.name, noteCount: f.noteCount, noteIds: sortByUpdatedAt(noteIds) }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [folders, folderPages, selectedNoteDetail])
+  }, [folders, folderPages, selectedNoteDetail, noteSummariesById])
 
   const unfiledNoteIds = useMemo(() => {
     const ids = folderPages[UNFILED_ID]?.noteIds ?? []
-    if (
-      selectedNoteDetail &&
-      !selectedNoteDetail.folderId &&
-      !ids.includes(selectedNoteDetail.id)
-    ) {
-      return [selectedNoteDetail.id, ...ids]
-    }
-    return ids
-  }, [folderPages, selectedNoteDetail])
+    const withSelected =
+      selectedNoteDetail && !selectedNoteDetail.folderId && !ids.includes(selectedNoteDetail.id)
+        ? [selectedNoteDetail.id, ...ids]
+        : ids
+    return sortByUpdatedAt(withSelected)
+  }, [folderPages, selectedNoteDetail, noteSummariesById])
 
   const handleExpandFolder = (id: string) => {
     const nowExpanded = !(folderExpansions[id] ?? false)
@@ -241,13 +239,13 @@ export function NotesTree({
       <div key={f.id} className="relative min-w-0">
         <div className={cn(
           'group/row flex items-center rounded-full min-w-0',
-          isExpanded || isFolderActive ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
+          'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
         )}>
           <SidebarRowButton
             embedded
             className="min-w-0 flex-1 rounded-none pr-2 pl-0 text-inherit hover:bg-transparent hover:text-inherit"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => onSelectFolder(f.id)}
+            onClick={() => handleExpandFolder(f.id)}
           >
             {canExpand ? (
               <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center">
@@ -348,13 +346,14 @@ export function NotesTree({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="group flex h-8 items-center justify-between rounded-full hover:bg-neutral-100 dark:hover:bg-white/8">
-        <div className="flex items-center gap-2">
-          <SidebarIconButton
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onClick={() => setTreeExpanded(!treeExpanded)}
-          >
+        <div
+          className="flex flex-1 cursor-pointer items-center gap-2"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          onClick={() => setTreeExpanded(!treeExpanded)}
+        >
+          <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center">
             {treeExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </SidebarIconButton>
+          </span>
           <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">
             Notes
           </div>

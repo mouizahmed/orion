@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Home, Notebook, Settings, Users } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
-import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { DropdownItem } from '@/components/ui/dropdown-list'
 import { NotesTree } from '@/components/NotesTree'
 import { CreateFolderDialog } from '@/components/dialog/CreateFolderDialog'
 import { DashboardSettingsNav, type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
@@ -264,17 +265,17 @@ export default function DashboardSidebar({
           {profileMenuOpen ? (
             <div
               role="menu"
-              className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
+              className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-neutral-200 bg-white/95 py-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
             >
-              <SidebarMenuItemButton
+              <DropdownItem
                 role="menuitem"
                 onClick={() => {
                   setProfileMenuOpen(false)
                   logout()
                 }}
               >
-                <span>Log out</span>
-              </SidebarMenuItemButton>
+                Log out
+              </DropdownItem>
             </div>
           ) : null}
         </div>

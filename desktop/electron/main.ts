@@ -16,6 +16,7 @@ import {
   createAuthWindow,
   createWindow,
   destroyOverlayWindow,
+  getDashboardWindow,
   getWindow,
   setAppQuitting,
   setAuthWindow,
@@ -128,13 +129,16 @@ if (!gotTheLock) {
       },
     )
 
+    const isDashboardOpen = () => {
+      const dash = getDashboardWindow()
+      return Boolean(dash && !dash.isDestroyed() && dash.isVisible())
+    }
+
     const registerOverlayShortcuts = () => {
       const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
+        if (isDashboardOpen()) return
         const overlay = getWindow()
-        if (!overlay || overlay.isDestroyed()) return
-        if (!overlay.isVisible()) {
-          overlay.show()
-        }
+        if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return
         overlay.focus()
         setTimeout(() => {
           if (!overlay.isDestroyed() && overlay.isVisible()) {
@@ -144,6 +148,7 @@ if (!gotTheLock) {
       }
 
       const toggleVisibilityHandler = () => {
+        if (isDashboardOpen()) return
         const overlay = getWindow()
         if (!overlay || overlay.isDestroyed()) return
         if (overlay.isVisible()) {
@@ -159,11 +164,9 @@ if (!gotTheLock) {
       }
 
       const focusNotepadHandler = () => {
+        if (isDashboardOpen()) return
         const overlay = getWindow()
-        if (!overlay || overlay.isDestroyed()) return
-        if (!overlay.isVisible()) {
-          overlay.show()
-        }
+        if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return
         overlay.focus()
         setTimeout(() => {
           if (!overlay.isDestroyed() && overlay.isVisible()) {
