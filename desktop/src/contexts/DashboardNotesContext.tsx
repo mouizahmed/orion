@@ -92,6 +92,7 @@ export function DashboardNotesProvider({
 }) {
   const [noteSummariesById, setNoteSummariesById] = useState<Record<string, NoteSummary>>({})
   const [folderPages, setFolderPages] = useState<Record<string, FolderPage>>({})
+  const folderPagesRef = useRef<Record<string, FolderPage>>({})
   const [folders, setFolders] = useState<FolderRecord[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedNote, setSelectedNote] = useState<NoteDetail | null>(null)
@@ -177,6 +178,10 @@ export function DashboardNotesProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
+  useEffect(() => {
+    folderPagesRef.current = folderPages
+  }, [folderPages])
+
   const selectNote = useCallback((id: string | null) => {
     if (!id) {
       setSelectedId(null)
@@ -198,25 +203,15 @@ export function DashboardNotesProvider({
   const loadMoreForFolder = useCallback(
     async (folderId: string | null) => {
       const key = folderId ?? UNFILED_ID
-      setFolderPages((prev) => {
-        const state = prev[key]
-        if (!state || state.isLoading) return prev
-        if (state.loaded && !state.hasMore) return prev
-        return { ...prev, [key]: { ...state, isLoading: true } }
-      })
+      const currentPage = folderPagesRef.current[key]
+      if (!currentPage || currentPage.isLoading || (currentPage.loaded && !currentPage.hasMore)) return
+      const cursor = currentPage.cursor
 
-      // Read current state for cursor — use a snapshot via functional update
-      let cursor: string | undefined
-      let alreadyLoaded = false
       setFolderPages((prev) => {
         const state = prev[key]
         if (!state) return prev
-        cursor = state.cursor
-        alreadyLoaded = state.loaded && !state.hasMore
-        return prev
+        return { ...prev, [key]: { ...state, isLoading: true } }
       })
-
-      if (alreadyLoaded) return
 
       try {
         const page = await listNotesPage({
