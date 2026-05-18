@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Folder, Grid3X3, RefreshCw, Search } from 'lucide-react'
+import { AudioLines, Folder, Plus, RefreshCw, Search, Upload } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { searchAll } from '@/lib/search-client'
 import { desktopApi } from '@/lib/desktop-api'
 import { triggerCalendarSync, resetCalendarSync } from '@/hooks/useCalendarEvents'
+import { DropdownItem, DropdownIconSlot, DropdownPopover } from '@/components/ui/dropdown-list'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -30,7 +31,9 @@ export default function DashboardTopBar({
   } = useDashboardNotes()
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isRecordOpen, setIsRecordOpen] = useState(false)
   const searchContainerRef = useRef<HTMLDivElement | null>(null)
+  const recordContainerRef = useRef<HTMLDivElement | null>(null)
   const calendarRefreshInFlightRef = useRef(false)
 
   const query = searchQuery.trim().toLowerCase()
@@ -120,14 +123,17 @@ export default function DashboardTopBar({
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!searchContainerRef.current) return
-      if (!searchContainerRef.current.contains(event.target as Node)) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
         setIsSearchOpen(false)
+      }
+      if (recordContainerRef.current && !recordContainerRef.current.contains(event.target as Node)) {
+        setIsRecordOpen(false)
       }
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsSearchOpen(false)
+        setIsRecordOpen(false)
       }
     }
 
@@ -399,19 +405,31 @@ export default function DashboardTopBar({
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : undefined} />
-          Refresh
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="h-8 rounded-full"
-          onClick={onBackToOverlay}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <Grid3X3 size={14} />
-          Back to overlay
-        </Button>
+        <div ref={recordContainerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            className="h-8 rounded-full"
+            onClick={() => setIsRecordOpen((o) => !o)}
+          >
+            <Plus size={14} />
+            Record
+          </Button>
+          {isRecordOpen ? (
+            <DropdownPopover align="end" width="sm" className="w-fit min-w-0">
+              <DropdownItem className="whitespace-nowrap" onClick={() => { setIsRecordOpen(false); onBackToOverlay() }}>
+                <DropdownIconSlot><AudioLines size={13} /></DropdownIconSlot>
+                Start new meeting
+              </DropdownItem>
+              <DropdownItem className="whitespace-nowrap" disabled>
+                <DropdownIconSlot><Upload size={13} /></DropdownIconSlot>
+                Upload an audio file
+              </DropdownItem>
+            </DropdownPopover>
+          ) : null}
+        </div>
       </div>
     </div>
   )

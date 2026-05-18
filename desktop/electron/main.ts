@@ -185,9 +185,12 @@ if (!gotTheLock) {
     setupAuthHandlers({
       onSignedIn: () => {
         const overlay = createWindow()
-        if (!overlay.isVisible()) overlay.show()
+        if (overlay.isVisible()) overlay.hide()
         closeAuthWindow()
         registerOverlayShortcuts()
+        const dashboard = createDashboardWindow()
+        dashboard.show()
+        dashboard.focus()
       },
       onSignedOut: () => {
         stopSystemAudioCapture()

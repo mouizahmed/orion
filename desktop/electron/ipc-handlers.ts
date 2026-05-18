@@ -240,6 +240,7 @@ export function setupIpcHandlers() {
     if (overlay && !overlay.isDestroyed()) {
       overlay.setIgnoreMouseEvents(true, { forward: true })
       overlay.setOpacity(0)
+      overlay.hide()
     }
 
     const noteId = typeof payload?.noteId === 'string' ? payload.noteId : undefined
