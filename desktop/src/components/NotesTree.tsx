@@ -37,7 +37,7 @@ export function NotesTree({
   onLoadMore,
   selectedFolderId,
   selectedNoteId,
-  onSelectFolder,
+  onSelectFolder: _onSelectFolder,
   onSelectNote,
   onCreateFolder,
   onCreateNote,

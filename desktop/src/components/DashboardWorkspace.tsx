@@ -11,7 +11,7 @@ import {
   DropdownSeparator,
 } from '@/components/ui/dropdown-list'
 import { InfoBanner } from '@/components/ui/info-banner'
-import { updateNote, enhanceNote } from '@/lib/notes-client'
+import { updateNote, enhanceNote, getNote } from '@/lib/notes-client'
 import { toast } from 'sonner'
 import { auth } from '@/config/firebase'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
@@ -21,6 +21,7 @@ import { DashboardCalendar } from '@/components/DashboardCalendar'
 import DashboardHome from '@/components/DashboardHome'
 import DashboardSettingsPage, { type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import NoteAttendeesDropdown from '@/components/NoteAttendeesDropdown'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -50,7 +51,7 @@ export default function DashboardWorkspace({
   onOpenNotes,
   initialCalendarEventId,
 }: DashboardWorkspaceProps) {
-  const { folders, selectedId, selectedNote, selectedNoteLoading, noteSummariesById, optimisticPatch, replaceNote, evictNote, isLoading } = useDashboardNotes()
+  const { folders, selectedId, selectedNote, selectedNoteLoading, noteSummariesById, optimisticPatch, replaceNote, evictNote, isLoading, addAttendee } = useDashboardNotes()
 
   const [draftTitle, setDraftTitle] = useState('')
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
@@ -262,6 +263,12 @@ export default function DashboardWorkspace({
       if (meeting) {
         linkedMeetingCache.current.set(selectedId, meeting)
         setSelectedLinkedMeeting(meeting)
+        const fullNote = await getNote(userId, selectedId)
+        if (fullNote?.linkedEvent?.attendees) {
+          for (const a of fullNote.linkedEvent.attendees) {
+            if (a.email) await addAttendee(selectedId, a.email)
+          }
+        }
       } else {
         linkedMeetingCache.current.set(selectedId, null)
         setSelectedLinkedMeeting(null)
@@ -547,6 +554,11 @@ export default function DashboardWorkspace({
               </DropdownPopover>
             )}
           </div>
+
+          {/* Attendees */}
+          {selectedNote && (
+            <NoteAttendeesDropdown note={selectedNote} />
+          )}
 
           {/* Transcript toggle */}
           <Button

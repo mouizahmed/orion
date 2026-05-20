@@ -37,6 +37,17 @@ export type LinkedEventDetail = {
 
 export type NoteDetail = NoteRecord & {
   linkedEvent: LinkedEventDetail | null
+  attendees: NoteAttendee[]
+}
+
+export type NoteAttendee = {
+  id: string
+  noteId: string
+  userId?: string
+  email: string
+  name: string
+  avatarUrl?: string
+  createdAt: string
 }
 
 export type NoteShare = {

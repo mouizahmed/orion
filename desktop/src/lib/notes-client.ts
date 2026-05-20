@@ -1,4 +1,4 @@
-import type { NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/types/note'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/types/note'
 import { auth } from '@/config/firebase'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
@@ -37,6 +37,7 @@ type ApiNote = {
   updated_at: string
   calendar_event_id?: string | null
   linked_event?: ApiLinkedEvent | null
+  attendees?: ApiNoteAttendee[]
 }
 
 type ApiNoteSummary = {
@@ -102,6 +103,7 @@ function toNoteDetail(note: ApiNote): NoteDetail {
           attendees: (le.attendees ?? []).map((a) => ({ name: a.name, email: a.email })),
         }
       : null,
+    attendees: (note.attendees ?? []).map(toNoteAttendee),
   }
 }
 
@@ -397,4 +399,50 @@ export async function deleteNoteShare(noteId: string, email: string): Promise<bo
     headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
   })
   return true
+}
+
+// ── Note attendees ────────────────────────────────────────────────────────────
+
+type ApiNoteAttendee = {
+  id: string
+  note_id: string
+  user_id?: string
+  email: string
+  name: string
+  avatar_url?: string
+  created_at: string
+}
+
+function toNoteAttendee(a: ApiNoteAttendee): NoteAttendee {
+  return { id: a.id, noteId: a.note_id, userId: a.user_id, email: a.email, name: a.name, avatarUrl: a.avatar_url || undefined, createdAt: a.created_at }
+}
+
+export async function listNoteAttendees(noteId: string): Promise<NoteAttendee[]> {
+  const idToken = await getIdToken()
+  const payload = await fetchJson<{ attendees: ApiNoteAttendee[] }>(
+    `${API_BASE_URL}/notes/${noteId}/attendees`,
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` } },
+  )
+  return (payload.attendees ?? []).map(toNoteAttendee)
+}
+
+export async function addNoteAttendee(noteId: string, email: string): Promise<NoteAttendee> {
+  const idToken = await getIdToken()
+  const payload = await fetchJson<{ attendee: ApiNoteAttendee }>(
+    `${API_BASE_URL}/notes/${noteId}/attendees`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      body: JSON.stringify({ email }),
+    },
+  )
+  return toNoteAttendee(payload.attendee)
+}
+
+export async function removeNoteAttendee(noteId: string, email: string): Promise<void> {
+  const idToken = await getIdToken()
+  await fetchJson(`${API_BASE_URL}/notes/${noteId}/attendees/${encodeURIComponent(email)}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+  })
 }

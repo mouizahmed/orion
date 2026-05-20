@@ -56,6 +56,7 @@ type NoteDetail struct {
 	UpdatedAt       time.Time          `json:"updated_at"`
 	CalendarEventID *string            `json:"calendar_event_id,omitempty"`
 	LinkedEvent     *LinkedEventDetail `json:"linked_event,omitempty"`
+	Attendees       []NoteAttendee     `json:"attendees"`
 }
 
 type NoteVersion struct {
@@ -63,6 +64,16 @@ type NoteVersion struct {
 	NoteID       string    `json:"note_id"`
 	NoteMarkdown string    `json:"note_markdown"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type NoteAttendee struct {
+	ID        string    `json:"id"`
+	NoteID    string    `json:"note_id"`
+	UserID    *string   `json:"user_id,omitempty"`
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	AvatarURL string    `json:"avatar_url,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type NoteShare struct {

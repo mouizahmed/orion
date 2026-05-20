@@ -30,14 +30,15 @@ func backendBaseURL() string {
 }
 
 type NotesHandler struct {
-	noteRepo        *repository.NoteRepository
-	noteVersionRepo *repository.NoteVersionRepository
-	folderRepo      *repository.FolderRepository
-	recordingRepo   *repository.RecordingSessionRepository
-	b2Client        *storage.B2Client
-	attachmentRepo  *repository.NoteAttachmentRepository
-	aiClient        *ai.Client
-	queue           *queue.Queue
+	noteRepo         *repository.NoteRepository
+	noteVersionRepo  *repository.NoteVersionRepository
+	folderRepo       *repository.FolderRepository
+	recordingRepo    *repository.RecordingSessionRepository
+	b2Client         *storage.B2Client
+	attachmentRepo   *repository.NoteAttachmentRepository
+	noteAttendeeRepo *repository.NoteAttendeeRepository
+	aiClient         *ai.Client
+	queue            *queue.Queue
 }
 
 type CreateNoteRequest struct {
@@ -77,16 +78,17 @@ type SearchSectionMeta struct {
 	HasMore    bool `json:"has_more"`
 }
 
-func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repository.NoteVersionRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, aiClient *ai.Client, q *queue.Queue) *NotesHandler {
+func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repository.NoteVersionRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, aiClient *ai.Client, q *queue.Queue) *NotesHandler {
 	return &NotesHandler{
-		noteRepo:        noteRepo,
-		noteVersionRepo: noteVersionRepo,
-		folderRepo:      folderRepo,
-		recordingRepo:   recordingRepo,
-		b2Client:        b2Client,
-		attachmentRepo:  attachmentRepo,
-		aiClient:        aiClient,
-		queue:           q,
+		noteRepo:         noteRepo,
+		noteVersionRepo:  noteVersionRepo,
+		folderRepo:       folderRepo,
+		recordingRepo:    recordingRepo,
+		b2Client:         b2Client,
+		attachmentRepo:   attachmentRepo,
+		noteAttendeeRepo: noteAttendeeRepo,
+		aiClient:         aiClient,
+		queue:            q,
 	}
 }
 
@@ -483,6 +485,13 @@ func (h *NotesHandler) GetNote(c *gin.Context) {
 		return
 	}
 
+	attendees, err := h.noteAttendeeRepo.ListByNote(noteID)
+	if err != nil {
+		log.Printf("notes: failed to fetch attendees for note %s: %v", noteID, err)
+		attendees = []models.NoteAttendee{}
+	}
+	note.Attendees = attendees
+
 	c.JSON(http.StatusOK, gin.H{"note": note})
 }
 
@@ -540,6 +549,10 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 		log.Printf("notes: failed to create note for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create note"})
 		return
+	}
+
+	if err := h.noteAttendeeRepo.AddByUserID(created.ID, userID); err != nil {
+		log.Printf("notes: failed to add creator attendee for note %s: %v", created.ID, err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"note": created})

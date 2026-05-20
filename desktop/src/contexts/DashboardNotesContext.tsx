@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { NoteDetail, NoteRecord, NoteShare, NoteSummary } from '@/types/note'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary } from '@/types/note'
 import type { FolderRecord } from '@/types/folder'
 import { CreateNoteDialog } from '@/components/dialog/CreateNoteDialog'
 import { createFolder as createFolderApi, deleteFolder as deleteFolderApi, listFolders, renameFolder as renameFolderApi } from '@/lib/folders-client'
@@ -14,6 +14,8 @@ import {
   createNoteShare,
   updateNoteShare,
   deleteNoteShare,
+  addNoteAttendee,
+  removeNoteAttendee,
 } from '@/lib/notes-client'
 
 export const UNFILED_ID = '__unfiled__'
@@ -45,6 +47,7 @@ type DashboardNotesContextType = {
   selectedNote: NoteDetail | null
   selectedNoteLoading: boolean
   noteSharesByNoteId: Record<string, SharesEntry>
+  noteAttendeesByNoteId: Record<string, NoteAttendee[]>
   loadMoreForFolder: (folderId: string | null) => Promise<void>
   selectedFolderId: string | null
   selectedId: string | null
@@ -68,6 +71,8 @@ type DashboardNotesContextType = {
   createShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
   updateShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
   removeShare: (noteId: string, email: string) => Promise<boolean>
+  addAttendee: (noteId: string, email: string) => Promise<NoteAttendee | null>
+  removeAttendee: (noteId: string, email: string) => Promise<boolean>
 }
 
 const DashboardNotesContext = createContext<DashboardNotesContextType | null>(null)
@@ -103,6 +108,7 @@ export function DashboardNotesProvider({
   const [search, setSearch] = useState('')
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
   const [noteSharesByNoteId, setNoteSharesByNoteId] = useState<Record<string, SharesEntry>>({})
+  const [noteAttendeesByNoteId, setNoteAttendeesByNoteId] = useState<Record<string, NoteAttendee[]>>({})
   const createInFlightRef = useRef(false)
 
   const notes = useMemo(
@@ -117,6 +123,7 @@ export function DashboardNotesProvider({
       if (result) {
         setSelectedNote(result)
         setNoteSummariesById((prev) => ({ ...prev, [id]: summaryFromRecord(result) }))
+        setNoteAttendeesByNoteId((prev) => ({ ...prev, [id]: result.attendees }))
       }
     } finally {
       setSelectedNoteLoading(false)
@@ -171,7 +178,7 @@ export function DashboardNotesProvider({
     } finally {
       setIsLoading(false)
     }
-  }, [userId, fetchAndSetSelectedNote])
+  }, [userId])
 
   useEffect(() => {
     void refresh()
@@ -522,6 +529,34 @@ export function DashboardNotesProvider({
     return true
   }, [])
 
+  // ── Attendees ─────────────────────────────────────────────────────────────
+
+  const addAttendee = useCallback(async (noteId: string, email: string) => {
+    try {
+      const attendee = await addNoteAttendee(noteId, email)
+      setNoteAttendeesByNoteId((prev) => {
+        const existing = (prev[noteId] ?? []).filter((a) => a.email !== email)
+        return { ...prev, [noteId]: [...existing, attendee] }
+      })
+      return attendee
+    } catch {
+      return null
+    }
+  }, [])
+
+  const removeAttendee = useCallback(async (noteId: string, email: string) => {
+    try {
+      await removeNoteAttendee(noteId, email)
+      setNoteAttendeesByNoteId((prev) => ({
+        ...prev,
+        [noteId]: (prev[noteId] ?? []).filter((a) => a.email !== email),
+      }))
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   // Expose folderPages without cursor (internal detail)
   const folderPagesPublic = useMemo(
     () =>
@@ -545,6 +580,7 @@ export function DashboardNotesProvider({
       selectedNote,
       selectedNoteLoading,
       noteSharesByNoteId,
+      noteAttendeesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
       selectedId,
@@ -568,6 +604,8 @@ export function DashboardNotesProvider({
       createShare,
       updateShare,
       removeShare,
+      addAttendee,
+      removeAttendee,
     }),
     [
       isLoading,
@@ -579,6 +617,7 @@ export function DashboardNotesProvider({
       selectedNote,
       selectedNoteLoading,
       noteSharesByNoteId,
+      noteAttendeesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
       selectedId,
@@ -602,6 +641,8 @@ export function DashboardNotesProvider({
       createShare,
       updateShare,
       removeShare,
+      addAttendee,
+      removeAttendee,
     ],
   )
 

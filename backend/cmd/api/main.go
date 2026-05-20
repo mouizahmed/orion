@@ -100,6 +100,7 @@ func main() {
 	folderRepo := repository.NewFolderRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
 	noteAttachmentRepo := repository.NewNoteAttachmentRepository(db)
+	noteAttendeeRepo := repository.NewNoteAttendeeRepository(db)
 	transcriptRepo := repository.NewTranscriptRepository(db)
 	conversationRepo := repository.NewConversationRepository(db)
 	messageRepo := repository.NewMessageRepository(db)
@@ -160,8 +161,9 @@ func main() {
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
-	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, aiClient, indexQueue)
+	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
 	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo, emailSvc)
+	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()
@@ -256,7 +258,12 @@ func main() {
 		authenticated.PATCH("/notes/:noteID/shares/:email", noteSharesHandler.UpdateShare)
 		authenticated.DELETE("/notes/:noteID/shares/:email", noteSharesHandler.DeleteShare)
 
-		// Folder routes
+		// Note attendee routes
+			authenticated.GET("/notes/:noteID/attendees", noteAttendeesHandler.ListAttendees)
+			authenticated.POST("/notes/:noteID/attendees", noteAttendeesHandler.AddAttendee)
+			authenticated.DELETE("/notes/:noteID/attendees/:email", noteAttendeesHandler.RemoveAttendee)
+
+			// Folder routes
 		authenticated.GET("/folders", folderHandler.ListFolders)
 		authenticated.POST("/folders", folderHandler.CreateFolder)
 		authenticated.PATCH("/folders/:folderID", folderHandler.RenameFolder)
