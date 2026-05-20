@@ -15,6 +15,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
 	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
+	"github.com/mouizahmed/justscribe-backend/internal/email"
 	"github.com/mouizahmed/justscribe-backend/internal/handlers"
 	"github.com/mouizahmed/justscribe-backend/internal/memory"
 	"github.com/mouizahmed/justscribe-backend/internal/middleware"
@@ -147,13 +148,20 @@ func main() {
 	defer cancelWorker()
 	go w.Start(workerCtx)
 
+	// Initialize email service
+	emailSvc := email.NewService(os.Getenv("RESEND_API_KEY"), email.Config{
+		NoReply:       os.Getenv("EMAIL_NOREPLY"),
+		Notifications: os.Getenv("EMAIL_NOTIFICATIONS"),
+		Billing:       os.Getenv("EMAIL_BILLING"),
+	})
+
 	// Initialize handlers
-	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient, avatarService)
+	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient, avatarService, emailSvc)
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, aiClient, indexQueue)
-	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo)
+	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo, emailSvc)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
 	transcriptionHandler := handlers.NewTranscriptionHandler()

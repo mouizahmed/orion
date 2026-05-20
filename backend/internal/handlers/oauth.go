@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
 	authproviders "github.com/mouizahmed/justscribe-backend/internal/auth/providers"
+	"github.com/mouizahmed/justscribe-backend/internal/email"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/profile"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
@@ -32,6 +33,7 @@ type OAuthHandler struct {
 	redisClient      *redis.Client
 	providerRegistry *authproviders.Registry
 	avatarService    *profile.AvatarService
+	emailSvc         *email.Service
 }
 
 type LoginOAuthState struct {
@@ -47,7 +49,7 @@ type LoginOAuthState struct {
 
 const loginOAuthStateTTL = 10 * time.Minute
 
-func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService) *OAuthHandler {
+func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService, emailSvc *email.Service) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
 	codeManager := auth.NewCodeManager(redisClient)
 
@@ -59,6 +61,7 @@ func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repo
 		redisClient:      redisClient,
 		providerRegistry: authproviders.NewDefaultRegistry(),
 		avatarService:    avatarService,
+		emailSvc:         emailSvc,
 	}
 }
 
@@ -709,6 +712,11 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 	if err := h.userRepo.CreateUser(user); err != nil {
 		return "", false, err
 	}
+	go func() {
+		if err := h.emailSvc.SendWelcome(user.Email, user.Name); err != nil {
+			log.Printf("email: welcome to %s: %v", user.Email, err)
+		}
+	}()
 	if cachedAvatarURL := h.cacheProfileAvatar(user.ID, profile); cachedAvatarURL != "" {
 		profile.AvatarURL = cachedAvatarURL
 		user.AvatarURL = &profile.AvatarURL

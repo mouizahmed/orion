@@ -6,18 +6,21 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mouizahmed/justscribe-backend/internal/email"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 )
 
 type NoteSharesHandler struct {
 	noteRepo      *repository.NoteRepository
 	noteShareRepo *repository.NoteShareRepository
+	emailSvc      *email.Service
 }
 
-func NewNoteSharesHandler(noteRepo *repository.NoteRepository, noteShareRepo *repository.NoteShareRepository) *NoteSharesHandler {
+func NewNoteSharesHandler(noteRepo *repository.NoteRepository, noteShareRepo *repository.NoteShareRepository, emailSvc *email.Service) *NoteSharesHandler {
 	return &NoteSharesHandler{
 		noteRepo:      noteRepo,
 		noteShareRepo: noteShareRepo,
+		emailSvc:      emailSvc,
 	}
 }
 
@@ -94,7 +97,8 @@ func (h *NoteSharesHandler) CreateShare(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.noteRepo.GetNoteByID(userID, noteID); err != nil {
+	note, err := h.noteRepo.GetNoteByID(userID, noteID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
 		return
 	}
@@ -105,6 +109,13 @@ func (h *NoteSharesHandler) CreateShare(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create share"})
 		return
 	}
+
+	noteTitle := note.Title
+	go func() {
+		if err := h.emailSvc.SendNoteShareInvite(req.Email, "", noteTitle); err != nil {
+			log.Printf("email: note share invite to %s: %v", req.Email, err)
+		}
+	}()
 
 	c.JSON(http.StatusOK, gin.H{"share": share})
 }
