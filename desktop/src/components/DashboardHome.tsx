@@ -3,6 +3,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import { ArrowDownUp, ArrowUpDown, FileText, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { NoteMenuContent } from '@/components/NoteMenuContent'
 import {
   Select,
   SelectContent,
@@ -77,13 +78,30 @@ export default function DashboardHome({
   onOpenCalendarSettings?: () => void
 }) {
   const { user } = useAuth()
-  const { selectNote, openCreateNoteDialog } = useDashboardNotes()
+  const { selectNote, openCreateNoteDialog, deleteById, renameNote, moveNote, folders } = useDashboardNotes()
   const activityRequestRef = useRef(0)
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
   const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
   const [activity, setActivity] = useState<ActivityRecord[]>([])
   const [activityLoading, setActivityLoading] = useState(true)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [showMove, setShowMove] = useState(false)
+
+  const startRename = (noteId: string, currentTitle: string) => {
+    setRenamingId(noteId)
+    setRenameValue(currentTitle)
+  }
+
+  const commitRename = async (noteId: string) => {
+    const val = renameValue.trim()
+    setRenamingId(null)
+    setRenameValue('')
+    if (val) await renameNote(noteId, val)
+  }
+
+  const cancelRename = () => { setRenamingId(null); setRenameValue('') }
   const {
     events: calendarEvents,
     loading: calendarLoading,
@@ -270,6 +288,27 @@ export default function DashboardHome({
                         onClick={item.noteId ? () => selectNote(item.noteId!) : undefined}
                         subtitle={item.actorLabel}
                         timestamp={formatActivityTime(item.timestamp)}
+                        isRenaming={renamingId === item.noteId}
+                        renameValue={renameValue}
+                        onRenameChange={setRenameValue}
+                        onRenameCommit={() => void commitRename(item.noteId!)}
+                        onRenameCancel={cancelRename}
+                        onMenuClose={() => setShowMove(false)}
+                        onMenuClose={() => setShowMove(false)}
+                        menuContent={item.noteId ? (close) => (
+                          <NoteMenuContent
+                            noteId={item.noteId!}
+                            noteTitle={item.title || 'Untitled'}
+                            noteFolderId={item.folderId}
+                            folders={folders}
+                            showMove={showMove}
+                            onShowMoveChange={setShowMove}
+                            onRename={startRename}
+                            onDelete={(id) => void deleteById(id)}
+                            onMove={(id, folderId) => void moveNote(id, folderId)}
+                            close={close}
+                          />
+                        ) : undefined}
                       />
                     ))}
                   </div>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal } from 'lucide-react'
+import { ChevronDown, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal } from 'lucide-react'
 
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { NoteMenuContent } from '@/components/NoteMenuContent'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { NoteRow } from '@/components/NoteRow'
 import { cn } from '@/lib/utils'
@@ -23,10 +24,7 @@ type TreeFolder = {
   noteIds: string[]
 }
 
-type OpenMenu =
-  | { kind: 'folder'; id: string }
-  | { kind: 'note'; id: string; showMove: boolean }
-  | null
+type OpenMenu = { kind: 'folder'; id: string } | null
 
 export function NotesTree({
   folders,
@@ -70,6 +68,7 @@ export function NotesTree({
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [showMove, setShowMove] = useState(false)
 
   useEffect(() => {
     if (!openMenu) return
@@ -136,92 +135,36 @@ export function NotesTree({
     const n = noteSummariesById[noteId]
     if (!n) return null
     const active = n.id === selectedNoteId
-    const isMenuOpen = openMenu?.kind === 'note' && openMenu.id === n.id
-    const showMove = isMenuOpen && (openMenu as Extract<OpenMenu, { kind: 'note' }>).showMove
 
     return (
-      <div key={n.id} className="relative">
-        <NoteRow
-          variant="sidebar"
-          title={n.title || 'Untitled'}
-          selected={active}
-          indented={indented}
-          onClick={() => onSelectNote(n.id)}
-          isRenaming={renamingId === n.id}
-          renameValue={renameValue}
-          onRenameChange={setRenameValue}
-          onRenameCommit={() => void commitRename('note', n.id)}
-          onRenameCancel={cancelRename}
-          actions={
-            <SidebarIconButton
-              revealOnRowHover
-              suppressHoverBackground={active}
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation()
-                setOpenMenu(isMenuOpen ? null : { kind: 'note', id: n.id, showMove: false })
-              }}
-            >
-              <MoreHorizontal size={14} />
-            </SidebarIconButton>
-          }
-        />
-        {isMenuOpen && (
-          <div
-            onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-8 z-50 min-w-[160px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
-          >
-            {!showMove ? (
-              <>
-                <SidebarMenuItemButton onClick={() => startRename(n.id, n.title || 'Untitled')}>
-                  Rename
-                </SidebarMenuItemButton>
-                <SidebarMenuItemButton
-                  className="justify-between"
-                  onClick={() => setOpenMenu({ kind: 'note', id: n.id, showMove: true })}
-                >
-                  Move to folder
-                  <ChevronRight size={14} />
-                </SidebarMenuItemButton>
-                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
-                <SidebarMenuItemButton
-                  destructive
-                  onClick={() => { void onDeleteNote(n.id); setOpenMenu(null) }}
-                >
-                  Delete
-                </SidebarMenuItemButton>
-              </>
-            ) : (
-              <>
-                <SidebarMenuItemButton
-                  className="text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
-                  onClick={() => setOpenMenu({ kind: 'note', id: n.id, showMove: false })}
-                >
-                  <ChevronLeft size={14} />
-                  Back
-                </SidebarMenuItemButton>
-                <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
-                <SidebarMenuItemButton
-                  active={!n.folderId}
-                  onClick={() => { void onMoveNote(n.id, null); setOpenMenu(null) }}
-                >
-                  No folder
-                </SidebarMenuItemButton>
-                {folders.map((f) => (
-                  <SidebarMenuItemButton
-                    key={f.id}
-                    active={n.folderId === f.id}
-                    onClick={() => { void onMoveNote(n.id, f.id); setOpenMenu(null) }}
-                  >
-                    {f.name}
-                  </SidebarMenuItemButton>
-                ))}
-              </>
-            )}
-          </div>
+      <NoteRow
+        key={n.id}
+        variant="sidebar"
+        title={n.title || 'Untitled'}
+        selected={active}
+        indented={indented}
+        onClick={() => onSelectNote(n.id)}
+        isRenaming={renamingId === n.id}
+        renameValue={renameValue}
+        onRenameChange={setRenameValue}
+        onRenameCommit={() => void commitRename('note', n.id)}
+        onRenameCancel={cancelRename}
+        onMenuClose={() => setShowMove(false)}
+        menuContent={(close) => (
+          <NoteMenuContent
+            noteId={n.id}
+            noteTitle={n.title || 'Untitled'}
+            noteFolderId={n.folderId}
+            folders={folders}
+            showMove={showMove}
+            onShowMoveChange={setShowMove}
+            onRename={startRename}
+            onDelete={(id) => void onDeleteNote(id)}
+            onMove={(id, folderId) => void onMoveNote(id, folderId)}
+            close={close}
+          />
         )}
-      </div>
+      />
     )
   }
 
@@ -237,10 +180,17 @@ export function NotesTree({
 
     return (
       <div key={f.id} className="relative min-w-0">
-        <div className={cn(
-          'group/row flex items-center rounded-full min-w-0',
-          'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
-        )}>
+        <div
+          className={cn(
+            'group/row flex items-center rounded-full min-w-0',
+            'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
+          )}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            setOpenMenu(isMenuOpen ? null : { kind: 'folder', id: f.id })
+          }}
+        >
           <SidebarRowButton
             embedded
             className="min-w-0 flex-1 rounded-none pr-2 pl-0 text-inherit hover:bg-transparent hover:text-inherit"
