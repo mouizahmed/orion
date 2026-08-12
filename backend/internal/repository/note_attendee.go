@@ -66,10 +66,11 @@ func (r *NoteAttendeeRepository) ListByNote(noteID string) ([]models.NoteAttende
 func (r *NoteAttendeeRepository) Add(noteID, email string) (*models.NoteAttendee, error) {
 	query := `
 		WITH inserted AS (
-			INSERT INTO note_attendees (note_id, email, user_id)
-			VALUES ($1, $2, (SELECT id FROM users WHERE email = $2 LIMIT 1))
+			INSERT INTO note_attendees (note_id, email, user_id, source)
+			VALUES ($1, $2, (SELECT id FROM users WHERE email = $2 LIMIT 1), 'manual')
 			ON CONFLICT (note_id, email) DO UPDATE SET
-				user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
+				user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id),
+				source = 'manual'
 			RETURNING id, note_id, email, user_id, created_at
 		)
 		SELECT i.id, i.note_id, i.email, i.user_id, COALESCE(u.name, '') AS name, COALESCE(u.avatar_url, '') AS avatar_url, i.created_at
@@ -95,6 +96,85 @@ func (r *NoteAttendeeRepository) AddByUserID(noteID, userID string) error {
 	_, err := r.db.Exec(query, noteID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to add creator attendee: %w", err)
+	}
+	return nil
+}
+
+// SyncNoteFromEvent adds calendar event attendees to the note and removes any
+// calendar-sourced attendees that are no longer in the event. Manual attendees are never removed.
+func (r *NoteAttendeeRepository) SyncNoteFromEvent(noteID, calendarEventID string) error {
+	add := `
+		INSERT INTO note_attendees (note_id, email, user_id, source)
+		SELECT $1, att->>'email', (SELECT id FROM users WHERE email = att->>'email' LIMIT 1), 'calendar'
+		FROM calendar_events
+		CROSS JOIN jsonb_array_elements(attendees) AS att
+		WHERE id = $2
+		  AND jsonb_typeof(attendees) = 'array'
+		  AND att->>'email' != ''
+		ON CONFLICT (note_id, email) DO UPDATE SET
+		  user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
+	`
+	if _, err := r.db.Exec(add, noteID, calendarEventID); err != nil {
+		return fmt.Errorf("failed to sync note attendees from event: %w", err)
+	}
+
+	remove := `
+		DELETE FROM note_attendees
+		WHERE note_id = $1
+		  AND source = 'calendar'
+		  AND email NOT IN (
+		    SELECT att->>'email'
+		    FROM calendar_events
+		    CROSS JOIN jsonb_array_elements(attendees) AS att
+		    WHERE id = $2
+		      AND jsonb_typeof(attendees) = 'array'
+		      AND att->>'email' != ''
+		  )
+	`
+	if _, err := r.db.Exec(remove, noteID, calendarEventID); err != nil {
+		return fmt.Errorf("failed to remove stale calendar attendees from note: %w", err)
+	}
+	return nil
+}
+
+// SyncAllFromCalendarEvents syncs attendees from all linked calendar events to their notes for
+// the given user. Adds new calendar attendees and removes stale ones; manual attendees are never removed.
+func (r *NoteAttendeeRepository) SyncAllFromCalendarEvents(userID string) error {
+	add := `
+		INSERT INTO note_attendees (note_id, email, user_id, source)
+		SELECT DISTINCT n.id, att->>'email', (SELECT id FROM users WHERE email = att->>'email' LIMIT 1), 'calendar'
+		FROM notes n
+		JOIN calendar_events ce ON ce.id = n.calendar_event_id
+		CROSS JOIN jsonb_array_elements(ce.attendees) AS att
+		WHERE n.user_id = $1
+		  AND n.deleted_at IS NULL
+		  AND jsonb_typeof(ce.attendees) = 'array'
+		  AND att->>'email' != ''
+		ON CONFLICT (note_id, email) DO UPDATE SET
+		  user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
+	`
+	if _, err := r.db.Exec(add, userID); err != nil {
+		return fmt.Errorf("failed to sync all note attendees from calendar events: %w", err)
+	}
+
+	remove := `
+		DELETE FROM note_attendees
+		WHERE source = 'calendar'
+		  AND note_id IN (
+		    SELECT id FROM notes WHERE user_id = $1 AND deleted_at IS NULL AND calendar_event_id IS NOT NULL
+		  )
+		  AND NOT EXISTS (
+		    SELECT 1
+		    FROM notes n
+		    JOIN calendar_events ce ON ce.id = n.calendar_event_id
+		    CROSS JOIN jsonb_array_elements(ce.attendees) AS att
+		    WHERE n.id = note_attendees.note_id
+		      AND att->>'email' = note_attendees.email
+		      AND att->>'email' != ''
+		  )
+	`
+	if _, err := r.db.Exec(remove, userID); err != nil {
+		return fmt.Errorf("failed to remove stale calendar attendees: %w", err)
 	}
 	return nil
 }

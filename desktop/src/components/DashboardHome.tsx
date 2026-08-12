@@ -294,7 +294,6 @@ export default function DashboardHome({
                         onRenameCommit={() => void commitRename(item.noteId!)}
                         onRenameCancel={cancelRename}
                         onMenuClose={() => setShowMove(false)}
-                        onMenuClose={() => setShowMove(false)}
                         menuContent={item.noteId ? (close) => (
                           <NoteMenuContent
                             noteId={item.noteId!}

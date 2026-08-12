@@ -74,16 +74,13 @@ interface ElectronAPI {
   connectIntegration: (
     provider: IntegrationProvider,
     feature: string,
-    idToken: string,
   ) => Promise<IntegrationResult>
   disconnectIntegration: (
     connectionID: string,
-    idToken: string,
   ) => Promise<IntegrationResult>
   cancelAuthentication: () => Promise<AuthResult>
   logout: () => Promise<AuthResult>
   notifyStateChanged: (payload: AuthStateChangedPayload) => void
-  refreshToken: (idToken: string) => void
   onAuthSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
   onIntegrationConnectionCompleted: (
     callback: (data: IntegrationConnectionCompletedEvent) => void,

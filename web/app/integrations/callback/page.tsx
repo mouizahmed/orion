@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   OpenAppCallback,
@@ -13,6 +13,7 @@ function buildProtocolUrl(params: {
   feature?: string;
   error?: string;
   errorDescription?: string;
+  state?: string;
 }) {
   const query = new URLSearchParams();
   if (params.success) query.set("success", params.success);
@@ -20,19 +21,33 @@ function buildProtocolUrl(params: {
   if (params.feature) query.set("feature", params.feature);
   if (params.error) query.set("error", params.error);
   if (params.errorDescription) query.set("error_description", params.errorDescription);
+  if (params.state) query.set("state", params.state);
   return `orion://integrations/callback?${query.toString()}`;
 }
 
 function IntegrationCallbackContent() {
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const [callback] = useState(() => ({
+    success: searchParams.get("success"),
+    provider: searchParams.get("provider"),
+    feature: searchParams.get("feature"),
+    error: searchParams.get("error"),
+    errorDescription: searchParams.get("error_description"),
+    state: searchParams.get("state"),
+  }));
+  const { error } = callback;
   const protocolUrl = buildProtocolUrl({
-    success: searchParams.get("success") ?? undefined,
-    provider: searchParams.get("provider") ?? undefined,
-    feature: searchParams.get("feature") ?? undefined,
+    success: callback.success ?? undefined,
+    provider: callback.provider ?? undefined,
+    feature: callback.feature ?? undefined,
     error: error ?? undefined,
-    errorDescription: searchParams.get("error_description") ?? undefined,
+    errorDescription: callback.errorDescription ?? undefined,
+    state: callback.state ?? undefined,
   });
+
+  useEffect(() => {
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   return (
     <OpenAppCallback

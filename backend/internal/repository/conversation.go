@@ -148,26 +148,26 @@ func (r *ConversationRepository) ListByScope(userID string, noteID *string, fold
 	return conversations, rows.Err()
 }
 
-func (r *ConversationRepository) UpdateSummary(convID, summary string, throughMsgID string) error {
+func (r *ConversationRepository) UpdateSummary(userID, convID, summary string, throughMsgID string) error {
 	query := `
 		UPDATE conversations
 		SET summary = $2, summary_through_message_id = $3, updated_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1 AND user_id = $4 AND deleted_at IS NULL
 	`
-	_, err := r.db.Exec(query, convID, summary, throughMsgID)
+	_, err := r.db.Exec(query, convID, summary, throughMsgID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to update summary: %w", err)
 	}
 	return nil
 }
 
-func (r *ConversationRepository) UpdateTitle(convID, title string) error {
+func (r *ConversationRepository) UpdateTitle(userID, convID, title string) error {
 	query := `
 		UPDATE conversations
 		SET title = $2, updated_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL
+		WHERE id = $1 AND user_id = $3 AND deleted_at IS NULL
 	`
-	_, err := r.db.Exec(query, convID, title)
+	_, err := r.db.Exec(query, convID, title, userID)
 	if err != nil {
 		return fmt.Errorf("failed to update title: %w", err)
 	}

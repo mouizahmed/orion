@@ -1,48 +1,48 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import path from 'node:path'
 import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  base: './',
-  define: {
-    // Embed Firebase config at build time
-    __FIREBASE_CONFIG__: JSON.stringify({
-      apiKey: process.env.VITE_FIREBASE_API_KEY || 'AIzaSyCXpAhp5TRtthtYgmjRBAKvapzXJi_udjg',
-      authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || 'orion-1e6a1.firebaseapp.com',
-      projectId: process.env.VITE_FIREBASE_PROJECT_ID || 'orion-1e6a1',
-      storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || 'orion-1e6a1.firebasestorage.app',
-      messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '861156340434',
-      appId: process.env.VITE_FIREBASE_APP_ID || '1:861156340434:web:a62b156a38d70b60c9f30b'
-    })
-  },
-  plugins: [
-    react(),
-    tailwindcss(),
-    electron({
-      main: {
-        // Shortcut of `build.lib.entry`.
-        entry: 'electron/main.ts',
-      },
-      preload: {
-        // Shortcut of `build.rollupOptions.input`.
-        // Preload scripts may contain Web assets, so use the `build.rollupOptions.input` instead `build.lib.entry`.
-        input: path.join(__dirname, 'electron/preload.ts'),
-      },
-      // Ployfill the Electron and Node.js API for Renderer process.
-      // If you want use Node.js in Renderer process, the `nodeIntegration` needs to be enabled in the Main process.
-      // See 👉 https://github.com/electron-vite/vite-plugin-electron-renderer
-      renderer: process.env.NODE_ENV === 'test'
-        // https://github.com/electron-vite/vite-plugin-electron-renderer/issues/78#issuecomment-2053600808
-        ? undefined
-        : {},
-    }),
-  ],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
+const developmentFirebaseConfig = {
+  apiKey: 'AIzaSyCXpAhp5TRtthtYgmjRBAKvapzXJi_udjg',
+  authDomain: 'orion-1e6a1.firebaseapp.com',
+  projectId: 'orion-1e6a1',
+  storageBucket: 'orion-1e6a1.firebasestorage.app',
+  messagingSenderId: '861156340434',
+  appId: '1:861156340434:web:a62b156a38d70b60c9f30b',
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const production = mode === 'production'
+  const read = (name: string, developmentValue: string) => {
+    const value = env[name]?.trim()
+    if (value) return value
+    if (production) throw new Error(`${name} is required for a production build`)
+    return developmentValue
+  }
+  const firebaseConfig = {
+    apiKey: read('VITE_FIREBASE_API_KEY', developmentFirebaseConfig.apiKey),
+    authDomain: read('VITE_FIREBASE_AUTH_DOMAIN', developmentFirebaseConfig.authDomain),
+    projectId: read('VITE_FIREBASE_PROJECT_ID', developmentFirebaseConfig.projectId),
+    storageBucket: read('VITE_FIREBASE_STORAGE_BUCKET', developmentFirebaseConfig.storageBucket),
+    messagingSenderId: read('VITE_FIREBASE_MESSAGING_SENDER_ID', developmentFirebaseConfig.messagingSenderId),
+    appId: read('VITE_FIREBASE_APP_ID', developmentFirebaseConfig.appId),
+  }
+
+  return {
+    base: './',
+    define: { __FIREBASE_CONFIG__: JSON.stringify(firebaseConfig) },
+    plugins: [
+      react(),
+      tailwindcss(),
+      electron({
+        main: { entry: 'electron/main.ts' },
+        preload: { input: path.join(__dirname, 'electron/preload.ts') },
+        renderer: process.env.NODE_ENV === 'test' ? undefined : {},
+      }),
+    ],
+    resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  }
 })

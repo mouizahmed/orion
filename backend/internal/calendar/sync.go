@@ -119,19 +119,21 @@ func AnchoredSyncWindow(now time.Time) (time.Time, time.Time) {
 }
 
 type Service struct {
-	connections repository.IntegrationConnectionRepository
-	preferences repository.CalendarPreferenceRepository
-	cache       repository.CalendarCacheRepository
-	redis       *redis.Client
-	client      *http.Client
+	connections   repository.IntegrationConnectionRepository
+	preferences   repository.CalendarPreferenceRepository
+	cache         repository.CalendarCacheRepository
+	noteAttendees *repository.NoteAttendeeRepository
+	redis         *redis.Client
+	client        *http.Client
 }
 
-func NewService(connections repository.IntegrationConnectionRepository, preferences repository.CalendarPreferenceRepository, cache repository.CalendarCacheRepository, redisClient *redis.Client) *Service {
+func NewService(connections repository.IntegrationConnectionRepository, preferences repository.CalendarPreferenceRepository, cache repository.CalendarCacheRepository, noteAttendees *repository.NoteAttendeeRepository, redisClient *redis.Client) *Service {
 	return &Service{
-		connections: connections,
-		preferences: preferences,
-		cache:       cache,
-		redis:       redisClient,
+		connections:   connections,
+		preferences:   preferences,
+		cache:         cache,
+		noteAttendees: noteAttendees,
+		redis:         redisClient,
 		client: &http.Client{
 			Timeout: 8 * time.Second,
 		},
@@ -163,7 +165,13 @@ func (s *Service) SyncUser(ctx context.Context, userID string, scope SyncScope) 
 			return nil
 		})
 	}
-	return group.Wait()
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	if err := s.noteAttendees.SyncAllFromCalendarEvents(userID); err != nil {
+		log.Printf("calendar sync: failed to sync note attendees for user %s: %v", userID, err)
+	}
+	return nil
 }
 
 func (s *Service) syncConnection(ctx context.Context, userID string, connection *models.IntegrationConnection, scope SyncScope) error {

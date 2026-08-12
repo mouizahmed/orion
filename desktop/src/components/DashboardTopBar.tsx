@@ -4,6 +4,7 @@ import { AudioLines, Folder, Plus, RefreshCw, Search, Upload } from 'lucide-reac
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { auth } from '@/config/firebase'
+import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useWindowState } from '@/hooks/useWindowState'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
@@ -238,8 +239,8 @@ export default function DashboardTopBar({
       const currentUser = auth.currentUser
       if (currentUser) {
         triggerCalendarSync()
-        const idToken = await currentUser.getIdToken()
-        const response = await fetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
+        const idToken = await getAuthenticatedIdToken()
+        const response = await authenticatedFetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
           method: 'POST',
           headers: {
             Accept: 'application/json',

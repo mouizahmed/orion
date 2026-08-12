@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,12 +18,23 @@ type GoogleProvider struct {
 	config *oauth2.Config
 }
 
+const googleAuthorizationURL = "https://accounts.google.com/o/oauth2/v2/auth"
+
+// GoogleOAuthEndpoint returns Google's standard endpoint with the current v2
+// authorization URL. x/oauth2/google still exposes the legacy /o/oauth2/auth
+// path, while Orion's desktop trust boundary intentionally allowlists v2.
+func GoogleOAuthEndpoint() oauth2.Endpoint {
+	endpoint := google.Endpoint
+	endpoint.AuthURL = googleAuthorizationURL
+	return endpoint
+}
+
 func NewGoogleProvider() *GoogleProvider {
 	return &GoogleProvider{
 		config: &oauth2.Config{
 			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-			Endpoint:     google.Endpoint,
+			Endpoint:     GoogleOAuthEndpoint(),
 			Scopes:       []string{"openid", "email", "profile"},
 			RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
 		},
@@ -39,18 +51,16 @@ func (p *GoogleProvider) Config() *oauth2.Config {
 
 func (p *GoogleProvider) AuthCodeURL(state string) string {
 	return p.config.AuthCodeURL(state,
-		oauth2.AccessTypeOffline,
-		oauth2.ApprovalForce,
 		oauth2.SetAuthURLParam("include_granted_scopes", "true"))
 }
 
-func (p *GoogleProvider) Exchange(code string) (*NormalizedAuthProfile, error) {
-	token, err := p.config.Exchange(oauth2.NoContext, code)
+func (p *GoogleProvider) Exchange(ctx context.Context, code string) (*NormalizedAuthProfile, error) {
+	token, err := p.config.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to exchange authorization code: %w", err)
 	}
 
-	client := p.config.Client(oauth2.NoContext, token)
+	client := p.config.Client(ctx, token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Google user info: %w", err)
@@ -87,17 +97,6 @@ func (p *GoogleProvider) Exchange(code string) (*NormalizedAuthProfile, error) {
 		return nil, fmt.Errorf("Google email is not verified")
 	}
 
-	rawClaims := map[string]any{}
-	if err := json.Unmarshal(body, &rawClaims); err != nil {
-		rawClaims = map[string]any{
-			"id":             googleUser.ID,
-			"email":          googleUser.Email,
-			"verified_email": googleUser.VerifiedEmail,
-			"name":           googleUser.Name,
-			"picture":        googleUser.Picture,
-		}
-	}
-
 	return &NormalizedAuthProfile{
 		Provider:       models.AuthProviderGoogle,
 		ProviderUserID: googleUser.ID,
@@ -105,6 +104,5 @@ func (p *GoogleProvider) Exchange(code string) (*NormalizedAuthProfile, error) {
 		EmailVerified:  googleUser.VerifiedEmail,
 		DisplayName:    googleUser.Name,
 		AvatarURL:      googleUser.Picture,
-		RawClaims:      rawClaims,
 	}, nil
 }

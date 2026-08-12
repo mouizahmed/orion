@@ -1,17 +1,9 @@
-import { auth } from '@/config/firebase'
+import { authenticatedFetch } from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
-async function getIdToken() {
-  const currentUser = auth.currentUser
-  if (!currentUser) {
-    throw new Error('Not authenticated')
-  }
-  return await currentUser.getIdToken()
-}
-
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await authenticatedFetch(input, init)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error || 'Request failed')
@@ -42,13 +34,11 @@ export async function saveTranscriptSegments(
   noteId: string,
   segments: TranscriptSegmentPayload[],
 ): Promise<{ status: string; saved_count: number }> {
-  const idToken = await getIdToken()
   return fetchJson(`${API_BASE_URL}/notes/${noteId}/transcript/segments`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({ segments }),
   })
@@ -57,11 +47,9 @@ export async function saveTranscriptSegments(
 export async function getTranscriptSegments(
   noteId: string,
 ): Promise<{ segments: TranscriptSegment[] }> {
-  const idToken = await getIdToken()
   return fetchJson(`${API_BASE_URL}/notes/${noteId}/transcript/segments`, {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
 }
@@ -70,14 +58,12 @@ export async function searchTranscripts(
   query: string,
   limit?: number,
 ): Promise<{ segments: TranscriptSegment[] }> {
-  const idToken = await getIdToken()
   const url = new URL(`${API_BASE_URL}/transcript/search`)
   url.searchParams.set('q', query)
   if (limit !== undefined) url.searchParams.set('limit', String(limit))
   return fetchJson(url.toString(), {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
 }

@@ -8,8 +8,9 @@ type UserPlan string
 type UserStatus string
 
 const (
-	UserPlanFree UserPlan = "free"
-	UserPlanPro  UserPlan = "pro"
+	UserPlanFree     UserPlan = "free"
+	UserPlanPro      UserPlan = "professional"
+	UserPlanBusiness UserPlan = "business"
 
 	UserStatusActive    UserStatus = "active"
 	UserStatusSuspended UserStatus = "suspended"

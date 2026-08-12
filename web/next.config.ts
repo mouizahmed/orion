@@ -1,24 +1,28 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  async headers() {
+    const callbackHeaders = [
+      { key: "Cache-Control", value: "no-store, max-age=0" },
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow" },
+    ];
+    return [
+      { source: "/auth/callback", headers: callbackHeaders },
+      { source: "/integrations/callback", headers: callbackHeaders },
+    ];
+  },
   images: {
-    domains: [
-      // Google profile images
-      "lh3.googleusercontent.com",
-      "lh4.googleusercontent.com",
-      "lh5.googleusercontent.com",
-      "lh6.googleusercontent.com",
-      // Local development
-      "localhost",
-    ],
-    // Alternative: use remotePatterns for more specific control
     remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "*.googleusercontent.com",
+      ...["lh3", "lh4", "lh5", "lh6"].map((subdomain) => ({
+        protocol: "https" as const,
+        hostname: `${subdomain}.googleusercontent.com`,
         port: "",
-        pathname: "**",
-      },
+        pathname: "/**",
+      })),
+      ...(process.env.NODE_ENV === "development"
+        ? [{ protocol: "http" as const, hostname: "localhost", pathname: "/**" }]
+        : []),
     ],
   },
 };

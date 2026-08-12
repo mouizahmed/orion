@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal } from 'lucide-react'
 
 import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -35,7 +35,6 @@ export function NotesTree({
   onLoadMore,
   selectedFolderId,
   selectedNoteId,
-  onSelectFolder: _onSelectFolder,
   onSelectNote,
   onCreateFolder,
   onCreateNote,
@@ -94,8 +93,10 @@ export function NotesTree({
 
   const cancelRename = () => { setRenamingId(null); setRenameValue('') }
 
-  const sortByUpdatedAt = (ids: string[]) =>
-    [...ids].sort((a, b) => (noteSummariesById[b]?.updatedAt ?? 0) - (noteSummariesById[a]?.updatedAt ?? 0))
+  const sortByUpdatedAt = useCallback(
+    (ids: string[]) => [...ids].sort((a, b) => (noteSummariesById[b]?.updatedAt ?? 0) - (noteSummariesById[a]?.updatedAt ?? 0)),
+    [noteSummariesById],
+  )
 
   const treeFolders = useMemo<TreeFolder[]>(() => {
     return folders
@@ -112,7 +113,7 @@ export function NotesTree({
         return { id: f.id, name: f.name, noteCount: f.noteCount, noteIds: sortByUpdatedAt(noteIds) }
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [folders, folderPages, selectedNoteDetail, noteSummariesById])
+  }, [folders, folderPages, selectedNoteDetail, sortByUpdatedAt])
 
   const unfiledNoteIds = useMemo(() => {
     const ids = folderPages[UNFILED_ID]?.noteIds ?? []
@@ -121,7 +122,7 @@ export function NotesTree({
         ? [selectedNoteDetail.id, ...ids]
         : ids
     return sortByUpdatedAt(withSelected)
-  }, [folderPages, selectedNoteDetail, noteSummariesById])
+  }, [folderPages, selectedNoteDetail, sortByUpdatedAt])
 
   const handleExpandFolder = (id: string) => {
     const nowExpanded = !(folderExpansions[id] ?? false)

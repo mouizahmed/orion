@@ -65,11 +65,11 @@ export const electronDesktopApi: DesktopApi = {
     onSessionUpdated: (callback) => window.electronAPI?.onAuthSessionUpdated?.(callback) ?? (() => undefined),
   },
   integrations: {
-    connect: (provider, feature, idToken) =>
-      window.electronAPI?.connectIntegration?.(provider, feature, idToken) ??
+    connect: (provider, feature) =>
+      window.electronAPI?.connectIntegration?.(provider, feature) ??
       missingApi('electronAPI.connectIntegration'),
-    disconnect: (connectionID, idToken) =>
-      window.electronAPI?.disconnectIntegration?.(connectionID, idToken) ??
+    disconnect: (connectionID) =>
+      window.electronAPI?.disconnectIntegration?.(connectionID) ??
       missingApi('electronAPI.disconnectIntegration'),
     onConnectionCompleted: (callback) =>
       window.electronAPI?.onIntegrationConnectionCompleted?.(callback) ?? (() => undefined),

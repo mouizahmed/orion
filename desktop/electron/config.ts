@@ -7,10 +7,10 @@ interface AppConfig {
   isProduction: boolean
 }
 
-function validateUrl(url: string): boolean {
+function validateUrl(url: string, allowHttp: boolean): boolean {
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+    return parsed.protocol === 'https:' || (allowHttp && parsed.protocol === 'http:')
   } catch {
     return false
   }
@@ -18,6 +18,7 @@ function validateUrl(url: string): boolean {
 
 function getBackendUrl(): string {
   const envUrl = process.env.BACKEND_URL
+  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
 
   // Default URLs based on environment
   const defaultUrls = {
@@ -26,12 +27,11 @@ function getBackendUrl(): string {
   }
 
   // Use environment variable if provided and valid
-  if (envUrl && validateUrl(envUrl)) {
+  if (envUrl && validateUrl(envUrl, isDev)) {
     return envUrl
   }
 
   // Fall back to defaults
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged
   return isDev ? defaultUrls.development : defaultUrls.production
 }
 

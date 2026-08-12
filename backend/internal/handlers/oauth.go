@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"net/url"
@@ -26,7 +26,6 @@ import (
 )
 
 type OAuthHandler struct {
-	userRepo         *repository.UserRepository
 	authIdentityRepo *repository.UserAuthIdentityRepository
 	firebaseClient   *auth.FirebaseClient
 	codeManager      *auth.CodeManager
@@ -34,6 +33,7 @@ type OAuthHandler struct {
 	providerRegistry *authproviders.Registry
 	avatarService    *profile.AvatarService
 	emailSvc         *email.Service
+	wsHub            *WsHub
 }
 
 type LoginOAuthState struct {
@@ -42,19 +42,16 @@ type LoginOAuthState struct {
 	Platform            string `json:"platform"`
 	CodeChallenge       string `json:"code_challenge,omitempty"`
 	CodeChallengeMethod string `json:"code_challenge_method,omitempty"`
-	IP                  string `json:"ip"`
-	UserAgent           string `json:"user_agent"`
 	CreatedAt           string `json:"created_at"`
 }
 
 const loginOAuthStateTTL = 10 * time.Minute
 
-func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService, emailSvc *email.Service) *OAuthHandler {
+func NewOAuthHandler(authIdentityRepo *repository.UserAuthIdentityRepository, redisClient *redis.Client, avatarService *profile.AvatarService, emailSvc *email.Service, wsHub *WsHub) *OAuthHandler {
 	firebaseClient := auth.GetFirebaseClient()
 	codeManager := auth.NewCodeManager(redisClient)
 
 	return &OAuthHandler{
-		userRepo:         userRepo,
 		authIdentityRepo: authIdentityRepo,
 		firebaseClient:   firebaseClient,
 		codeManager:      codeManager,
@@ -62,6 +59,7 @@ func NewOAuthHandler(userRepo *repository.UserRepository, authIdentityRepo *repo
 		providerRegistry: authproviders.NewDefaultRegistry(),
 		avatarService:    avatarService,
 		emailSvc:         emailSvc,
+		wsHub:            wsHub,
 	}
 }
 
@@ -130,8 +128,7 @@ func codeChallengeFromVerifier(verifier string) string {
 }
 
 // isRateLimited checks if the request should be rate limited
-func (h *OAuthHandler) isRateLimited(ip, endpoint string, limit int, window time.Duration) bool {
-	ctx := context.Background()
+func (h *OAuthHandler) isRateLimited(ctx context.Context, ip, endpoint string, limit int, window time.Duration) (bool, error) {
 	key := fmt.Sprintf("rate_limit:%s:%s", ip, endpoint)
 
 	const rateLimitScript = `
@@ -143,21 +140,26 @@ return count
 `
 	count, err := h.redisClient.Eval(ctx, rateLimitScript, []string{key}, window.Milliseconds()).Int()
 	if err != nil {
-		return false // Allow on Redis error to avoid blocking legitimate users
+		return false, err
 	}
 
 	if count > limit {
-		return true // Rate limited
+		return true, nil
 	}
 
-	return false
+	return false, nil
 }
 
 // StartOAuth initiates the OAuth flow
 func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 	// Rate limiting: 5 attempts per minute per IP
 	clientIP := c.ClientIP()
-	if h.isRateLimited(clientIP, "start", 5, time.Minute) {
+	limited, err := h.isRateLimited(c.Request.Context(), clientIP, "start", 5, time.Minute)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "auth_service_unavailable", "error": "Authentication service is unavailable"})
+		return
+	}
+	if limited {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"error": "Too many requests. Please try again later.",
 		})
@@ -217,7 +219,7 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 	}
 	log.Printf("Started OAuth login flow (provider: %s, platform: %s)", provider, platform)
 
-	ctx := context.Background()
+	ctx := c.Request.Context()
 	key := fmt.Sprintf("oauth_state:%s", state)
 	payload, err := json.Marshal(LoginOAuthState{
 		Purpose:             "app_login",
@@ -225,8 +227,6 @@ func (h *OAuthHandler) StartOAuth(c *gin.Context) {
 		Platform:            platform,
 		CodeChallenge:       codeChallenge,
 		CodeChallengeMethod: codeChallengeMethod,
-		IP:                  c.ClientIP(),
-		UserAgent:           c.GetHeader("User-Agent"),
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	if err != nil {
@@ -282,7 +282,7 @@ func (h *OAuthHandler) CancelOAuth(c *gin.Context) {
 	}
 
 	key := fmt.Sprintf("oauth_state:%s", request.State)
-	if err := h.redisClient.Del(context.Background(), key).Err(); err != nil {
+	if err := h.redisClient.Del(c.Request.Context(), key).Err(); err != nil {
 		log.Printf("Failed to cancel OAuth state: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
@@ -294,12 +294,11 @@ func (h *OAuthHandler) CancelOAuth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
-func (h *OAuthHandler) consumeLoginOAuthState(state string) (*LoginOAuthState, error) {
+func (h *OAuthHandler) consumeLoginOAuthState(ctx context.Context, state string) (*LoginOAuthState, error) {
 	if state == "" {
 		return nil, fmt.Errorf("missing state")
 	}
 
-	ctx := context.Background()
 	key := fmt.Sprintf("oauth_state:%s", state)
 	res := h.redisClient.GetDel(ctx, key)
 	if err := res.Err(); err != nil {
@@ -350,7 +349,7 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 
 		log.Printf("OAuth provider returned error: %s", errorMsg)
 
-		if statePayload, err := h.consumeLoginOAuthState(state); err == nil {
+		if statePayload, err := h.consumeLoginOAuthState(c.Request.Context(), state); err == nil {
 			h.redirectToFrontendWithError(c, errorParam, errorDesc, statePayload.Platform, state)
 		} else {
 			h.redirectToFrontendWithError(c, errorParam, errorDesc, "", state)
@@ -366,7 +365,7 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	statePayload, err := h.consumeLoginOAuthState(state)
+	statePayload, err := h.consumeLoginOAuthState(c.Request.Context(), state)
 	if err != nil {
 		log.Printf("OAuth callback rejected due to invalid state: %v", err)
 		h.redirectToFrontendWithError(c, "invalid_state", "Authentication session is invalid or expired", "", state)
@@ -382,18 +381,41 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	profile, err := loginProvider.Exchange(code)
+	exchangeCtx, cancelExchange := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancelExchange()
+	profile, err := loginProvider.Exchange(exchangeCtx, code)
 	if err != nil {
 		log.Printf("Failed to exchange OAuth code with %s: %v", provider, err)
 		h.redirectToFrontendWithError(c, "server_error", fmt.Sprintf("Failed to authenticate with %s", provider), callbackPlatform, state)
 		return
 	}
-	// Create or update user in database (returns actual user ID for Firebase)
-	actualUserID, isNewUser, err := h.resolveOrCreateUserIdentity(profile)
+	// Resolve the database identity and synchronize Firebase before the database
+	// transaction commits. A Firebase failure therefore leaves no new DB user or
+	// provider identity behind.
+	actualUserID, isNewUser, err := h.resolveOrCreateUserIdentity(c.Request.Context(), profile)
 	if err != nil {
 		log.Printf("Failed to create/update user: %v", err)
-		h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform, state)
+		switch {
+		case errors.Is(err, repository.ErrIdentityConflict):
+			h.redirectToFrontendWithError(c, "identity_conflict", "This provider identity is already associated with another account", callbackPlatform, state)
+		case errors.Is(err, repository.ErrExternalPrincipalSync):
+			h.redirectToFrontendWithError(c, "identity_conflict", "Failed to synchronize sign-in identity", callbackPlatform, state)
+		case errors.Is(err, repository.ErrAccountInactive):
+			h.redirectToFrontendWithError(c, "account_inactive", "This account is not active", callbackPlatform, state)
+		default:
+			h.redirectToFrontendWithError(c, "server_error", "Failed to create user account", callbackPlatform, state)
+		}
 		return
+	}
+
+	if cachedAvatarURL := h.cacheProfileAvatar(actualUserID, profile); cachedAvatarURL != "" {
+		profile.AvatarURL = cachedAvatarURL
+		avatarCtx, cancelAvatar := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		identity := h.buildAuthIdentity(actualUserID, profile)
+		if err := h.authIdentityRepo.SetResolvedAvatar(avatarCtx, actualUserID, identity, cachedAvatarURL); err != nil {
+			log.Printf("Failed to persist provider avatar: %v", err)
+		}
+		cancelAvatar()
 	}
 	user := oauthUserFromProfile(profile)
 
@@ -405,23 +427,26 @@ func (h *OAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	// Create or update user in Firebase Auth using the actual user ID
-	_, err = h.firebaseClient.CreateOrUpdateUser(actualUserID, user.Email, user.Name, user.Picture)
-	if err != nil {
-		log.Printf("Failed to create/update Firebase user (continuing anyway): %v", err)
-	}
-
 	// Update the user object with the actual ID for session storage
 	user.ID = actualUserID
 
-	oneTimeCode, err := h.codeManager.GenerateCode(user, firebaseToken, string(provider), callbackPlatform, state, statePayload.CodeChallenge, statePayload.CodeChallengeMethod, isNewUser)
+	oneTimeCode, err := h.codeManager.GenerateCode(c.Request.Context(), user, firebaseToken, string(provider), callbackPlatform, state, statePayload.CodeChallenge, statePayload.CodeChallengeMethod, isNewUser)
 	if err != nil {
 		log.Printf("Failed to create one-time auth code: %v", err)
 		h.redirectToFrontendWithError(c, "server_error", "Failed to create authentication code", callbackPlatform, state)
 		return
 	}
+	// User-facing side effects happen only after database provisioning, Firebase
+	// synchronization, token minting, and one-time-code persistence all succeed.
+	if isNewUser && h.emailSvc != nil {
+		go func(email, name string) {
+			if err := h.emailSvc.SendWelcome(email, name); err != nil {
+				log.Printf("email: failed to send welcome message: %v", err)
+			}
+		}(user.Email, user.Name)
+	}
 
-	log.Printf("OAuth completed successfully for user: %s (%s)", user.Name, user.Email)
+	log.Printf("OAuth login completed successfully (provider: %s)", provider)
 
 	redirectURL := buildCallbackURL(getFrontendCallbackURL(), map[string]string{
 		"code":     oneTimeCode,
@@ -488,12 +513,11 @@ func oauthUserFromProfile(profile *authproviders.NormalizedAuthProfile) *auth.OA
 		return nil
 	}
 	return &auth.OAuthUser{
-		ID:           profile.ProviderUserID,
-		Email:        profile.Email,
-		Name:         profile.DisplayName,
-		Picture:      profile.AvatarURL,
-		Provider:     string(profile.Provider),
-		ProviderData: profile.RawClaims,
+		ID:       profile.ProviderUserID,
+		Email:    profile.Email,
+		Name:     profile.DisplayName,
+		Picture:  profile.AvatarURL,
+		Provider: string(profile.Provider),
 	}
 }
 
@@ -514,7 +538,12 @@ func canAutoLinkOAuthProfileByEmail(profile *authproviders.NormalizedAuthProfile
 func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 	// Rate limiting: 10 attempts per minute per IP (most critical endpoint)
 	clientIP := c.ClientIP()
-	if h.isRateLimited(clientIP, "complete", 10, time.Minute) {
+	limited, err := h.isRateLimited(c.Request.Context(), clientIP, "complete", 10, time.Minute)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": "auth_service_unavailable", "error": "Authentication service is unavailable"})
+		return
+	}
+	if limited {
 		c.JSON(http.StatusTooManyRequests, gin.H{
 			"status": "error",
 			"error":  "Too many requests. Please try again later.",
@@ -543,7 +572,7 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 
 	// Validate and consume the one-time code. Redis only deletes it after state
 	// and any stored verifier challenge both match.
-	oneTimeCode, err := h.codeManager.ValidateAndConsumeCode(request.Code, request.State, expectedCodeChallenge)
+	oneTimeCode, err := h.codeManager.ValidateAndConsumeCode(c.Request.Context(), request.Code, request.State, expectedCodeChallenge)
 	if err != nil {
 		log.Printf("❌ Invalid one-time code: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -553,7 +582,7 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 		return
 	}
 
-	log.Printf("One-time code validated successfully for user: %s (%s)", oneTimeCode.User.Name, oneTimeCode.User.Email)
+	log.Printf("One-time authentication code validated")
 
 	// Return the user data and Firebase token
 	c.JSON(http.StatusOK, gin.H{
@@ -566,11 +595,11 @@ func (h *OAuthHandler) CompleteAuth(c *gin.Context) {
 	})
 }
 
-// Logout revokes all refresh tokens for the authenticated user
-func (h *OAuthHandler) Logout(c *gin.Context) {
-	// Get user ID from context (set by FirebaseAuthMiddleware)
-	userID, exists := c.Get("userID")
-	if !exists {
+// LogoutAllDevices revokes all Firebase refresh tokens and closes active
+// sockets. Ordinary logout is deliberately local to the current device.
+func (h *OAuthHandler) LogoutAllDevices(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status": "error",
 			"error":  "User not authenticated",
@@ -578,27 +607,21 @@ func (h *OAuthHandler) Logout(c *gin.Context) {
 		return
 	}
 
-	userIDStr, ok := userID.(string)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"status": "error",
-			"error":  "Invalid user ID format",
-		})
-		return
-	}
-
 	// Revoke all refresh tokens for this user
-	err := h.firebaseClient.RevokeRefreshTokens(userIDStr)
+	err = h.firebaseClient.RevokeRefreshTokens(userID)
 	if err != nil {
-		log.Printf("❌ Failed to revoke refresh tokens for user %s: %v", userIDStr, err)
+		log.Printf("Failed to revoke refresh tokens: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",
 			"error":  "Failed to revoke refresh tokens",
 		})
 		return
 	}
+	if h.wsHub != nil {
+		h.wsHub.DisconnectUser(userID, "session revoked")
+	}
 
-	log.Printf("✅ Successfully revoked refresh tokens for user: %s", userIDStr)
+	log.Printf("All-device logout completed")
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "success",
 		"message": "Logged out successfully from all devices",
@@ -606,7 +629,7 @@ func (h *OAuthHandler) Logout(c *gin.Context) {
 }
 
 // resolveOrCreateUserIdentity resolves provider identity to an app-owned user ID.
-func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.NormalizedAuthProfile) (string, bool, error) {
+func (h *OAuthHandler) resolveOrCreateUserIdentity(parent context.Context, profile *authproviders.NormalizedAuthProfile) (string, bool, error) {
 	if profile == nil {
 		return "", false, fmt.Errorf("auth profile is nil")
 	}
@@ -620,122 +643,36 @@ func (h *OAuthHandler) resolveOrCreateUserIdentity(profile *authproviders.Normal
 		return "", false, fmt.Errorf("user name is empty - cannot create/update user")
 	}
 
-	log.Printf("Resolving OAuth identity: provider=%s, provider_user_id=%s, email=%s, email_verified=%t", profile.Provider, profile.ProviderUserID, profile.Email, profile.EmailVerified)
-
-	var existingUser *models.User
-	identity, err := h.authIdentityRepo.GetByProviderSubject(profile.Provider, profile.ProviderUserID)
-	if err != nil {
-		return "", false, err
-	}
-	if identity != nil {
-		existingUser, err = h.userRepo.GetUserByID(identity.UserID)
-		if err != nil {
-			return "", false, fmt.Errorf("failed to load user for auth identity: %w", err)
-		}
-	}
-
-	if existingUser == nil {
-		existingUserByEmail, err := h.userRepo.GetUserByEmail(profile.Email)
-		if err != nil && err.Error() != "user not found" {
-			return "", false, fmt.Errorf("failed to check existing user by email: %w", err)
-		}
-		if existingUserByEmail != nil {
-			if !canAutoLinkOAuthProfileByEmail(profile) {
-				return "", false, fmt.Errorf("account with email already exists; sign in first to link %s", profile.Provider)
-			}
-			log.Printf("Linking OAuth identity by email: provider=%s, email=%s, user_id=%s", profile.Provider, profile.Email, existingUserByEmail.ID)
-			existingUser = existingUserByEmail
-		}
-	}
-
-	if existingUser != nil {
-		name := existingUser.Name
-		if name == "" {
-			name = profile.DisplayName
-		}
-
-		avatarURL := existingUser.AvatarURL
-		if (avatarURL == nil || *avatarURL == "") && len(profile.AvatarData) > 0 {
-			if cachedAvatarURL := h.cacheProfileAvatar(existingUser.ID, profile); cachedAvatarURL != "" {
-				profile.AvatarURL = cachedAvatarURL
-				avatarURL = &profile.AvatarURL
-			}
-		} else if profile.AvatarURL != "" {
-			avatarURL = &profile.AvatarURL
-		}
-		if avatarURL != nil {
-			profile.AvatarURL = *avatarURL
-		}
-
-		user := &models.User{
-			ID:        existingUser.ID,
-			Email:     existingUser.Email,
-			Name:      name,
-			AvatarURL: avatarURL,
-			Plan:      existingUser.Plan,
-			Status:    existingUser.Status,
-			UpdatedAt: time.Now(),
-		}
-		if profile.EmailVerified {
-			user.Email = profile.Email
-		}
-
-		log.Printf("Updating existing user %s with OAuth profile data", existingUser.ID)
-		if err := h.userRepo.UpdateUser(existingUser.ID, user); err != nil {
-			return "", false, err
-		}
-		if err := h.upsertAuthIdentityForUserProvider(existingUser.ID, profile); err != nil {
-			return "", false, err
-		}
-		if !profile.EmailVerified {
-			profile.Email = user.Email
-		}
-		return existingUser.ID, false, nil
-	}
-
 	var avatarURL *string
 	if profile.AvatarURL != "" {
 		avatarURL = &profile.AvatarURL
 	}
-
-	user := &models.User{
-		Email:     profile.Email,
-		Name:      profile.DisplayName,
-		AvatarURL: avatarURL,
-		Plan:      models.UserPlanFree,
-		Status:    models.UserStatusActive,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	log.Printf("Creating new app user account for %s", profile.Email)
-	if err := h.userRepo.CreateUser(user); err != nil {
+	identity := h.buildAuthIdentity("", profile)
+	resolveCtx, cancel := context.WithTimeout(parent, 15*time.Second)
+	defer cancel()
+	user, isNewUser, err := h.authIdentityRepo.ResolveOrCreateUser(
+		resolveCtx, identity, profile.Email, profile.DisplayName, avatarURL,
+		canAutoLinkOAuthProfileByEmail(profile),
+		func(resolvedUser *models.User) error {
+			photoURL := ""
+			if resolvedUser.AvatarURL != nil {
+				photoURL = *resolvedUser.AvatarURL
+			}
+			_, err := h.firebaseClient.CreateOrUpdateUser(
+				resolveCtx, resolvedUser.ID, resolvedUser.Email, resolvedUser.Name, photoURL,
+			)
+			return err
+		},
+	)
+	if err != nil {
 		return "", false, err
 	}
-	go func() {
-		if err := h.emailSvc.SendWelcome(user.Email, user.Name); err != nil {
-			log.Printf("email: welcome to %s: %v", user.Email, err)
-		}
-	}()
-	if cachedAvatarURL := h.cacheProfileAvatar(user.ID, profile); cachedAvatarURL != "" {
-		profile.AvatarURL = cachedAvatarURL
-		user.AvatarURL = &profile.AvatarURL
-		if err := h.userRepo.UpdateUser(user.ID, user); err != nil {
-			log.Printf("Failed to update cached provider avatar for user %s: %v", user.ID, err)
-		}
+	profile.Email = user.Email
+	profile.DisplayName = user.Name
+	if user.AvatarURL != nil {
+		profile.AvatarURL = *user.AvatarURL
 	}
-	if err := h.upsertAuthIdentity(user.ID, profile); err != nil {
-		return "", false, err
-	}
-	return user.ID, true, nil
-}
-
-func (h *OAuthHandler) upsertAuthIdentity(userID string, profile *authproviders.NormalizedAuthProfile) error {
-	return h.authIdentityRepo.Upsert(h.buildAuthIdentity(userID, profile))
-}
-
-func (h *OAuthHandler) upsertAuthIdentityForUserProvider(userID string, profile *authproviders.NormalizedAuthProfile) error {
-	return h.authIdentityRepo.UpsertForUserProvider(h.buildAuthIdentity(userID, profile))
+	return user.ID, isNewUser, nil
 }
 
 func (h *OAuthHandler) buildAuthIdentity(userID string, profile *authproviders.NormalizedAuthProfile) *models.UserAuthIdentity {
@@ -743,17 +680,15 @@ func (h *OAuthHandler) buildAuthIdentity(userID string, profile *authproviders.N
 	displayName := profile.DisplayName
 	avatarURL := profile.AvatarURL
 
-	rawClaims, _ := json.Marshal(profile.RawClaims)
-
 	identity := &models.UserAuthIdentity{
-		UserID:         userID,
-		Provider:       profile.Provider,
-		ProviderUserID: profile.ProviderUserID,
-		ProviderEmail:  &providerEmail,
-		EmailVerified:  profile.EmailVerified,
-		DisplayName:    &displayName,
-		AvatarURL:      &avatarURL,
-		RawClaims:      rawClaims,
+		UserID:           userID,
+		Provider:         profile.Provider,
+		ProviderTenantID: profile.ProviderTenantID,
+		ProviderUserID:   profile.ProviderUserID,
+		ProviderEmail:    &providerEmail,
+		EmailVerified:    profile.EmailVerified,
+		DisplayName:      &displayName,
+		AvatarURL:        &avatarURL,
 	}
 	if avatarURL == "" {
 		identity.AvatarURL = nil
@@ -774,107 +709,4 @@ func (h *OAuthHandler) cacheProfileAvatar(userID string, profile *authproviders.
 	}
 
 	return avatarURL
-}
-
-// renderSuccessPage renders a success page after OAuth completion
-func (h *OAuthHandler) renderSuccessPage(c *gin.Context, userName string) {
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Authentication Complete</title>
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            text-align: center; 
-            padding: 60px 20px; 
-            background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
-            color: white;
-            margin: 0;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        .container { max-width: 400px; }
-        h1 { font-size: 2.5em; margin-bottom: 20px; }
-        p { font-size: 1.2em; margin-bottom: 30px; opacity: 0.9; }
-        .close-btn { 
-            background: rgba(255,255,255,0.2); 
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white; 
-            padding: 12px 24px; 
-            border-radius: 25px; 
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }
-        .close-btn:hover { background: rgba(255,255,255,0.3); }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎉 Success!</h1>
-        <p>Welcome %s!<br>Authentication completed successfully.<br>You can now close this browser and return to Orion.</p>
-        <button class="close-btn" onclick="window.close()">Close Browser</button>
-    </div>
-    <script>
-        setTimeout(() => window.close(), 3000);
-    </script>
-</body>
-</html>`, html.EscapeString(userName))
-
-	c.Header("Content-Type", "text/html")
-	c.String(http.StatusOK, html)
-}
-
-// renderErrorPage renders an error page
-func (h *OAuthHandler) renderErrorPage(c *gin.Context, title, message string) {
-	html := fmt.Sprintf(`
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Authentication Error</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            text-align: center;
-            padding: 60px 20px;
-            background: linear-gradient(135deg, #ff6b6b 0%%, #ee5a24 100%%);
-            color: white;
-            margin: 0;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-        .container { max-width: 400px; }
-        h1 { font-size: 2.5em; margin-bottom: 20px; }
-        p { font-size: 1.2em; margin-bottom: 30px; opacity: 0.9; }
-        .close-btn {
-            background: rgba(255,255,255,0.2);
-            border: 2px solid rgba(255,255,255,0.3);
-            color: white;
-            padding: 12px 24px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }
-        .close-btn:hover { background: rgba(255,255,255,0.3); }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>❌ %s</h1>
-        <p>%s<br>Please try again or contact support.</p>
-        <button class="close-btn" onclick="window.close()">Close Browser</button>
-    </div>
-</body>
-</html>`, html.EscapeString(title), html.EscapeString(message))
-
-	c.Header("Content-Type", "text/html")
-	c.String(http.StatusOK, html)
 }

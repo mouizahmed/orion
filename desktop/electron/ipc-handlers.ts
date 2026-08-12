@@ -2,9 +2,10 @@ import { app, BrowserWindow, dialog, ipcMain, desktopCapturer, shell, type OpenD
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
 import fs from 'node:fs'
-import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, showAuthWindow } from './window'
-import { isRendererAuthenticated } from './auth-handlers'
+import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, isKnownRendererSender, showAuthWindow } from './window'
+import { getCurrentAuthToken, isRendererAuthenticated } from './auth-handlers'
 import { config } from './config'
+import { beginIntegrationOAuthTransaction } from './protocol-handler'
 import {
   restoreKeyboardShortcuts,
   unregisterKeyboardShortcuts,
@@ -21,11 +22,12 @@ type RecordingSettings = {
   localRecordingsPath: string
 }
 
-type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+type IntegrationProvider = 'google' | 'microsoft'
 
 type IntegrationResult = {
   success: boolean
   error?: string
+  authInvalid?: boolean
 }
 
 function defaultLocalRecordingsPath() {
@@ -33,19 +35,25 @@ function defaultLocalRecordingsPath() {
 }
 
 function isIntegrationProvider(value: unknown): value is IntegrationProvider {
-  return value === 'google' || value === 'microsoft' || value === 'notion'
+  return value === 'google' || value === 'microsoft'
 }
 
-function normalizeIdToken(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
-}
+function validatedIntegrationAuthorizationUrl(provider: IntegrationProvider, rawUrl: string): string {
+  const parsed = new URL(rawUrl)
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('Integration provider returned an unsafe authorization URL')
+  }
 
-// Stored auth token used by the webRequest interceptor in main.ts to inject
-// Authorization headers on image proxy requests (which <img> tags don't send headers for).
-let currentAuthToken: string | null = null
+  const allowed = provider === 'google'
+    ? parsed.origin === 'https://accounts.google.com' && parsed.pathname === '/o/oauth2/v2/auth'
+    : provider === 'microsoft'
+      ? parsed.origin === 'https://login.microsoftonline.com' && parsed.pathname.endsWith('/oauth2/v2.0/authorize')
+      : false
 
-export function getCurrentAuthToken(): string | null {
-  return currentAuthToken
+  if (!allowed) {
+    throw new Error('Integration provider returned an unexpected authorization URL')
+  }
+  return parsed.toString()
 }
 
 export function stopSystemAudioCapture() {
@@ -116,21 +124,9 @@ function ensureWritableDirectory(dirPath: string) {
 }
 
 export function setupIpcHandlers() {
-  // Capture auth token from the existing auth:state-changed event so the
-  // webRequest interceptor can inject Authorization headers on image proxy requests.
-  ipcMain.on('auth:state-changed', (_event, payload?: { isAuthenticated?: boolean; idToken?: unknown }) => {
-    const token = normalizeIdToken(payload?.idToken)
-    currentAuthToken = payload?.isAuthenticated ? token : null
-  })
-
-  // Periodic refresh: renderer pushes a fresh token every 45 min.
-  ipcMain.on('auth:refresh-token', (_event, payload?: { idToken?: unknown }) => {
-    const token = normalizeIdToken(payload?.idToken)
-    if (token) currentAuthToken = token
-  })
-
   // Window control IPC handlers
   ipcMain.on('window-drag-start', (event, { mouseX, mouseY }) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const [winX, winY] = win.getPosition()
@@ -141,18 +137,21 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.on('window-drag-move', (event, { mouseX, mouseY, offsetX, offsetY }) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.setPosition(mouseX - offsetX, mouseY - offsetY)
   })
 
   ipcMain.on('set-ignore-mouse-events', (event, ignore: boolean) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     win.setIgnoreMouseEvents(ignore, { forward: true })
   })
 
   ipcMain.on('set-window-height', (event, rawHeight: number) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const newHeight = Math.max(60, Math.round(rawHeight))
@@ -176,6 +175,7 @@ export function setupIpcHandlers() {
   })
 
   ipcMain.on('set-window-size', (event, payload: { width: number; height: number }) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const width = Math.max(240, Math.round(payload?.width ?? 0))
@@ -190,12 +190,14 @@ export function setupIpcHandlers() {
 
   ipcMain.on(
     'set-visible-overlay-bounds',
-    (_event, bounds: { offsetX: number; offsetY: number; width: number; height: number } | null) => {
+    (event, bounds: { offsetX: number; offsetY: number; width: number; height: number } | null) => {
+      if (!isKnownRendererSender(event.sender)) return
       setVisibleOverlayBounds(bounds)
     },
   )
 
-  ipcMain.on('toggle-visibility', () => {
+  ipcMain.on('toggle-visibility', (event) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = getWindow()
     if (!win) return
     if (win.isVisible()) {
@@ -210,26 +212,29 @@ export function setupIpcHandlers() {
     }
   })
 
-  ipcMain.on('blur-overlay', () => {
+  ipcMain.on('blur-overlay', (event) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = getWindow()
     if (!win || win.isDestroyed()) return
     win.blur()
   })
 
   ipcMain.on('window-minimize', (event) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return
     win.minimize()
   })
 
   ipcMain.on('window-close', (event) => {
+    if (!isKnownRendererSender(event.sender)) return
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return
     win.hide()
   })
 
-  ipcMain.on('dashboard:open', (_event, payload?: { noteId?: string }) => {
-    if (!isRendererAuthenticated()) {
+  ipcMain.on('dashboard:open', (event, payload?: { noteId?: string }) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) {
       showAuthWindow()
       return
     }
@@ -259,7 +264,8 @@ export function setupIpcHandlers() {
     created.focus()
   })
 
-  ipcMain.on('dashboard:close', () => {
+  ipcMain.on('dashboard:close', (event) => {
+    if (!isKnownRendererSender(event.sender)) return
     if (!isRendererAuthenticated()) {
       const overlay = getWindow()
       if (overlay && !overlay.isDestroyed()) {
@@ -295,11 +301,13 @@ export function setupIpcHandlers() {
   })
 
   // Shortcuts IPC handlers
-  ipcMain.handle('shortcuts:get', () => {
+  ipcMain.handle('shortcuts:get', (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) throw new Error('Unauthorized IPC sender')
     return getShortcutState()
   })
 
-  ipcMain.handle('shortcuts:update', (_event, payload) => {
+  ipcMain.handle('shortcuts:update', (event, payload) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) throw new Error('Unauthorized IPC sender')
     const win = getWindow()
     const windowVisible = Boolean(win?.isVisible())
 
@@ -320,11 +328,13 @@ export function setupIpcHandlers() {
     return result
   })
 
-  ipcMain.handle('recording-settings:get', () => {
+  ipcMain.handle('recording-settings:get', (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) throw new Error('Unauthorized IPC sender')
     return readRecordingSettings()
   })
 
-  ipcMain.handle('recording-settings:update', (_event, payload: Partial<RecordingSettings>) => {
+  ipcMain.handle('recording-settings:update', (event, payload: Partial<RecordingSettings>) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) throw new Error('Unauthorized IPC sender')
     const current = readRecordingSettings()
     const storageLocation = payload.storageLocation === 'local' ? 'local' : 'server'
     const localRecordingsPath =
@@ -345,7 +355,8 @@ export function setupIpcHandlers() {
     return next
   })
 
-  ipcMain.handle('recording-settings:pick-local-path', async () => {
+  ipcMain.handle('recording-settings:pick-local-path', async (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) throw new Error('Unauthorized IPC sender')
     const win = getDashboardWindow() ?? getWindow()
     const dialogOptions: OpenDialogOptions = {
       title: 'Choose recordings folder',
@@ -379,15 +390,15 @@ export function setupIpcHandlers() {
   ipcMain.handle(
     'integration:connect',
     async (
-      _event,
-      payload?: { provider?: unknown; feature?: unknown; idToken?: unknown },
+      event,
+      payload?: { provider?: unknown; feature?: unknown },
     ): Promise<IntegrationResult> => {
       const provider = payload?.provider
       const feature = typeof payload?.feature === 'string' ? payload.feature.trim() : ''
-      const idToken = normalizeIdToken(payload?.idToken)
+      const idToken = getCurrentAuthToken()
 
-      if (!isRendererAuthenticated() || !idToken) {
-        return { success: false, error: 'Not authenticated' }
+      if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated() || !idToken) {
+        return { success: false, error: 'Not authenticated', authInvalid: true }
       }
       if (!isIntegrationProvider(provider)) {
         return { success: false, error: 'Unsupported integration provider' }
@@ -410,6 +421,7 @@ export function setupIpcHandlers() {
           return {
             success: false,
             error: await readApiError(response, 'Failed to start integration connection'),
+            authInvalid: response.status === 401,
           }
         }
 
@@ -418,7 +430,13 @@ export function setupIpcHandlers() {
           return { success: false, error: 'Integration connection did not return an auth URL' }
         }
 
-        await shell.openExternal(result.auth_url)
+		const authorizationURL = validatedIntegrationAuthorizationUrl(provider, result.auth_url)
+		const state = new URL(authorizationURL).searchParams.get('state')
+		if (!state) {
+			return { success: false, error: 'Integration connection did not return a correlation state' }
+		}
+		beginIntegrationOAuthTransaction(state)
+		await shell.openExternal(authorizationURL)
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -429,15 +447,15 @@ export function setupIpcHandlers() {
 
   ipcMain.handle(
     'integration:disconnect',
-    async (_event, payload?: { connectionID?: unknown; idToken?: unknown }): Promise<IntegrationResult> => {
+    async (event, payload?: { connectionID?: unknown }): Promise<IntegrationResult> => {
       const connectionID =
         typeof payload?.connectionID === 'string' && payload.connectionID.trim().length > 0
           ? payload.connectionID.trim()
           : null
-      const idToken = normalizeIdToken(payload?.idToken)
+      const idToken = getCurrentAuthToken()
 
-      if (!isRendererAuthenticated() || !idToken) {
-        return { success: false, error: 'Not authenticated' }
+      if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated() || !idToken) {
+        return { success: false, error: 'Not authenticated', authInvalid: true }
       }
       if (!connectionID) {
         return { success: false, error: 'Missing connection ID' }
@@ -458,6 +476,7 @@ export function setupIpcHandlers() {
           return {
             success: false,
             error: await readApiError(response, 'Failed to disconnect integration'),
+            authInvalid: response.status === 401,
           }
         }
 
@@ -472,8 +491,8 @@ export function setupIpcHandlers() {
   // Audio capture IPC handlers
 
   // Windows: get a desktop source ID for system audio capture via desktopCapturer
-  ipcMain.handle('audio:get-desktop-source-id', async () => {
-    if (!isRendererAuthenticated()) {
+  ipcMain.handle('audio:get-desktop-source-id', async (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) {
       return null
     }
 
@@ -487,8 +506,8 @@ export function setupIpcHandlers() {
   })
 
   // macOS: start Swift helper for system audio capture
-  ipcMain.handle('audio:start-system-capture', async () => {
-    if (!isRendererAuthenticated()) {
+  ipcMain.handle('audio:start-system-capture', async (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) {
       throw new Error('Not authenticated')
     }
 
@@ -549,8 +568,8 @@ export function setupIpcHandlers() {
   })
 
   // macOS: stop Swift helper
-  ipcMain.on('audio:stop-system-capture', () => {
-    if (!isRendererAuthenticated()) return
+  ipcMain.on('audio:stop-system-capture', (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) return
     stopSystemAudioCapture()
   })
 

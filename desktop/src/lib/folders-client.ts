@@ -1,5 +1,5 @@
 import type { FolderRecord } from '@/types/folder'
-import { auth } from '@/config/firebase'
+import { authenticatedFetch } from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -22,16 +22,8 @@ function toFolderRecord(folder: ApiFolder): FolderRecord {
   }
 }
 
-async function getIdToken() {
-  const currentUser = auth.currentUser
-  if (!currentUser) {
-    throw new Error('Not authenticated')
-  }
-  return await currentUser.getIdToken()
-}
-
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await authenticatedFetch(input, init)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error || 'Request failed')
@@ -41,11 +33,9 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
 
 export async function listFolders(userId?: string): Promise<FolderRecord[]> {
   void userId
-  const idToken = await getIdToken()
   const payload = await fetchJson<{ folders: ApiFolder[] }>(`${API_BASE_URL}/folders`, {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
   return (payload.folders ?? []).map(toFolderRecord)
@@ -53,13 +43,11 @@ export async function listFolders(userId?: string): Promise<FolderRecord[]> {
 
 export async function createFolder(userId: string | undefined, name: string): Promise<FolderRecord> {
   void userId
-  const idToken = await getIdToken()
   const payload = await fetchJson<{ folder: ApiFolder }>(`${API_BASE_URL}/folders`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({ name }),
   })
@@ -72,13 +60,11 @@ export async function renameFolder(
   name: string,
 ): Promise<FolderRecord | null> {
   void userId
-  const idToken = await getIdToken()
   const payload = await fetchJson<{ folder?: ApiFolder }>(`${API_BASE_URL}/folders/${folderId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
     body: JSON.stringify({ name }),
   })
@@ -87,12 +73,10 @@ export async function renameFolder(
 
 export async function deleteFolder(userId: string | undefined, folderId: string): Promise<boolean> {
   void userId
-  const idToken = await getIdToken()
   await fetchJson(`${API_BASE_URL}/folders/${folderId}`, {
     method: 'DELETE',
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
   return true

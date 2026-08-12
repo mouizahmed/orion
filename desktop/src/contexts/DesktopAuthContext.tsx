@@ -11,6 +11,12 @@ import {
 import { auth, signInWithCustomToken } from '@/config/firebase'
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
 import { desktopApi, type AuthResult } from '@/lib/desktop-api'
+import {
+  consumeSessionExpiredMessage,
+  SESSION_EXPIRED_EVENT,
+  SESSION_EXPIRED_MESSAGE,
+  SESSION_EXPIRED_MESSAGE_KEY,
+} from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -19,6 +25,7 @@ export interface DesktopAuthActions {
   loginLoading: boolean
   loginProvider: LoginProvider | null
   logout: () => Promise<void>
+  logoutAllDevices: () => Promise<void>
   loginWithGoogle: () => Promise<void>
   loginWithMicrosoft: () => Promise<void>
   cancelAuth: () => void
@@ -31,7 +38,7 @@ const DEFAULT_AUTH_TIMEOUT_SECONDS = 5 * 60
 const DesktopAuthContext = createContext<DesktopAuthActions | undefined>(undefined)
 
 async function revokeBackendSession(idToken: string) {
-  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+  const response = await fetch(`${API_BASE_URL}/auth/logout-all`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -49,31 +56,48 @@ function useLogoutActions() {
 
   const logout = useCallback(async () => {
     try {
-      try {
-        const idToken = await getIdToken()
-        await revokeBackendSession(idToken)
-      } catch (error) {
-        console.warn('Backend logout revocation failed:', error)
-      }
-
       await signOutLocal()
       await desktopApi.auth.logout()
     } catch (error) {
       console.error('Logout error:', error)
     }
+  }, [signOutLocal])
+
+  const logoutAllDevices = useCallback(async () => {
+    const idToken = await getIdToken()
+    await revokeBackendSession(idToken)
+    await signOutLocal()
+    await desktopApi.auth.logout()
   }, [getIdToken, signOutLocal])
 
-  return { logout }
+  return { logout, logoutAllDevices }
 }
 
 export function DesktopAuthProvider({ children }: { children: ReactNode }) {
   const { user, isLoading, getIdToken } = useFirebaseAuth()
-  const { logout } = useLogoutActions()
-  const [authError, setAuthError] = useState<string | null>(null)
+  const { logout, logoutAllDevices } = useLogoutActions()
+  const [authError, setAuthError] = useState<string | null>(() => consumeSessionExpiredMessage())
   const [loginLoading, setLoginLoading] = useState(false)
   const [loginProvider, setLoginProvider] = useState<LoginProvider | null>(null)
   const authTimeoutRef = useRef<number | null>(null)
   const pendingAuthRef = useRef(false)
+
+  useEffect(() => {
+    const handleSessionExpired = () => setAuthError(SESSION_EXPIRED_MESSAGE)
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === SESSION_EXPIRED_MESSAGE_KEY && event.newValue) {
+        setAuthError(event.newValue)
+        localStorage.removeItem(SESSION_EXPIRED_MESSAGE_KEY)
+      }
+    }
+
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired)
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired)
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
 
   const clearAuthTimeout = useCallback(() => {
     if (authTimeoutRef.current !== null) {
@@ -205,11 +229,12 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
       loginLoading,
       loginProvider,
       logout,
+      logoutAllDevices,
       loginWithGoogle,
       loginWithMicrosoft,
       cancelAuth,
     }),
-    [authError, cancelAuth, loginLoading, loginProvider, loginWithGoogle, loginWithMicrosoft, logout],
+    [authError, cancelAuth, loginLoading, loginProvider, loginWithGoogle, loginWithMicrosoft, logout, logoutAllDevices],
   )
 
   return (
@@ -220,7 +245,7 @@ export function DesktopAuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function DashboardAuthActionsProvider({ children }: { children: ReactNode }) {
-  const { logout } = useLogoutActions()
+  const { logout, logoutAllDevices } = useLogoutActions()
 
   const loginWithGoogle = useCallback(async () => {
     throw new Error('Login is only available in the auth window')
@@ -235,11 +260,12 @@ export function DashboardAuthActionsProvider({ children }: { children: ReactNode
       loginLoading: false,
       loginProvider: null,
       logout,
+      logoutAllDevices,
       loginWithGoogle,
       loginWithMicrosoft,
       cancelAuth: () => undefined,
     }),
-    [loginWithGoogle, loginWithMicrosoft, logout],
+    [loginWithGoogle, loginWithMicrosoft, logout, logoutAllDevices],
   )
 
   return (

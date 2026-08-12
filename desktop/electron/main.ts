@@ -1,7 +1,7 @@
 import { app, BrowserWindow, desktopCapturer, globalShortcut, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
+import { getCurrentAuthToken, isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
 import {
   setupProtocolHandler,
   setupProtocolEvents,
@@ -18,6 +18,9 @@ import {
   destroyOverlayWindow,
   getDashboardWindow,
   getWindow,
+  isAuthRendererSender,
+  isAppNavigationUrl,
+  isKnownRendererSender,
   setAppQuitting,
   setAuthWindow,
   setWindow,
@@ -28,13 +31,60 @@ import {
   registerKeyboardShortcuts,
   unregisterKeyboardShortcuts,
 } from './shortcuts'
-import { setupIpcHandlers, stopSystemAudioCapture, getCurrentAuthToken } from './ipc-handlers'
+import { setupIpcHandlers, stopSystemAudioCapture } from './ipc-handlers'
 import { config } from './config'
 import { destroyTray, setupTray } from './tray'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 process.env.APP_ROOT = path.join(__dirname, '..')
+
+function isBackendImageProxy(rawUrl: string): boolean {
+  try {
+    const requestUrl = new URL(rawUrl)
+    const backendUrl = new URL(config.backendUrl)
+    return requestUrl.origin === backendUrl.origin
+      && /^\/api\/notes\/[^/]+\/images\/[^/]+$/.test(requestUrl.pathname)
+  } catch {
+    return false
+  }
+}
+
+function configureContentSecurityPolicy() {
+  if (!config.isProduction) return
+
+  const backend = new URL(config.backendUrl)
+  const websocketBackend = new URL(config.backendUrl)
+  websocketBackend.protocol = websocketBackend.protocol === 'https:' ? 'wss:' : 'ws:'
+
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https:",
+    "font-src 'self' data:",
+    `connect-src 'self' ${backend.origin} ${websocketBackend.origin} https://*.googleapis.com`,
+    "media-src 'self' blob:",
+    "worker-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].join('; ')
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType !== 'mainFrame' || !isAppNavigationUrl(details.url)) {
+      callback({ responseHeaders: details.responseHeaders })
+      return
+    }
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [policy],
+      },
+    })
+  })
+}
 
 // Setup protocol handler before app is ready (for OS protocol registration)
 setupProtocolHandler()
@@ -52,6 +102,8 @@ if (!gotTheLock) {
   setupProtocolEvents()
 
   app.whenReady().then(() => {
+    configureContentSecurityPolicy()
+
     // Route renderer getDisplayMedia() requests through Electron desktopCapturer on Windows.
     if (process.platform === 'win32') {
       session.defaultSession.setDisplayMediaRequestHandler(
@@ -115,9 +167,7 @@ if (!gotTheLock) {
     session.defaultSession.webRequest.onBeforeSendHeaders(
       { urls: ['<all_urls>'] },
       (details, callback) => {
-        const isImageProxy =
-          details.url.startsWith(config.backendUrl) &&
-          /\/api\/notes\/[^/]+\/images\/[^/]+$/.test(new URL(details.url).pathname)
+        const isImageProxy = isBackendImageProxy(details.url)
         const token = getCurrentAuthToken()
         if (isImageProxy && token) {
           callback({
@@ -186,6 +236,8 @@ if (!gotTheLock) {
     // Register auth IPC before loading the renderer, otherwise a restored
     // Firebase session can emit auth state before the main process is listening.
     setupAuthHandlers({
+      isKnownRendererSender,
+      isAuthRendererSender,
       onSignedIn: () => {
         const overlay = createWindow()
         if (overlay.isVisible()) overlay.hide()

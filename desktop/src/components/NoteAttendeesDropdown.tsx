@@ -3,10 +3,10 @@ import { toast } from 'sonner'
 import { Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
-  DropdownItem,
   DropdownLabel,
   DropdownPopover,
   DropdownSeparator,
+  dropdownItemClassName,
 } from '@/components/ui/dropdown-list'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
@@ -23,17 +23,9 @@ function initials(name: string, email: string): string {
 
 function Avatar({ name, email, avatarUrl, size = 'sm' }: { name: string; email: string; avatarUrl?: string; size?: 'sm' | 'md' }) {
   const dim = size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-7 w-7 text-[11px]'
-  if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={name || email}
-        title={name || email}
-        className={`${dim} shrink-0 rounded-full object-cover`}
-      />
-    )
-  }
-  return (
+  const [imgError, setImgError] = useState(false)
+
+  const fallback = (
     <span
       className={`${dim} inline-flex shrink-0 items-center justify-center rounded-full bg-violet-100 font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300`}
       title={name || email}
@@ -41,6 +33,19 @@ function Avatar({ name, email, avatarUrl, size = 'sm' }: { name: string; email: 
       {initials(name, email)}
     </span>
   )
+
+  if (avatarUrl && !imgError) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name || email}
+        title={name || email}
+        className={`${dim} shrink-0 rounded-full object-cover`}
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+  return fallback
 }
 
 export default function NoteAttendeesDropdown({ note }: Props) {
@@ -148,7 +153,7 @@ export default function NoteAttendeesDropdown({ note }: Props) {
               {attendees.map((a) => {
                 const isCreator = a.email.toLowerCase() === currentUserEmail.toLowerCase()
                 return (
-                  <DropdownItem key={a.email} layout="multiline" className="group cursor-default">
+                  <div key={a.email} className={dropdownItemClassName({ layout: 'multiline', className: 'group cursor-default' })}>
                     <Avatar name={a.name} email={a.email} avatarUrl={a.avatarUrl} size="md" />
                     <span className="min-w-0 flex-1 text-left">
                       {a.name ? (
@@ -170,7 +175,7 @@ export default function NoteAttendeesDropdown({ note }: Props) {
                         <X className="h-3 w-3" />
                       </button>
                     )}
-                  </DropdownItem>
+                  </div>
                 )
               })}
             </div>

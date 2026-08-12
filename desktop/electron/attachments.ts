@@ -2,7 +2,8 @@ import { dialog } from 'electron'
 import { ipcMain } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
-import { getWindow } from './window'
+import { getWindow, isKnownRendererSender } from './window'
+import { isRendererAuthenticated } from './auth-handlers'
 
 // Only these exact formats are allowed
 const imageMimeTypes: Record<string, string> = {
@@ -26,7 +27,10 @@ type PickedAttachment = {
 }
 
 export function setupAttachmentHandlers() {
-  ipcMain.handle('attachments:pick', async () => {
+  ipcMain.handle('attachments:pick', async (event) => {
+    if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated()) {
+      throw new Error('Unauthorized IPC sender')
+    }
     const win = getWindow()
     if (!win) {
       throw new Error('Main window is not available')

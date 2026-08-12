@@ -11,6 +11,11 @@ import {
 let authCallbackWindow: BrowserWindow | null = null
 let revealAuthWindow: (() => void) | null = null
 let revealIntegrationWindow: (() => void) | null = null
+let activeIntegrationOAuthState: string | null = null
+
+export function beginIntegrationOAuthTransaction(state: string) {
+  activeIntegrationOAuthState = state
+}
 
 export function setAuthCallbackWindow(win: BrowserWindow | null) {
   authCallbackWindow = win
@@ -139,6 +144,12 @@ async function handleProtocolUrl(url: string) {
 }
 
 function handleIntegrationCallback(parsed: URL) {
+	const state = parsed.searchParams.get('state')
+	if (!state || state !== activeIntegrationOAuthState) {
+		console.warn('Ignoring integration OAuth callback for inactive state')
+		return
+	}
+	activeIntegrationOAuthState = null
   const success = parsed.searchParams.get('success') === 'true'
   const provider = parsed.searchParams.get('provider') || undefined
   const feature = parsed.searchParams.get('feature') || undefined

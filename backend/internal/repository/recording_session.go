@@ -84,11 +84,11 @@ func (r *RecordingSessionRepository) CreateSession(noteID, userID string) (*mode
 	return &session, nil
 }
 
-func (r *RecordingSessionRepository) StopSession(sessionID, userID string) (*models.RecordingSession, error) {
+func (r *RecordingSessionRepository) StopSession(sessionID, noteID, userID string) (*models.RecordingSession, error) {
 	query := `
 		UPDATE note_recording_sessions
 		SET status = 'stopped', stopped_at = NOW(), last_activity_at = NOW()
-		WHERE id = $1 AND user_id = $2 AND status IN ('active', 'paused')
+		WHERE id = $1 AND note_id = $2 AND user_id = $3 AND status IN ('active', 'paused')
 		RETURNING id, note_id, user_id, status, started_at, paused_at, stopped_at, transcript_chunks, last_activity_at
 	`
 
@@ -96,7 +96,7 @@ func (r *RecordingSessionRepository) StopSession(sessionID, userID string) (*mod
 	var paused sql.NullTime
 	var stopped sql.NullTime
 	var transcript []byte
-	err := r.db.QueryRow(query, sessionID, userID).Scan(
+	err := r.db.QueryRow(query, sessionID, noteID, userID).Scan(
 		&session.ID,
 		&session.NoteID,
 		&session.UserID,

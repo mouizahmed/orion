@@ -1,4 +1,4 @@
-import { auth } from '@/config/firebase'
+import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -97,13 +97,11 @@ function toMessage(m: ApiMessage): ChatMessage {
 }
 
 async function getIdToken() {
-  const currentUser = auth.currentUser
-  if (!currentUser) throw new Error('Not authenticated')
-  return await currentUser.getIdToken()
+  return getAuthenticatedIdToken()
 }
 
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await authenticatedFetch(input, init)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error || 'Request failed')
@@ -180,7 +178,7 @@ export async function* sendMessage(
 ): AsyncGenerator<SSEEvent> {
   const idToken = await getIdToken()
 
-  const response = await fetch(
+  const response = await authenticatedFetch(
     `${API_BASE_URL}/chat/conversations/${conversationId}/messages`,
     {
       method: 'POST',

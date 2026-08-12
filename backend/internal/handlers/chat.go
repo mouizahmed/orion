@@ -166,7 +166,7 @@ func (h *ChatHandler) RenameConversation(c *gin.Context) {
 		return
 	}
 
-	if err := h.convRepo.UpdateTitle(convID, title); err != nil {
+	if err := h.convRepo.UpdateTitle(userID, convID, title); err != nil {
 		log.Printf("chat: failed to rename conversation %s: %v", convID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to rename conversation"})
 		return
@@ -352,7 +352,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	// Generate title after first exchange (allMessages includes the user message we just saved)
 	// Done synchronously so the SSE connection stays open for the title event
 	if len(allMessages) == 1 {
-		title := h.generateAndUpdateTitle(conv.ID, userMsg.Content, sr.Text)
+		title := h.generateAndUpdateTitle(conv.UserID, conv.ID, userMsg.Content, sr.Text)
 		if title != "" {
 			writeSSE(c, "title", map[string]interface{}{"title": title})
 			c.Writer.Flush()
@@ -495,7 +495,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, userID, convID, activeNoteI
 	}
 }
 
-func (h *ChatHandler) generateAndUpdateTitle(convID, userMsg, assistantMsg string) string {
+func (h *ChatHandler) generateAndUpdateTitle(userID, convID, userMsg, assistantMsg string) string {
 	// Truncate messages if too long
 	if len(userMsg) > 200 {
 		userMsg = userMsg[:200] + "..."
@@ -523,7 +523,7 @@ func (h *ChatHandler) generateAndUpdateTitle(convID, userMsg, assistantMsg strin
 	}
 
 	// Update conversation title
-	if err := h.convRepo.UpdateTitle(convID, title); err != nil {
+	if err := h.convRepo.UpdateTitle(userID, convID, title); err != nil {
 		log.Printf("chat: failed to update title: %v", err)
 	}
 
@@ -555,7 +555,7 @@ func (h *ChatHandler) updateSummary(conv *models.Conversation, messages []models
 	}
 
 	lastMsg := toSummarize[len(toSummarize)-1]
-	if err := h.convRepo.UpdateSummary(conv.ID, summary, lastMsg.ID); err != nil {
+	if err := h.convRepo.UpdateSummary(conv.UserID, conv.ID, summary, lastMsg.ID); err != nil {
 		log.Printf("chat: failed to save summary: %v", err)
 	}
 }

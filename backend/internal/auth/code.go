@@ -69,7 +69,7 @@ func NewCodeManager(redisClient *redis.Client) *CodeManager {
 }
 
 // GenerateCode creates a new one-time code and stores it in Redis
-func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, platform, state, codeChallenge, codeChallengeMethod string, isNewUser bool) (string, error) {
+func (cm *CodeManager) GenerateCode(ctx context.Context, user *OAuthUser, firebaseToken, provider, platform, state, codeChallenge, codeChallengeMethod string, isNewUser bool) (string, error) {
 	// Generate a secure random code
 	codeBytes := make([]byte, 16) // 32 character hex string
 	if _, err := rand.Read(codeBytes); err != nil {
@@ -100,7 +100,6 @@ func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, pl
 	}
 
 	// Store in Redis with 5-minute TTL
-	ctx := context.Background()
 	key := fmt.Sprintf("auth_code:%s", code)
 	if err := cm.redisClient.SetEx(ctx, key, codeData, 5*time.Minute).Err(); err != nil {
 		return "", fmt.Errorf("failed to store auth code: %w", err)
@@ -110,8 +109,7 @@ func (cm *CodeManager) GenerateCode(user *OAuthUser, firebaseToken, provider, pl
 }
 
 // ValidateAndConsumeCode validates a code and atomically deletes it only when state and verifier match.
-func (cm *CodeManager) ValidateAndConsumeCode(code, expectedState, expectedCodeChallenge string) (*OneTimeCode, error) {
-	ctx := context.Background()
+func (cm *CodeManager) ValidateAndConsumeCode(ctx context.Context, code, expectedState, expectedCodeChallenge string) (*OneTimeCode, error) {
 	key := fmt.Sprintf("auth_code:%s", code)
 
 	result, err := cm.redisClient.Eval(ctx, validateAndConsumeCodeScript, []string{key}, expectedState, expectedCodeChallenge).Slice()

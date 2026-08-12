@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeTheme, shell } from 'electron'
+import { BrowserWindow, nativeTheme, shell, type WebContents } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setAuthCallbackWindow } from './protocol-handler'
@@ -58,17 +58,38 @@ function preventRefreshShortcuts(window: BrowserWindow) {
   })
 }
 
-function isAppNavigationUrl(rawUrl: string) {
-  if (VITE_DEV_SERVER_URL && rawUrl.startsWith(VITE_DEV_SERVER_URL)) {
-    return true
+export function isAppNavigationUrl(rawUrl: string) {
+  try {
+    const target = new URL(rawUrl)
+    if (VITE_DEV_SERVER_URL) {
+      return target.origin === new URL(VITE_DEV_SERVER_URL).origin
+    }
+
+    if (target.protocol !== 'file:') return false
+    const targetPath = path.resolve(fileURLToPath(target))
+    const rendererEntryPath = path.resolve(RENDERER_DIST, 'index.html')
+    return targetPath === rendererEntryPath
+  } catch {
+    return false
   }
-  return rawUrl.startsWith('file://')
+}
+
+function openExternalUrl(rawUrl: string) {
+  try {
+    const target = new URL(rawUrl)
+    if (target.protocol !== 'https:' && target.protocol !== 'http:' && target.protocol !== 'mailto:') {
+      return
+    }
+    void shell.openExternal(target.toString())
+  } catch {
+    // Ignore malformed external navigation requests.
+  }
 }
 
 function routeExternalLinksToBrowser(window: BrowserWindow) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (!isAppNavigationUrl(url)) {
-      void shell.openExternal(url)
+      openExternalUrl(url)
     }
     return { action: 'deny' }
   })
@@ -76,7 +97,7 @@ function routeExternalLinksToBrowser(window: BrowserWindow) {
   window.webContents.on('will-navigate', (event, url) => {
     if (isAppNavigationUrl(url)) return
     event.preventDefault()
-    void shell.openExternal(url)
+    openExternalUrl(url)
   })
 }
 
@@ -105,6 +126,7 @@ export function createWindow() {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     backgroundColor: '#00000000',
   })
@@ -114,7 +136,7 @@ export function createWindow() {
   routeExternalLinksToBrowser(win)
 
   // Enable content protection to hide window from screen sharing
-  win.setContentProtection(false)
+  win.setContentProtection(true)
 
   // Make window visible on all workspaces/desktops
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -187,6 +209,7 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     backgroundColor: '#171417',
   })
@@ -194,7 +217,7 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
   setAuthCallbackWindow(authWin)
   preventRefreshShortcuts(authWin)
   routeExternalLinksToBrowser(authWin)
-  authWin.setContentProtection(false)
+  authWin.setContentProtection(true)
   authWin.setMenuBarVisibility(false)
 
   authWin.on('closed', () => {
@@ -245,6 +268,7 @@ export function createDashboardWindow(noteId?: string) {
       preload: path.join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
     backgroundColor: '#0b0b0c',
     titleBarStyle: 'hidden',
@@ -256,6 +280,7 @@ export function createDashboardWindow(noteId?: string) {
   })
 
   dashboardWin.setMenuBarVisibility(false)
+	dashboardWin.setContentProtection(true)
   preventRefreshShortcuts(dashboardWin)
   routeExternalLinksToBrowser(dashboardWin)
 
@@ -317,6 +342,18 @@ export function getAuthWindow() {
 
 export function getDashboardWindow() {
   return dashboardWin
+}
+
+function isWindowSender(window: BrowserWindow | null, sender: WebContents) {
+  return Boolean(window && !window.isDestroyed() && window.webContents.id === sender.id)
+}
+
+export function isKnownRendererSender(sender: WebContents) {
+  return isWindowSender(win, sender) || isWindowSender(authWin, sender) || isWindowSender(dashboardWin, sender)
+}
+
+export function isAuthRendererSender(sender: WebContents) {
+  return isWindowSender(authWin, sender)
 }
 
 export function setWindow(window: BrowserWindow | null) {

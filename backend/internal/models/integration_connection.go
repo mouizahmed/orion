@@ -11,7 +11,6 @@ type IntegrationConnectionStatus string
 const (
 	IntegrationProviderGoogle    IntegrationProvider = "google"
 	IntegrationProviderMicrosoft IntegrationProvider = "microsoft"
-	IntegrationProviderNotion    IntegrationProvider = "notion"
 
 	IntegrationConnectionStatusActive         IntegrationConnectionStatus = "active"
 	IntegrationConnectionStatusNeedsReconnect IntegrationConnectionStatus = "needs_reconnect"
@@ -19,26 +18,27 @@ const (
 )
 
 type IntegrationConnection struct {
-	ID                string                      `db:"id" json:"id"`
-	UserID            string                      `db:"user_id" json:"user_id"`
-	Provider          IntegrationProvider         `db:"provider" json:"provider"`
-	ProviderAccountID string                      `db:"provider_account_id" json:"provider_account_id"`
-	ProviderEmail     *string                     `db:"provider_email" json:"provider_email,omitempty"`
-	DisplayName       *string                     `db:"display_name" json:"display_name,omitempty"`
-	AccessToken       string                      `db:"access_token" json:"-"`
-	RefreshToken      *string                     `db:"refresh_token" json:"-"`
-	ExpiresAt         *time.Time                  `db:"expires_at" json:"expires_at,omitempty"`
-	Scopes            *string                     `db:"scopes" json:"scopes,omitempty"`
-	Metadata          *json.RawMessage            `db:"metadata" json:"metadata,omitempty"`
-	Status            IntegrationConnectionStatus `db:"status" json:"status"`
-	ConnectedAt       time.Time                   `db:"connected_at" json:"connected_at"`
-	UpdatedAt         time.Time                   `db:"updated_at" json:"updated_at"`
-	DisconnectedAt    *time.Time                  `db:"disconnected_at" json:"disconnected_at,omitempty"`
+	ID                   string                      `db:"id" json:"id"`
+	UserID               string                      `db:"user_id" json:"user_id"`
+	Provider             IntegrationProvider         `db:"provider" json:"provider"`
+	ProviderAccountID    string                      `db:"provider_account_id" json:"provider_account_id"`
+	ProviderEmail        *string                     `db:"provider_email" json:"provider_email,omitempty"`
+	DisplayName          *string                     `db:"display_name" json:"display_name,omitempty"`
+	AccessToken          string                      `db:"access_token" json:"-"`
+	RefreshToken         *string                     `db:"refresh_token" json:"-"`
+	EncryptionKeyVersion int                         `db:"encryption_key_version" json:"-"`
+	ExpiresAt            *time.Time                  `db:"expires_at" json:"expires_at,omitempty"`
+	Scopes               *string                     `db:"scopes" json:"scopes,omitempty"`
+	Metadata             *json.RawMessage            `db:"metadata" json:"metadata,omitempty"`
+	Status               IntegrationConnectionStatus `db:"status" json:"status"`
+	ConnectedAt          time.Time                   `db:"connected_at" json:"connected_at"`
+	UpdatedAt            time.Time                   `db:"updated_at" json:"updated_at"`
+	DisconnectedAt       *time.Time                  `db:"disconnected_at" json:"disconnected_at,omitempty"`
 }
 
 type CreateIntegrationConnectionRequest struct {
 	UserID            string              `json:"user_id" validate:"required"`
-	Provider          IntegrationProvider `json:"provider" validate:"required,oneof=google microsoft notion"`
+	Provider          IntegrationProvider `json:"provider" validate:"required,oneof=google microsoft"`
 	ProviderAccountID string              `json:"provider_account_id" validate:"required"`
 	ProviderEmail     *string             `json:"provider_email"`
 	DisplayName       *string             `json:"display_name"`

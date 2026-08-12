@@ -554,6 +554,11 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 	if err := h.noteAttendeeRepo.AddByUserID(created.ID, userID); err != nil {
 		log.Printf("notes: failed to add creator attendee for note %s: %v", created.ID, err)
 	}
+	if created.CalendarEventID != nil {
+		if err := h.noteAttendeeRepo.SyncNoteFromEvent(created.ID, *created.CalendarEventID); err != nil {
+			log.Printf("notes: failed to sync attendees from calendar event for note %s: %v", created.ID, err)
+		}
+	}
 
 	c.JSON(http.StatusOK, gin.H{"note": created})
 }
@@ -740,16 +745,11 @@ func (h *NotesHandler) StopRecording(c *gin.Context) {
 		return
 	}
 
-	session, err := h.recordingRepo.StopSession(sessionID, userID)
+	session, err := h.recordingRepo.StopSession(sessionID, noteID, userID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 		return
 	}
-	if session.NoteID != noteID {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"session": session,
 	})

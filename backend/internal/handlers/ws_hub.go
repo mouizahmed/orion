@@ -61,3 +61,18 @@ func (h *WsHub) SendToUser(userID string, msg any) {
 		}
 	}
 }
+
+// DisconnectUser terminates every currently registered socket for a user.
+// It is used after account suspension/deletion and all-device revocation.
+func (h *WsHub) DisconnectUser(userID, reason string) {
+	h.mu.Lock()
+	inner := h.conns[userID]
+	delete(h.conns, userID)
+	h.mu.Unlock()
+
+	for conn, mu := range inner {
+		_ = writeWSMessage(conn, mu, websocket.CloseMessage,
+			websocket.FormatCloseMessage(4001, reason))
+		_ = conn.Close()
+	}
+}

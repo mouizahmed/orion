@@ -1,4 +1,4 @@
-import { auth } from '@/config/firebase'
+import { authenticatedFetch } from '@/lib/auth-session'
 import type { FolderRecord } from '@/types/folder'
 import type { NoteSummary } from '@/types/note'
 
@@ -79,16 +79,8 @@ function toFolderRecord(folder: ApiFolder): FolderRecord {
   }
 }
 
-async function getIdToken() {
-  const currentUser = auth.currentUser
-  if (!currentUser) {
-    throw new Error('Not authenticated')
-  }
-  return await currentUser.getIdToken()
-}
-
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await authenticatedFetch(input, init)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error || 'Request failed')
@@ -122,7 +114,6 @@ export async function searchAll(params: {
     }
   }
 
-  const idToken = await getIdToken()
   const url = new URL(`${API_BASE_URL}/search`)
   url.searchParams.set('q', q)
   url.searchParams.set('limit', String(limit))
@@ -138,7 +129,6 @@ export async function searchAll(params: {
   const payload = await fetchJson<SearchResponse>(url.toString(), {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
 

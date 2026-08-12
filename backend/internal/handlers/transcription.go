@@ -12,33 +12,30 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
-	"github.com/mouizahmed/justscribe-backend/internal/auth"
+	orionauth "github.com/mouizahmed/justscribe-backend/internal/auth"
 )
 
-type TranscriptionHandler struct{}
+type TranscriptionHandler struct {
+	principalService *orionauth.PrincipalService
+	hub              *WsHub
+}
 
-func NewTranscriptionHandler() *TranscriptionHandler {
-	return &TranscriptionHandler{}
+func NewTranscriptionHandler(principalService *orionauth.PrincipalService, hub *WsHub) *TranscriptionHandler {
+	return &TranscriptionHandler{principalService: principalService, hub: hub}
 }
 
 var transcriptionUpgrader = websocket.Upgrader{
 	ReadBufferSize:  8192,
 	WriteBufferSize: 8192,
-	CheckOrigin: func(_ *http.Request) bool {
-		return true
-	},
+	CheckOrigin:     checkWebSocketOrigin,
 }
 
-type wsAuthMessage struct {
-	Type  string `json:"type"`
-	Token string `json:"token"`
-}
-
-const authTimeout = 10 * time.Second
 const maxWSMessageBytes = 1 << 20 // 1 MiB safety limit
 const wsReadTimeout = 70 * time.Second
 const wsPingInterval = 25 * time.Second
 const wsWriteTimeout = 10 * time.Second
+const wsMaximumLifetime = 50 * time.Minute
+const wsRevalidationInterval = time.Minute
 
 // Stream authenticates the client and proxies two-channel audio/results through AssemblyAI.
 func (h *TranscriptionHandler) Stream(c *gin.Context) {
@@ -55,12 +52,17 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	defer clientConn.Close()
 	clientConn.SetReadLimit(maxWSMessageBytes)
 
-	if err := h.authenticateClientConn(clientConn); err != nil {
-		_ = clientConn.WriteJSON(gin.H{"type": "error", "message": err.Error()})
-		_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "unauthorized"))
+	principal, token, err := authenticateWSConn(clientConn, h.principalService)
+	if err != nil {
+		authError := wsAuthErrorData(err)
+		_ = clientConn.WriteJSON(gin.H{"type": "error", "code": authError["code"], "message": authError["message"]})
+		_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "unauthorized"))
 		return
 	}
 	_ = clientConn.WriteJSON(gin.H{"type": "auth_ok"})
+	var clientWriteMu sync.Mutex
+	h.hub.Register(principal.UserID(), clientConn, &clientWriteMu)
+	defer h.hub.Unregister(principal.UserID(), clientConn)
 
 	assemblyConns, err := dialAssemblyAIChannels(key, 2)
 	if err != nil {
@@ -91,8 +93,6 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	for i := range channelTurns {
 		channelTurns[i] = map[int]assemblyTurnState{}
 	}
-	var clientWriteMu sync.Mutex
-
 	sendAudioToAssembly := func(payload []byte) error {
 		if len(payload) == 0 {
 			for i, conn := range assemblyConns {
@@ -175,7 +175,11 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 
 	go func() {
 		ticker := time.NewTicker(wsPingInterval)
+		revalidate := time.NewTicker(wsRevalidationInterval)
+		expires := time.NewTimer(wsMaximumLifetime)
 		defer ticker.Stop()
+		defer revalidate.Stop()
+		defer expires.Stop()
 		for {
 			select {
 			case <-done:
@@ -185,49 +189,20 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 					errCh <- writeErr
 					return
 				}
+			case <-revalidate.C:
+				if _, authErr := h.principalService.Resolve(token); authErr != nil {
+					errCh <- authErr
+					return
+				}
+			case <-expires.C:
+				errCh <- newWSAuthError("auth_reauthentication_required", "Authentication must be renewed.", nil)
+				return
 			}
 		}
 	}()
 
 	<-errCh
 	_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
-}
-
-// authenticateWSConn performs the WS auth handshake and returns the authenticated userID.
-func authenticateWSConn(conn *websocket.Conn) (string, error) {
-	firebaseClient := auth.GetFirebaseClient()
-	if firebaseClient == nil {
-		return "", errors.New("auth service unavailable")
-	}
-
-	_ = conn.SetReadDeadline(time.Now().Add(authTimeout))
-	messageType, payload, err := conn.ReadMessage()
-	if err != nil {
-		return "", errors.New("missing auth message")
-	}
-	_ = conn.SetReadDeadline(time.Time{})
-	if messageType != websocket.TextMessage {
-		return "", errors.New("invalid auth message")
-	}
-
-	var authMsg wsAuthMessage
-	if err := json.Unmarshal(payload, &authMsg); err != nil {
-		return "", errors.New("invalid auth payload")
-	}
-	if authMsg.Type != "auth" || authMsg.Token == "" {
-		return "", errors.New("invalid auth payload")
-	}
-
-	token, err := firebaseClient.VerifyIDTokenAndCheckRevoked(authMsg.Token)
-	if err != nil {
-		return "", errors.New("invalid token")
-	}
-	return token.UID, nil
-}
-
-func (h *TranscriptionHandler) authenticateClientConn(clientConn *websocket.Conn) error {
-	_, err := authenticateWSConn(clientConn)
-	return err
 }
 
 type assemblyAIWord struct {

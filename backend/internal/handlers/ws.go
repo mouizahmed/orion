@@ -1,28 +1,27 @@
 package handlers
 
 import (
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	orionauth "github.com/mouizahmed/justscribe-backend/internal/auth"
 )
 
 type WsHandler struct {
-	hub *WsHub
+	hub              *WsHub
+	principalService *orionauth.PrincipalService
 }
 
-func NewWsHandler(hub *WsHub) *WsHandler {
-	return &WsHandler{hub: hub}
+func NewWsHandler(hub *WsHub, principalService *orionauth.PrincipalService) *WsHandler {
+	return &WsHandler{hub: hub, principalService: principalService}
 }
 
 var wsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(_ *http.Request) bool {
-		return true
-	},
+	CheckOrigin:     checkWebSocketOrigin,
 }
 
 func (h *WsHandler) Handle(c *gin.Context) {
@@ -33,13 +32,14 @@ func (h *WsHandler) Handle(c *gin.Context) {
 	defer conn.Close()
 	conn.SetReadLimit(maxWSMessageBytes)
 
-	userID, err := authenticateWSConn(conn)
+	principal, token, err := authenticateWSConn(conn, h.principalService)
 	if err != nil {
-		_ = conn.WriteJSON(gin.H{"type": "auth.error", "data": gin.H{"message": err.Error()}})
+		_ = conn.WriteJSON(gin.H{"type": "auth.error", "data": wsAuthErrorData(err)})
 		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "unauthorized"))
 		return
 	}
 	_ = conn.WriteJSON(gin.H{"type": "auth.ok"})
+	userID := principal.UserID()
 
 	var writeMu sync.Mutex
 	h.hub.Register(userID, conn, &writeMu)
@@ -66,7 +66,11 @@ func (h *WsHandler) Handle(c *gin.Context) {
 
 	go func() {
 		ticker := time.NewTicker(wsPingInterval)
+		revalidate := time.NewTicker(wsRevalidationInterval)
+		expires := time.NewTimer(wsMaximumLifetime)
 		defer ticker.Stop()
+		defer revalidate.Stop()
+		defer expires.Stop()
 		for {
 			select {
 			case <-done:
@@ -76,6 +80,14 @@ func (h *WsHandler) Handle(c *gin.Context) {
 					errCh <- writeErr
 					return
 				}
+			case <-revalidate.C:
+				if _, authErr := h.principalService.Resolve(token); authErr != nil {
+					errCh <- authErr
+					return
+				}
+			case <-expires.C:
+				errCh <- newWSAuthError("auth_reauthentication_required", "Authentication must be renewed.", nil)
+				return
 			}
 		}
 	}()

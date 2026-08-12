@@ -17,7 +17,7 @@ type IntegrationConnectionRepository interface {
 	GetByID(userID, connectionID string) (*models.IntegrationConnection, error)
 	GetActiveByUser(userID string) ([]*models.IntegrationConnection, error)
 	GetActiveByUserAndProvider(userID, provider string) ([]*models.IntegrationConnection, error)
-	SoftDisconnect(userID, connectionID string) error
+	DeleteCredentials(userID, connectionID string) error
 	MarkNeedsReconnect(userID, connectionID string) error
 	UpdateTokens(userID, connectionID string, updates *models.UpdateIntegrationConnectionTokensRequest) error
 }
@@ -50,22 +50,24 @@ func (r *integrationConnectionRepository) CreateOrUpdate(connection *models.Inte
 		connection.ConnectedAt = now
 	}
 	connection.UpdatedAt = now
+	connection.EncryptionKeyVersion = utils.ActiveEncryptionKeyVersion()
 	connection.Status = models.IntegrationConnectionStatusActive
 	connection.DisconnectedAt = nil
 
 	query := `
 		INSERT INTO integration_connections (
 			user_id, provider, provider_account_id, provider_email, display_name,
-			access_token, refresh_token, expires_at, scopes, metadata, status,
+			access_token, refresh_token, encryption_key_version, expires_at, scopes, metadata, status,
 			connected_at, updated_at, disconnected_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (user_id, provider, provider_account_id)
 		DO UPDATE SET
 			provider_email = EXCLUDED.provider_email,
 			display_name = EXCLUDED.display_name,
 			access_token = EXCLUDED.access_token,
 			refresh_token = COALESCE(EXCLUDED.refresh_token, integration_connections.refresh_token),
+			encryption_key_version = EXCLUDED.encryption_key_version,
 			expires_at = EXCLUDED.expires_at,
 			scopes = EXCLUDED.scopes,
 			metadata = EXCLUDED.metadata,
@@ -84,6 +86,7 @@ func (r *integrationConnectionRepository) CreateOrUpdate(connection *models.Inte
 		connection.DisplayName,
 		encryptedAccessToken,
 		encryptedRefreshToken,
+		connection.EncryptionKeyVersion,
 		connection.ExpiresAt,
 		connection.Scopes,
 		connection.Metadata,
@@ -97,7 +100,7 @@ func (r *integrationConnectionRepository) CreateOrUpdate(connection *models.Inte
 func (r *integrationConnectionRepository) GetByID(userID, connectionID string) (*models.IntegrationConnection, error) {
 	query := `
 		SELECT id, user_id, provider, provider_account_id, provider_email, display_name,
-			access_token, refresh_token, expires_at, scopes, metadata, status,
+			access_token, refresh_token, encryption_key_version, expires_at, scopes, metadata, status,
 			connected_at, updated_at, disconnected_at
 		FROM integration_connections
 		WHERE user_id = $1 AND id = $2
@@ -109,7 +112,7 @@ func (r *integrationConnectionRepository) GetByID(userID, connectionID string) (
 func (r *integrationConnectionRepository) GetActiveByUser(userID string) ([]*models.IntegrationConnection, error) {
 	query := `
 		SELECT id, user_id, provider, provider_account_id, provider_email, display_name,
-			access_token, refresh_token, expires_at, scopes, metadata, status,
+			access_token, refresh_token, encryption_key_version, expires_at, scopes, metadata, status,
 			connected_at, updated_at, disconnected_at
 		FROM integration_connections
 		WHERE user_id = $1 AND status = 'active'
@@ -122,7 +125,7 @@ func (r *integrationConnectionRepository) GetActiveByUser(userID string) ([]*mod
 func (r *integrationConnectionRepository) GetActiveByUserAndProvider(userID, provider string) ([]*models.IntegrationConnection, error) {
 	query := `
 		SELECT id, user_id, provider, provider_account_id, provider_email, display_name,
-			access_token, refresh_token, expires_at, scopes, metadata, status,
+			access_token, refresh_token, encryption_key_version, expires_at, scopes, metadata, status,
 			connected_at, updated_at, disconnected_at
 		FROM integration_connections
 		WHERE user_id = $1 AND provider = $2 AND status = 'active'
@@ -132,17 +135,19 @@ func (r *integrationConnectionRepository) GetActiveByUserAndProvider(userID, pro
 	return r.listConnections(query, userID, provider)
 }
 
-func (r *integrationConnectionRepository) SoftDisconnect(userID, connectionID string) error {
-	query := `
-		UPDATE integration_connections
-		SET status = 'disconnected',
-			disconnected_at = $3,
-			updated_at = $3
-		WHERE user_id = $1 AND id = $2
-	`
-
-	_, err := r.db.Exec(query, userID, connectionID, time.Now())
-	return err
+func (r *integrationConnectionRepository) DeleteCredentials(userID, connectionID string) error {
+	result, err := r.db.Exec(`DELETE FROM integration_connections WHERE user_id = $1 AND id = $2`, userID, connectionID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (r *integrationConnectionRepository) MarkNeedsReconnect(userID, connectionID string) error {
@@ -162,6 +167,7 @@ func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID stri
 	setParts := []string{}
 	args := []interface{}{}
 	argIndex := 1
+	tokenUpdated := false
 
 	if updates.AccessToken != nil {
 		encryptedAccessToken, err := utils.EncryptToken(*updates.AccessToken)
@@ -171,6 +177,7 @@ func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID stri
 		setParts = append(setParts, fmt.Sprintf("access_token = $%d", argIndex))
 		args = append(args, encryptedAccessToken)
 		argIndex++
+		tokenUpdated = true
 	}
 
 	if updates.RefreshToken != nil {
@@ -181,6 +188,7 @@ func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID stri
 		setParts = append(setParts, fmt.Sprintf("refresh_token = $%d", argIndex))
 		args = append(args, encryptedRefreshToken)
 		argIndex++
+		tokenUpdated = true
 	}
 
 	if updates.ExpiresAt != nil {
@@ -197,6 +205,11 @@ func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID stri
 
 	if len(setParts) == 0 {
 		return nil
+	}
+	if tokenUpdated {
+		setParts = append(setParts, fmt.Sprintf("encryption_key_version = $%d", argIndex))
+		args = append(args, utils.ActiveEncryptionKeyVersion())
+		argIndex++
 	}
 
 	setParts = append(setParts, "status = 'active'", "disconnected_at = NULL")
@@ -262,6 +275,7 @@ func scanIntegrationConnection(row interface {
 		&connection.DisplayName,
 		&encryptedAccessToken,
 		&encryptedRefreshToken,
+		&connection.EncryptionKeyVersion,
 		&connection.ExpiresAt,
 		&connection.Scopes,
 		&metadata,
@@ -274,14 +288,14 @@ func scanIntegrationConnection(row interface {
 		return nil, err
 	}
 
-	decryptedAccessToken, err := utils.DecryptToken(encryptedAccessToken)
+	decryptedAccessToken, err := utils.DecryptTokenAtVersion(encryptedAccessToken, connection.EncryptionKeyVersion)
 	if err != nil {
 		return nil, err
 	}
 	connection.AccessToken = decryptedAccessToken
 
 	if encryptedRefreshToken != nil {
-		decryptedRefreshToken, err := utils.DecryptToken(*encryptedRefreshToken)
+		decryptedRefreshToken, err := utils.DecryptTokenAtVersion(*encryptedRefreshToken, connection.EncryptionKeyVersion)
 		if err != nil {
 			return nil, err
 		}

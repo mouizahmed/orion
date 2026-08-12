@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from '@/lib/utils'
 import './App.css'
 import { createNote } from '@/lib/notes-client'
-import { auth } from '@/config/firebase'
+import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
 import { useTranscription } from '@/hooks/useTranscription'
 import { desktopApi } from '@/lib/desktop-api'
 
@@ -306,16 +306,12 @@ function AppContent() {
   }
 
   const getIdToken = async () => {
-    const currentUser = auth.currentUser
-    if (!currentUser) {
-      throw new Error('Not authenticated')
-    }
-    return await currentUser.getIdToken()
+    return getAuthenticatedIdToken()
   }
 
   const startRecording = async (noteId: string) => {
     const idToken = await getIdToken()
-    const response = await fetch(`${API_BASE_URL}/notes/${noteId}/recording/start`, {
+    const response = await authenticatedFetch(`${API_BASE_URL}/notes/${noteId}/recording/start`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -337,7 +333,7 @@ function AppContent() {
 
   const stopRecording = async (noteId: string, sessionId: string, transcript?: string) => {
     const idToken = await getIdToken()
-    const response = await fetch(`${API_BASE_URL}/notes/${noteId}/recording/${sessionId}/stop`, {
+    const response = await authenticatedFetch(`${API_BASE_URL}/notes/${noteId}/recording/${sessionId}/stop`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -624,6 +620,5 @@ function App() {
 }
 
 export default App
-
 
 

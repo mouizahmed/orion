@@ -7,16 +7,17 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	authproviders "github.com/mouizahmed/justscribe-backend/internal/auth/providers"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 const integrationOAuthStatePrefix = "integration_oauth_state"
@@ -59,7 +60,7 @@ func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionR
 		googleConfig: &oauth2.Config{
 			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-			Endpoint:     google.Endpoint,
+			Endpoint:     authproviders.GoogleOAuthEndpoint(),
 			Scopes:       googleIntegrationScopes("calendar"),
 			RedirectURL:  getIntegrationRedirectURL(string(models.IntegrationProviderGoogle)),
 		},
@@ -129,7 +130,7 @@ func (h *IntegrationOAuthHandler) StartConnection(c *gin.Context) {
 	}
 
 	key := fmt.Sprintf("%s:%s", integrationOAuthStatePrefix, state)
-	if err := h.redisClient.SetEx(context.Background(), key, payload, 10*time.Minute).Err(); err != nil {
+	if err := h.redisClient.SetEx(c.Request.Context(), key, payload, 10*time.Minute).Err(); err != nil {
 		log.Printf("Failed to store integration OAuth state in Redis: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to start connection"})
 		return
@@ -138,7 +139,7 @@ func (h *IntegrationOAuthHandler) StartConnection(c *gin.Context) {
 	config := h.oauthConfigForProviderAndScopes(provider, requiredScopes)
 	authURL := integrationAuthCodeURL(provider, config, state)
 
-	log.Printf("Started integration OAuth flow (user: %s, provider: %s, feature: %s, platform: %s)", userID, provider, feature, platform)
+	log.Printf("Started integration OAuth flow (provider: %s, feature: %s, platform: %s)", provider, feature, platform)
 	c.JSON(http.StatusOK, gin.H{
 		"status":   "success",
 		"auth_url": authURL,
@@ -152,7 +153,7 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 
 	if errorParam != "" {
 		errorDesc := c.Query("error_description")
-		if statePayload, err := h.consumeIntegrationOAuthState(state); err == nil {
+		if statePayload, err := h.consumeIntegrationOAuthState(c.Request.Context(), state); err == nil {
 			h.redirectIntegrationCallback(c, false, statePayload.Provider, statePayload.Feature, statePayload.Platform, errorParam, errorDesc)
 		} else {
 			h.redirectIntegrationCallback(c, false, "", "", "desktop", errorParam, errorDesc)
@@ -165,7 +166,7 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	statePayload, err := h.consumeIntegrationOAuthState(state)
+	statePayload, err := h.consumeIntegrationOAuthState(c.Request.Context(), state)
 	if err != nil {
 		log.Printf("Integration OAuth callback rejected due to invalid state: %v", err)
 		h.redirectIntegrationCallback(c, false, "", "", "desktop", "invalid_state", "Connection session is invalid or expired")
@@ -179,7 +180,9 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 	}
 
 	config := h.oauthConfigForProviderAndScopes(statePayload.Provider, scopes)
-	token, integrationUser, err := exchangeIntegrationCode(statePayload.Provider, config, code)
+	exchangeCtx, cancelExchange := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancelExchange()
+	token, integrationUser, err := exchangeIntegrationCode(exchangeCtx, statePayload.Provider, config, code)
 	if err != nil {
 		log.Printf("Failed to complete %s integration OAuth: %v", statePayload.Provider, err)
 		h.redirectIntegrationCallback(c, false, statePayload.Provider, statePayload.Feature, statePayload.Platform, "server_error", "Failed to connect calendar account")
@@ -210,7 +213,7 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 		return
 	}
 
-	log.Printf("Integration OAuth completed (user: %s, provider: %s, feature: %s, connection: %s)", statePayload.UserID, statePayload.Provider, statePayload.Feature, connection.ID)
+	log.Printf("Integration OAuth completed (provider: %s, feature: %s)", statePayload.Provider, statePayload.Feature)
 	h.redirectIntegrationCallback(c, true, statePayload.Provider, statePayload.Feature, statePayload.Platform, "", "")
 }
 
@@ -223,7 +226,7 @@ func (h *IntegrationOAuthHandler) ListConnections(c *gin.Context) {
 
 	connections, err := h.connectionRepo.GetActiveByUser(userID)
 	if err != nil {
-		log.Printf("Failed to list integration connections for user %s: %v", userID, err)
+		log.Printf("Failed to list integration connections: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to list connections"})
 		return
 	}
@@ -270,26 +273,57 @@ func (h *IntegrationOAuthHandler) DisconnectConnection(c *gin.Context) {
 		return
 	}
 
-	if err := h.connectionRepo.SoftDisconnect(userID, connectionID); err != nil {
-		log.Printf("Failed to soft disconnect integration connection %s: %v", connectionID, err)
+	if err := revokeIntegrationToken(c.Request.Context(), connection); err != nil {
+		log.Printf("Provider token revocation failed for integration %s: %v", connectionID, err)
+	}
+
+	if err := h.connectionRepo.DeleteCredentials(userID, connectionID); err != nil {
+		log.Printf("Failed to erase integration connection %s: %v", connectionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to disconnect calendar account"})
 		return
 	}
 
-	log.Printf("Integration connection disconnected (user: %s, connection: %s, provider: %s)", userID, connectionID, connection.Provider)
+	log.Printf("Integration connection disconnected (provider: %s)", connection.Provider)
 	c.JSON(http.StatusOK, gin.H{
 		"status":        "success",
 		"connection_id": connectionID,
 	})
 }
 
-func (h *IntegrationOAuthHandler) consumeIntegrationOAuthState(state string) (*IntegrationOAuthState, error) {
+func revokeIntegrationToken(parent context.Context, connection *models.IntegrationConnection) error {
+	if connection == nil || connection.AccessToken == "" {
+		return nil
+	}
+	if connection.Provider != models.IntegrationProviderGoogle {
+		// Microsoft does not expose a per-access-token OAuth revocation endpoint.
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	form := url.Values{"token": []string{connection.AccessToken}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://oauth2.googleapis.com/revoke", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("provider returned status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func (h *IntegrationOAuthHandler) consumeIntegrationOAuthState(ctx context.Context, state string) (*IntegrationOAuthState, error) {
 	if state == "" {
 		return nil, fmt.Errorf("missing state")
 	}
 
 	key := fmt.Sprintf("%s:%s", integrationOAuthStatePrefix, state)
-	res := h.redisClient.GetDel(context.Background(), key)
+	res := h.redisClient.GetDel(ctx, key)
 	if err := res.Err(); err != nil {
 		if err == redis.Nil {
 			return nil, fmt.Errorf("state missing or expired")
@@ -348,6 +382,9 @@ func (h *IntegrationOAuthHandler) redirectIntegrationCallback(c *gin.Context, su
 		"provider": provider,
 		"feature":  feature,
 	}
+	if state := strings.TrimSpace(c.Query("state")); state != "" {
+		values["state"] = state
+	}
 	if errorCode != "" {
 		values["error"] = errorCode
 	}
@@ -377,24 +414,24 @@ type integrationUser struct {
 	Name  string
 }
 
-func exchangeIntegrationCode(provider string, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
+func exchangeIntegrationCode(ctx context.Context, provider string, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
 	switch provider {
 	case string(models.IntegrationProviderMicrosoft):
-		return exchangeMicrosoftIntegrationCode(config, code)
+		return exchangeMicrosoftIntegrationCode(ctx, config, code)
 	case string(models.IntegrationProviderGoogle):
-		return exchangeGoogleIntegrationCode(config, code)
+		return exchangeGoogleIntegrationCode(ctx, config, code)
 	default:
 		return nil, nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
 }
 
-func exchangeGoogleIntegrationCode(config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
-	token, err := config.Exchange(oauth2.NoContext, code)
+func exchangeGoogleIntegrationCode(ctx context.Context, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
+	token, err := config.Exchange(ctx, code)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
 	}
 
-	client := config.Client(oauth2.NoContext, token)
+	client := config.Client(ctx, token)
 	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get Google user info: %w", err)
@@ -425,13 +462,13 @@ func exchangeGoogleIntegrationCode(config *oauth2.Config, code string) (*oauth2.
 	}, nil
 }
 
-func exchangeMicrosoftIntegrationCode(config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
-	token, err := config.Exchange(oauth2.NoContext, code)
+func exchangeMicrosoftIntegrationCode(ctx context.Context, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
+	token, err := config.Exchange(ctx, code)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
 	}
 
-	client := config.Client(oauth2.NoContext, token)
+	client := config.Client(ctx, token)
 	resp, err := client.Get("https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get Microsoft user info: %w", err)

@@ -6,14 +6,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/mouizahmed/justscribe-backend/internal/middleware"
 )
 
 func getUserID(c *gin.Context) (string, error) {
-	userID := c.GetString("userID")
-	if userID == "" {
+	principal, ok := middleware.GetPrincipal(c)
+	if !ok {
 		return "", fmt.Errorf("user not authenticated")
 	}
-	return userID, nil
+	return principal.UserID(), nil
 }
 
 func sanitizeFileName(name string) string {

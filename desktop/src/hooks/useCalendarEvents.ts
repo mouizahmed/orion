@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { auth } from '@/config/firebase'
+import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
 import { useAuth } from '@/contexts/AuthContext'
 import { wsClient } from '@/lib/ws-client'
 
@@ -142,8 +143,8 @@ async function fetchCalendarEvents(silent = false) {
         throw new Error('Not authenticated')
       }
 
-      const idToken = await currentUser.getIdToken()
-      const response = await fetch(`${API_BASE_URL}/calendar/upcoming?limit=${MAX_EVENTS}`, {
+      const idToken = await getAuthenticatedIdToken()
+      const response = await authenticatedFetch(`${API_BASE_URL}/calendar/upcoming?limit=${MAX_EVENTS}`, {
         headers: {
           Accept: 'application/json',
           Authorization: `Bearer ${idToken}`,
@@ -234,17 +235,19 @@ export function useCalendarEvents() {
   const { user } = useAuth()
   const [localSnapshot, setLocalSnapshot] = useState(snapshot)
 
+  const userId = user?.id ?? null
+
   useEffect(() => {
-    if (!user) {
+    if (!userId) {
       activeUserId = null
       resetSnapshot()
       setLocalSnapshot(snapshot)
       return
     }
 
-    const userChanged = activeUserId !== user.id
+    const userChanged = activeUserId !== userId
     if (userChanged) {
-      activeUserId = user.id
+      activeUserId = userId
       snapshot = { ...emptySnapshot, loading: true }
     }
 
@@ -265,7 +268,7 @@ export function useCalendarEvents() {
         stopSharedWS()
       }
     }
-  }, [user?.id])
+  }, [userId])
 
   const refresh = useCallback(() => fetchCalendarEvents(false), [])
 

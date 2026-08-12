@@ -23,11 +23,12 @@ type RecordingSettings = {
   localRecordingsPath: string
 }
 
-type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+type IntegrationProvider = 'google' | 'microsoft'
 
 type IntegrationResult = {
   success: boolean
   error?: string
+  authInvalid?: boolean
 }
 
 type IntegrationConnectionCompletedEvent = {
@@ -183,19 +184,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   authenticateWithMicrosoft: () => ipcRenderer.invoke('auth:microsoft'),
 
   // Integration connections
-  connectIntegration: (provider: IntegrationProvider, feature: string, idToken: string) =>
-    ipcRenderer.invoke('integration:connect', { provider, feature, idToken }) as Promise<IntegrationResult>,
-  disconnectIntegration: (connectionID: string, idToken: string) =>
-    ipcRenderer.invoke('integration:disconnect', { connectionID, idToken }) as Promise<IntegrationResult>,
+  connectIntegration: (provider: IntegrationProvider, feature: string) =>
+    ipcRenderer.invoke('integration:connect', { provider, feature }) as Promise<IntegrationResult>,
+  disconnectIntegration: (connectionID: string) =>
+    ipcRenderer.invoke('integration:disconnect', { connectionID }) as Promise<IntegrationResult>,
 
   // Session Management
   cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
   logout: () => ipcRenderer.invoke('auth:logout'),
   notifyStateChanged: (payload: AuthStateChangedPayload) => {
     ipcRenderer.send('auth:state-changed', payload)
-  },
-  refreshToken: (idToken: string) => {
-    ipcRenderer.send('auth:refresh-token', { idToken })
   },
 
   // Event listeners

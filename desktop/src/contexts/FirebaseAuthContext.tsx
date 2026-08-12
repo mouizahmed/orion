@@ -7,7 +7,13 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { auth, authPersistenceReady, onAuthStateChanged } from '@/config/firebase'
+import { auth, onIdTokenChanged } from '@/config/firebase'
+import {
+  authenticatedFetch,
+  clearKnownSessionStorage,
+  getAuthenticatedIdToken,
+  invalidateSession,
+} from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -20,9 +26,9 @@ export interface User {
 
 interface FirebaseAuthContextType {
   user: User | null
+  status: SessionStatus
   isAuthenticated: boolean
   isLoading: boolean
-  setUser: (user: User | null) => void
   getIdToken: () => Promise<string>
   updateProfileName: (name: string) => Promise<User>
   uploadProfileAvatar: (file: File) => Promise<User>
@@ -31,18 +37,9 @@ interface FirebaseAuthContextType {
 
 const FirebaseAuthContext = createContext<FirebaseAuthContextType | undefined>(undefined)
 
-const CACHED_USER_KEY = 'orion:cached-user'
+export type SessionStatus = 'initializing' | 'validating' | 'authenticated' | 'anonymous'
 
-function loadCachedUser(uid: string): User | null {
-  try {
-    const raw = localStorage.getItem(CACHED_USER_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as User & { uid?: string }
-    return parsed.id === uid ? parsed : null
-  } catch {
-    return null
-  }
-}
+const CACHED_USER_KEY = 'orion:cached-user'
 
 function saveCachedUser(user: User) {
   try {
@@ -54,38 +51,6 @@ function saveCachedUser(user: User) {
 
 function clearCachedUser() {
   localStorage.removeItem(CACHED_USER_KEY)
-}
-
-const LOGOUT_STORAGE_KEYS = [
-  'dashboard:selectedNoteId',
-  'dashboard:selectedFolderId',
-  'chat:activeConversationId',
-  CACHED_USER_KEY,
-]
-
-const LOGOUT_STORAGE_PREFIXES = ['orion:local-meeting-']
-
-export function clearKnownSessionStorage() {
-  for (const key of LOGOUT_STORAGE_KEYS) {
-    localStorage.removeItem(key)
-  }
-
-  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
-    const key = localStorage.key(index)
-    if (!key) continue
-    if (LOGOUT_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      localStorage.removeItem(key)
-    }
-  }
-}
-
-function toUser(firebaseUser: NonNullable<typeof auth.currentUser>): User {
-  return {
-    id: firebaseUser.uid,
-    email: firebaseUser.email || '',
-    name: firebaseUser.displayName || '',
-    picture: firebaseUser.photoURL || undefined,
-  }
 }
 
 type BackendUserPayload = {
@@ -113,135 +78,123 @@ async function readBackendUser(response: Response): Promise<User> {
     throw new Error(`Profile request failed: ${response.status}`)
   }
   const data = await response.json()
-  return mapBackendUser(data)
+  const user = mapBackendUser(data)
+  if (!user.id) {
+    throw new Error('Profile response did not contain a user ID')
+  }
+  return user
 }
 
-async function fetchBackendUser(firebaseUser: NonNullable<typeof auth.currentUser>): Promise<User> {
-  const idToken = await firebaseUser.getIdToken()
-  return readBackendUser(await fetch(`${API_BASE_URL}/user/me`, {
+async function fetchBackendUser(): Promise<User> {
+  return readBackendUser(await authenticatedFetch(`${API_BASE_URL}/user/me`, {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   }))
 }
 
 export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [status, setStatus] = useState<SessionStatus>('initializing')
 
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined
     let cancelled = false
+    let validationSequence = 0
 
-    void authPersistenceReady.finally(() => {
-      if (cancelled) return
+    const unsubscribe = onIdTokenChanged(auth, (firebaseUser) => {
+      const sequence = ++validationSequence
+      if (!firebaseUser) {
+        setUser(null)
+        setStatus('anonymous')
+        return
+      }
 
-      unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-        if (!firebaseUser) {
-          setUser(null)
-          setIsLoading(false)
-          return
-        }
+      setUser(null)
+      setStatus('validating')
 
-        const cached = loadCachedUser(firebaseUser.uid)
-        setUser(cached ?? toUser(firebaseUser))
-        setIsLoading(false)
-
-        void fetchBackendUser(firebaseUser)
-          .then((backendUser) => {
-            if (!cancelled && auth.currentUser?.uid === backendUser.id) {
-              saveCachedUser(backendUser)
-              setUser(backendUser)
-            }
-          })
-          .catch((error) => {
-            console.warn('Failed to hydrate backend user profile', error)
-          })
-      })
+      void fetchBackendUser()
+        .then((backendUser) => {
+          if (
+            cancelled
+            || sequence !== validationSequence
+            || auth.currentUser?.uid !== backendUser.id
+          ) {
+            return
+          }
+          saveCachedUser(backendUser)
+          setUser(backendUser)
+          setStatus('authenticated')
+        })
+        .catch((error) => {
+          if (cancelled || sequence !== validationSequence) return
+          console.warn('Failed to validate restored application session', error)
+          void invalidateSession()
+        })
     })
 
     return () => {
       cancelled = true
-      unsubscribe?.()
+      unsubscribe()
     }
   }, [])
 
   const getIdToken = useCallback(async () => {
-    const idToken = await auth.currentUser?.getIdToken()
-    if (!idToken) {
-      throw new Error('No authentication token available')
-    }
-    return idToken
+    return getAuthenticatedIdToken()
   }, [])
 
   const updateProfileName = useCallback(async (name: string) => {
-    const idToken = await getIdToken()
-    const updatedUser = await readBackendUser(await fetch(`${API_BASE_URL}/user/me`, {
+    const updatedUser = await readBackendUser(await authenticatedFetch(`${API_BASE_URL}/user/me`, {
       method: 'PATCH',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ name }),
     }))
+    saveCachedUser(updatedUser)
     setUser(updatedUser)
     return updatedUser
-  }, [getIdToken])
+  }, [])
 
   const uploadProfileAvatar = useCallback(async (file: File) => {
-    const idToken = await getIdToken()
     const formData = new FormData()
     formData.append('file', file)
 
-    const updatedUser = await readBackendUser(await fetch(`${API_BASE_URL}/user/me/avatar`, {
+    const updatedUser = await readBackendUser(await authenticatedFetch(`${API_BASE_URL}/user/me/avatar`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
       },
       body: formData,
     }))
+    saveCachedUser(updatedUser)
     setUser(updatedUser)
     return updatedUser
-  }, [getIdToken])
+  }, [])
 
   const signOutLocal = useCallback(async () => {
     clearCachedUser()
     clearKnownSessionStorage()
     await auth.signOut()
     setUser(null)
+    setStatus('anonymous')
   }, [])
 
-  // Keep the main process token fresh so the webRequest interceptor can authorize image proxy requests.
-  // Firebase tokens expire after 60 min; push a refresh every 45 min.
-  useEffect(() => {
-    if (!user) return
-    const REFRESH_MS = 45 * 60 * 1000
-    const id = setInterval(async () => {
-      try {
-        const token = await getIdToken()
-        window.electronAPI?.refreshToken?.(token)
-      } catch {
-        // ignore — next interval will retry
-      }
-    }, REFRESH_MS)
-    return () => clearInterval(id)
-  }, [user, getIdToken])
+  const isLoading = status === 'initializing' || status === 'validating'
+  const isAuthenticated = status === 'authenticated'
 
   const value = useMemo<FirebaseAuthContextType>(
     () => ({
       user,
-      isAuthenticated: Boolean(user),
+      status,
+      isAuthenticated,
       isLoading,
-      setUser,
       getIdToken,
       updateProfileName,
       uploadProfileAvatar,
       signOutLocal,
     }),
-    [getIdToken, isLoading, signOutLocal, updateProfileName, uploadProfileAvatar, user],
+    [getIdToken, isAuthenticated, isLoading, signOutLocal, status, updateProfileName, uploadProfileAvatar, user],
   )
 
   return (

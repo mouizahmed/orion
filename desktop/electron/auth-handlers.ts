@@ -1,10 +1,11 @@
-import { ipcMain, shell } from 'electron'
+import { ipcMain, shell, type WebContents } from 'electron'
 import { createHash, randomBytes } from 'node:crypto'
 import { config } from './config'
 
 type AuthPhase = 'initializing' | 'signed-out' | 'oauth-pending' | 'signed-in'
 
 let authPhase: AuthPhase = 'initializing'
+let currentAuthToken: string | null = null
 let authCallbacks: AuthStateCallbacks = {}
 let authStateChangeSequence = 0
 
@@ -21,10 +22,16 @@ type AuthStateCallbacks = {
   onSignedIn?: () => void
   onSignedOut?: () => void
   onOAuthPending?: () => void
+  isKnownRendererSender?: (sender: WebContents) => boolean
+  isAuthRendererSender?: (sender: WebContents) => boolean
 }
 
 export function isRendererAuthenticated(): boolean {
   return authPhase === 'signed-in'
+}
+
+export function getCurrentAuthToken(): string | null {
+  return currentAuthToken
 }
 
 type LoginProvider = 'google' | 'microsoft'
@@ -43,6 +50,9 @@ function setAuthPhase(nextPhase: AuthPhase) {
 
   console.log(`Main auth phase changed: ${authPhase} -> ${nextPhase}`)
   authPhase = nextPhase
+  if (nextPhase !== 'signed-in') {
+    currentAuthToken = null
+  }
 
   if (nextPhase === 'signed-in') {
     authCallbacks.onSignedIn?.()
@@ -69,13 +79,30 @@ async function verifyRendererAuthState(idToken: string): Promise<boolean> {
         Authorization: `Bearer ${idToken}`,
       },
     })
-    // Explicit auth rejection — user is not authenticated
-    if (response.status === 401 || response.status === 403) return false
-    return true
+    return response.ok
   } catch {
-    // Network error — server unreachable. Trust Firebase auth.
-    return true
+    return false
   }
+}
+
+function validatedProviderAuthorizationUrl(provider: LoginProvider, rawUrl: string): string {
+  const parsed = new URL(rawUrl)
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
+    throw new Error('Authentication provider returned an unsafe authorization URL')
+  }
+
+  if (provider === 'google') {
+    if (parsed.origin !== 'https://accounts.google.com' || parsed.pathname !== '/o/oauth2/v2/auth') {
+      throw new Error('Google returned an unexpected authorization URL')
+    }
+  } else if (
+    parsed.origin !== 'https://login.microsoftonline.com'
+    || !parsed.pathname.endsWith('/oauth2/v2.0/authorize')
+  ) {
+    throw new Error('Microsoft returned an unexpected authorization URL')
+  }
+
+  return parsed.toString()
 }
 
 function clearActiveOAuthTransaction(state?: string) {
@@ -174,7 +201,7 @@ async function handleOAuth(provider: LoginProvider, setAuthPhase: (nextPhase: Au
     }
 
     setActiveOAuthTransaction(provider, payload.state, codeVerifier, expiresInSeconds)
-    await shell.openExternal(payload.auth_url)
+    await shell.openExternal(validatedProviderAuthorizationUrl(provider, payload.auth_url))
     return { expiresInSeconds }
   } catch (error) {
     clearActiveOAuthTransaction()
@@ -187,10 +214,13 @@ async function handleOAuth(provider: LoginProvider, setAuthPhase: (nextPhase: Au
 export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
   authCallbacks = callbacks
 
-  ipcMain.on('auth:state-changed', async (_event, payload?: RendererAuthStateChangedPayload) => {
+  ipcMain.on('auth:state-changed', async (event, payload?: RendererAuthStateChangedPayload) => {
+    if (!authCallbacks.isKnownRendererSender?.(event.sender)) return
+
     const sequence = ++authStateChangeSequence
     const nextAuthenticated = Boolean(payload?.isAuthenticated)
     if (!nextAuthenticated) {
+      currentAuthToken = null
       clearActiveOAuthTransaction()
       setAuthPhase('signed-out')
       return
@@ -198,6 +228,7 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
 
     const idToken = normalizeIdToken(payload?.idToken)
     if (!idToken) {
+      currentAuthToken = null
       setAuthPhase('signed-out')
       return
     }
@@ -206,15 +237,20 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
     if (sequence !== authStateChangeSequence) return
 
     if (verified) {
+      currentAuthToken = idToken
       clearActiveOAuthTransaction()
       setAuthPhase('signed-in')
       return
     }
 
+    currentAuthToken = null
     setAuthPhase('signed-out')
   })
 
-  ipcMain.handle('auth:google', async () => {
+  ipcMain.handle('auth:google', async (event) => {
+    if (!authCallbacks.isAuthRendererSender?.(event.sender)) {
+      return { success: false, error: 'Authentication request rejected' }
+    }
     try {
       const result = await handleOAuth('google', setAuthPhase)
       return { success: true, expiresInSeconds: result.expiresInSeconds }
@@ -225,7 +261,10 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
     }
   })
 
-  ipcMain.handle('auth:microsoft', async () => {
+  ipcMain.handle('auth:microsoft', async (event) => {
+    if (!authCallbacks.isAuthRendererSender?.(event.sender)) {
+      return { success: false, error: 'Authentication request rejected' }
+    }
     try {
       const result = await handleOAuth('microsoft', setAuthPhase)
       return { success: true, expiresInSeconds: result.expiresInSeconds }
@@ -236,7 +275,10 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
     }
   })
 
-  ipcMain.handle('auth:cancel', async () => {
+  ipcMain.handle('auth:cancel', async (event) => {
+    if (!authCallbacks.isAuthRendererSender?.(event.sender)) {
+      return { success: false, error: 'Authentication request rejected' }
+    }
     const activeState = activeOAuthTransaction?.state
     clearActiveOAuthTransaction()
 
@@ -261,8 +303,12 @@ export function setupAuthHandlers(callbacks: AuthStateCallbacks = {}) {
     return { success: true }
   })
 
-  ipcMain.handle('auth:logout', async () => {
+  ipcMain.handle('auth:logout', async (event) => {
+    if (!authCallbacks.isKnownRendererSender?.(event.sender)) {
+      return { success: false, error: 'Logout request rejected' }
+    }
     authStateChangeSequence++
+    currentAuthToken = null
     clearActiveOAuthTransaction()
     setAuthPhase('signed-out')
     return { success: true }

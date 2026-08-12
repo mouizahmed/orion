@@ -1,4 +1,4 @@
-import { auth } from '@/config/firebase'
+import { getAuthenticatedIdToken, invalidateSession } from '@/lib/auth-session'
 import type { ClientEventMap, ServerEventMap } from '@/types/ws-events'
 
 const WS_URL = (() => {
@@ -91,7 +91,7 @@ class WebSocketClient {
       if (this.ws !== ws) return
       this.setStatus('authenticating')
       const tokenPromise: Promise<string> = forceRefresh
-        ? (auth.currentUser?.getIdToken(true) ?? Promise.reject(new Error('no user')))
+        ? getAuthenticatedIdToken(true)
         : this.getToken!()
 
       tokenPromise
@@ -99,7 +99,13 @@ class WebSocketClient {
           if (this.ws !== ws) return
           ws.send(JSON.stringify({ type: 'auth', token }))
         })
-        .catch((err) => { console.warn('ws: token fetch failed', err); ws.close() })
+        .catch((err) => {
+          console.warn('ws: token fetch failed', err)
+          ws.close()
+          if (forceRefresh && !this.stopped) {
+            void invalidateSession()
+          }
+        })
     }
 
     ws.onmessage = (ev) => {
@@ -134,6 +140,7 @@ class WebSocketClient {
       if (ev.code === 4001) {
         if (forceRefresh) {
           this.setStatus('disconnected')
+          void invalidateSession()
           return
         }
         this.openConnection(true)

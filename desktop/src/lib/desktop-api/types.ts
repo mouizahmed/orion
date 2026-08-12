@@ -21,7 +21,7 @@ export type AuthSessionUpdateEvent =
       timestamp: string
     }
 
-export type IntegrationProvider = 'google' | 'microsoft' | 'notion'
+export type IntegrationProvider = 'google' | 'microsoft'
 
 export type IntegrationResult =
   | {
@@ -30,6 +30,7 @@ export type IntegrationResult =
   | {
       success: false
       error: string
+      authInvalid?: boolean
     }
 
 export type IntegrationConnectionCompletedEvent = {
@@ -144,8 +145,8 @@ export type DesktopApi = {
     onSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
   }
   integrations: {
-    connect: (provider: IntegrationProvider, feature: string, idToken: string) => Promise<IntegrationResult>
-    disconnect: (connectionID: string, idToken: string) => Promise<IntegrationResult>
+    connect: (provider: IntegrationProvider, feature: string) => Promise<IntegrationResult>
+    disconnect: (connectionID: string) => Promise<IntegrationResult>
     onConnectionCompleted: (callback: (event: IntegrationConnectionCompletedEvent) => void) => () => void
   }
 }

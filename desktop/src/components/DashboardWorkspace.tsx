@@ -14,6 +14,7 @@ import { InfoBanner } from '@/components/ui/info-banner'
 import { updateNote, enhanceNote, getNote } from '@/lib/notes-client'
 import { toast } from 'sonner'
 import { auth } from '@/config/firebase'
+import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
 import { getTranscriptSegments, type TranscriptSegment } from '@/lib/transcript-client'
 import SavedTranscriptView from '@/components/SavedTranscriptView'
 import MarkdownEditor from '@/components/MarkdownEditor'
@@ -168,12 +169,12 @@ export default function DashboardWorkspace({
     try {
       const currentUser = auth.currentUser
       if (!currentUser) return
-      const idToken = await currentUser.getIdToken()
+      const idToken = await getAuthenticatedIdToken()
       const url = new URL(`${API_BASE_URL}/calendar/events/search`)
       url.searchParams.set('limit', '20')
       if (q.trim()) url.searchParams.set('q', q.trim())
       if (selectedIdRef.current) url.searchParams.set('note_id', selectedIdRef.current)
-      const res = await fetch(url.toString(), {
+      const res = await authenticatedFetch(url.toString(), {
         headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
       })
       if (!res.ok) return
@@ -323,7 +324,7 @@ export default function DashboardWorkspace({
         })
       }, 400)
     },
-    [optimisticPatch, replaceNote, selectedId, userId],
+    [optimisticPatch, replaceNote, selectedId, userId, evictNote],
   )
 
   // Trigger save on draft changes

@@ -1,4 +1,4 @@
-import { auth } from '@/config/firebase'
+import { authenticatedFetch } from '@/lib/auth-session'
 import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/types/activity'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
@@ -29,16 +29,8 @@ function toActivityRecord(activity: ApiActivity): ActivityRecord {
   }
 }
 
-async function getIdToken() {
-  const currentUser = auth.currentUser
-  if (!currentUser) {
-    throw new Error('Not authenticated')
-  }
-  return await currentUser.getIdToken()
-}
-
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await authenticatedFetch(input, init)
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string }
     throw new Error(payload.error || 'Request failed')
@@ -53,7 +45,6 @@ export async function listActivityPage(params: {
   direction?: ActivitySortDirection
   scope?: ActivityScope
 } = {}): Promise<{ activity: ActivityRecord[]; nextCursor?: string; hasMore: boolean }> {
-  const idToken = await getIdToken()
   const url = new URL(`${API_BASE_URL}/dashboard/activity`)
   url.searchParams.set('limit', String(params.limit ?? 20))
   url.searchParams.set('sort', params.sort ?? 'updated')
@@ -67,7 +58,6 @@ export async function listActivityPage(params: {
   }>(url.toString(), {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
     },
   })
 

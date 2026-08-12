@@ -1,4 +1,5 @@
 import type { LiveTranscriptSegment } from '@/types/live-insight'
+import { invalidateSession } from '@/lib/auth-session'
 
 export type DeepgramSegmentCallback = (segments: LiveTranscriptSegment[]) => void
 export type DeepgramErrorCallback = (error: Error) => void
@@ -142,10 +143,13 @@ export class DeepgramClient {
         }
       }
 
-      this.ws!.onclose = () => {
+      this.ws!.onclose = (event) => {
         this.stopFlushInterval()
         this.authenticated = false
         this.onStatus('disconnected')
+        if (event.code === 4001) {
+          void invalidateSession()
+        }
         if (!handshakeDone) {
           clearTimeout(timer)
           fail(new Error('Transcription stream closed before authentication'))

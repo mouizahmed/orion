@@ -6,25 +6,53 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	firebase "firebase.google.com/go/v4"
-	"firebase.google.com/go/v4/auth"
+	firebaseauth "firebase.google.com/go/v4/auth"
 	"google.golang.org/api/option"
 )
 
 var (
-	firebaseApp    *firebase.App
-	firebaseAuth   *auth.Client
 	firebaseClient *FirebaseClient
 )
 
 type FirebaseClient struct {
-	Auth *auth.Client
+	Auth *firebaseauth.Client
+}
+
+type firebaseServiceAccount struct {
+	ProjectID string `json:"project_id"`
+}
+
+type FirebaseTokenErrorCode string
+
+const (
+	FirebaseTokenExpired    FirebaseTokenErrorCode = "expired"
+	FirebaseTokenRevoked    FirebaseTokenErrorCode = "revoked"
+	FirebaseUserDisabled    FirebaseTokenErrorCode = "user_disabled"
+	FirebaseUserMissing     FirebaseTokenErrorCode = "user_missing"
+	FirebaseTokenInvalid    FirebaseTokenErrorCode = "invalid"
+	FirebaseVerifierFailure FirebaseTokenErrorCode = "verifier_failure"
+)
+
+type FirebaseTokenError struct {
+	Code  FirebaseTokenErrorCode
+	Cause error
+}
+
+func (e *FirebaseTokenError) Error() string {
+	return "firebase token validation failed: " + string(e.Code)
+}
+
+func (e *FirebaseTokenError) Unwrap() error {
+	return e.Cause
 }
 
 // Initialize Firebase Admin SDK
 func InitFirebase() error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
 	// Get Firebase service account key from environment
 	serviceAccountKey := os.Getenv("FIREBASE_SERVICE_ACCOUNT_KEY")
@@ -33,14 +61,20 @@ func InitFirebase() error {
 	}
 
 	// Parse the service account key JSON
-	var serviceAccount map[string]interface{}
+	var serviceAccount firebaseServiceAccount
 	if err := json.Unmarshal([]byte(serviceAccountKey), &serviceAccount); err != nil {
 		return fmt.Errorf("failed to parse Firebase service account key: %w", err)
+	}
+	if serviceAccount.ProjectID == "" {
+		return fmt.Errorf("Firebase service account is missing project_id")
+	}
+	if expectedProjectID := os.Getenv("FIREBASE_PROJECT_ID"); expectedProjectID != "" && expectedProjectID != serviceAccount.ProjectID {
+		return fmt.Errorf("Firebase project mismatch: service account is for %q, FIREBASE_PROJECT_ID is %q", serviceAccount.ProjectID, expectedProjectID)
 	}
 
 	// Create Firebase config
 	config := &firebase.Config{
-		ProjectID: serviceAccount["project_id"].(string),
+		ProjectID: serviceAccount.ProjectID,
 	}
 
 	// Initialize Firebase app with service account
@@ -56,9 +90,6 @@ func InitFirebase() error {
 		return fmt.Errorf("failed to initialize Firebase Auth: %w", err)
 	}
 
-	// Store globally
-	firebaseApp = app
-	firebaseAuth = authClient
 	firebaseClient = &FirebaseClient{Auth: authClient}
 
 	log.Printf("🔥 Firebase Admin SDK initialized successfully")
@@ -72,39 +103,53 @@ func GetFirebaseClient() *FirebaseClient {
 
 // CreateCustomToken creates a Firebase custom token for a user
 func (c *FirebaseClient) CreateCustomToken(userID string, customClaims map[string]interface{}) (string, error) {
-	ctx := context.Background()
-	token, err := c.Auth.CustomToken(ctx, userID)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var (
+		token string
+		err   error
+	)
+	if len(customClaims) == 0 {
+		token, err = c.Auth.CustomToken(ctx, userID)
+	} else {
+		token, err = c.Auth.CustomTokenWithClaims(ctx, userID, customClaims)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to create custom token: %w", err)
 	}
 	return token, nil
 }
 
-// VerifyIDToken verifies a Firebase ID token
-func (c *FirebaseClient) VerifyIDToken(idToken string) (*auth.Token, error) {
-	ctx := context.Background()
-	token, err := c.Auth.VerifyIDToken(ctx, idToken)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify ID token: %w", err)
-	}
-	return token, nil
-}
-
 // VerifyIDTokenAndCheckRevoked verifies a Firebase ID token and rejects revoked sessions.
-func (c *FirebaseClient) VerifyIDTokenAndCheckRevoked(idToken string) (*auth.Token, error) {
-	ctx := context.Background()
+func (c *FirebaseClient) VerifyIDTokenAndCheckRevoked(idToken string) (*firebaseauth.Token, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	token, err := c.Auth.VerifyIDTokenAndCheckRevoked(ctx, idToken)
 	if err != nil {
-		return nil, fmt.Errorf("failed to verify ID token with revocation check: %w", err)
+		code := FirebaseTokenInvalid
+		switch {
+		case firebaseauth.IsIDTokenExpired(err):
+			code = FirebaseTokenExpired
+		case firebaseauth.IsIDTokenRevoked(err):
+			code = FirebaseTokenRevoked
+		case firebaseauth.IsUserDisabled(err):
+			code = FirebaseUserDisabled
+		case firebaseauth.IsUserNotFound(err):
+			code = FirebaseUserMissing
+		case firebaseauth.IsCertificateFetchFailed(err):
+			code = FirebaseVerifierFailure
+		}
+		return nil, &FirebaseTokenError{Code: code, Cause: err}
 	}
 	return token, nil
 }
 
 // CreateOrUpdateUser creates or updates a user in Firebase Auth
-func (c *FirebaseClient) CreateOrUpdateUser(userID, email, name, photoURL string) (*auth.UserRecord, error) {
-	ctx := context.Background()
+func (c *FirebaseClient) CreateOrUpdateUser(parent context.Context, userID, email, name, photoURL string) (*firebaseauth.UserRecord, error) {
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
 
-	params := &auth.UserToCreate{}
+	params := &firebaseauth.UserToCreate{}
 	params.UID(userID).Email(email).DisplayName(name)
 
 	if photoURL != "" {
@@ -114,8 +159,11 @@ func (c *FirebaseClient) CreateOrUpdateUser(userID, email, name, photoURL string
 	// Try to create user, if exists then update
 	user, err := c.Auth.CreateUser(ctx, params)
 	if err != nil {
-		// If user already exists, update instead
-		updateParams := &auth.UserToUpdate{}
+		if !firebaseauth.IsUIDAlreadyExists(err) {
+			return nil, fmt.Errorf("failed to create Firebase user: %w", err)
+		}
+
+		updateParams := &firebaseauth.UserToUpdate{}
 		updateParams.Email(email).DisplayName(name)
 
 		if photoURL != "" {
@@ -126,9 +174,9 @@ func (c *FirebaseClient) CreateOrUpdateUser(userID, email, name, photoURL string
 		if err != nil {
 			return nil, fmt.Errorf("failed to create or update user: %w", err)
 		}
-		log.Printf("👤 Updated Firebase user: %s (%s)", name, email)
+		log.Printf("Firebase user updated")
 	} else {
-		log.Printf("👤 Created Firebase user: %s (%s)", name, email)
+		log.Printf("Firebase user created")
 	}
 
 	return user, nil
@@ -136,11 +184,12 @@ func (c *FirebaseClient) CreateOrUpdateUser(userID, email, name, photoURL string
 
 // RevokeRefreshTokens revokes all refresh tokens for a user
 func (c *FirebaseClient) RevokeRefreshTokens(userID string) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	err := c.Auth.RevokeRefreshTokens(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to revoke refresh tokens: %w", err)
 	}
-	log.Printf("🔒 Revoked all refresh tokens for user: %s", userID)
+	log.Printf("Firebase refresh tokens revoked")
 	return nil
 }

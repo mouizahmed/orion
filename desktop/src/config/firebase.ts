@@ -4,7 +4,7 @@ import {
   getAuth,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   browserLocalPersistence,
-  onAuthStateChanged,
+  onIdTokenChanged,
   type Auth,
 } from 'firebase/auth'
 
@@ -24,7 +24,6 @@ declare global {
 }
 
 // Firebase configuration from build-time constants
-// TODO: Add Firebase credentials to vite.config.ts define
 const firebaseConfig: FirebaseConfig = __FIREBASE_CONFIG__
 
 // Initialize Firebase
@@ -41,10 +40,9 @@ function createAuth() {
 }
 
 const auth = createAuth()
-const authPersistenceReady = Promise.resolve()
 
 async function signInWithCustomToken(authInstance: Auth, token: string) {
   return firebaseSignInWithCustomToken(authInstance, token)
 }
 
-export { auth, authPersistenceReady, signInWithCustomToken, onAuthStateChanged }
+export { auth, signInWithCustomToken, onIdTokenChanged }

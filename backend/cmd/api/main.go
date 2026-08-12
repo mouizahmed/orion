@@ -36,7 +36,7 @@ func init() {
 func allowedCORSOrigins() []string {
 	raw := os.Getenv("CORS_ALLOWED_ORIGINS")
 	if raw == "" {
-		raw = "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,https://orion.com,https://www.orion.com"
+		raw = "http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:5173,https://orion.app,https://www.orion.app"
 	}
 
 	origins := make([]string, 0)
@@ -66,9 +66,11 @@ func trustedProxiesFromEnv() []string {
 }
 
 func main() {
-	err := godotenv.Load("cmd/api/.env")
-	if err != nil {
-		log.Fatal("Error loading cmd/api/.env file")
+	if err := godotenv.Load("cmd/api/.env"); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("Failed to load cmd/api/.env: %v", err)
+	}
+	if err := auth.ValidateConfiguration(); err != nil {
+		log.Fatalf("Invalid authentication configuration: %v", err)
 	}
 
 	// Initialize encryption utilities
@@ -90,6 +92,7 @@ func main() {
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
+	principalService := auth.NewPrincipalService(auth.GetFirebaseClient(), userRepo)
 	authIdentityRepo := repository.NewUserAuthIdentityRepository(db)
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
@@ -157,7 +160,8 @@ func main() {
 	})
 
 	// Initialize handlers
-	oauthHandler := handlers.NewOAuthHandler(userRepo, authIdentityRepo, redisClient, avatarService, emailSvc)
+	wsHub := handlers.NewWsHub()
+	oauthHandler := handlers.NewOAuthHandler(authIdentityRepo, redisClient, avatarService, emailSvc, wsHub)
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
@@ -166,11 +170,10 @@ func main() {
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
-	transcriptionHandler := handlers.NewTranscriptionHandler()
+	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, wsHub)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
-	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, redisClient)
-	wsHub := handlers.NewWsHub()
-	wsHandler := handlers.NewWsHandler(wsHub)
+	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, noteAttendeeRepo, redisClient)
+	wsHandler := handlers.NewWsHandler(wsHub, principalService)
 	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
@@ -185,9 +188,9 @@ func main() {
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedCORSOrigins(),
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "Cache-Control", "Connection", "Access-Control-Allow-Origin", "svix-id", "svix-timestamp", "svix-signature"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "Cache-Control", "Connection", "svix-id", "svix-timestamp", "svix-signature"},
 		ExposeHeaders:    []string{"Content-Length", "Content-Type", "Cache-Control", "Content-Encoding", "Transfer-Encoding"},
-		AllowCredentials: true,
+		AllowCredentials: false,
 		MaxAge:           12 * time.Hour,
 	}))
 
@@ -217,10 +220,10 @@ func main() {
 
 	// Authenticated API routes
 	authenticated := api.Group("/")
-	authenticated.Use(middleware.FirebaseAuthMiddleware())
+	authenticated.Use(middleware.FirebaseAuthMiddleware(principalService))
 	{
 		// Auth routes (require Firebase auth)
-		authenticated.POST("/auth/logout", oauthHandler.Logout)
+		authenticated.POST("/auth/logout-all", oauthHandler.LogoutAllDevices)
 
 		// Integration connection routes
 		authenticated.POST("/integrations/connections/start", integrationOAuthHandler.StartConnection)
@@ -259,11 +262,11 @@ func main() {
 		authenticated.DELETE("/notes/:noteID/shares/:email", noteSharesHandler.DeleteShare)
 
 		// Note attendee routes
-			authenticated.GET("/notes/:noteID/attendees", noteAttendeesHandler.ListAttendees)
-			authenticated.POST("/notes/:noteID/attendees", noteAttendeesHandler.AddAttendee)
-			authenticated.DELETE("/notes/:noteID/attendees/:email", noteAttendeesHandler.RemoveAttendee)
+		authenticated.GET("/notes/:noteID/attendees", noteAttendeesHandler.ListAttendees)
+		authenticated.POST("/notes/:noteID/attendees", noteAttendeesHandler.AddAttendee)
+		authenticated.DELETE("/notes/:noteID/attendees/:email", noteAttendeesHandler.RemoveAttendee)
 
-			// Folder routes
+		// Folder routes
 		authenticated.GET("/folders", folderHandler.ListFolders)
 		authenticated.POST("/folders", folderHandler.CreateFolder)
 		authenticated.PATCH("/folders/:folderID", folderHandler.RenameFolder)

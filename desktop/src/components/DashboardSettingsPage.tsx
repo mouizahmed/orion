@@ -12,6 +12,12 @@ import {
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
 import { auth } from '@/config/firebase'
+import {
+  authenticatedFetch,
+  getAuthenticatedIdToken,
+  invalidateSession,
+  SessionExpiredError,
+} from '@/lib/auth-session'
 import { useAuth } from '@/contexts/AuthContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
@@ -39,7 +45,7 @@ type ConnectedCalendar = {
 
 type IntegrationConnection = {
   id: string
-  provider: 'google' | 'microsoft' | 'notion'
+  provider: 'google' | 'microsoft'
   provider_email?: string
   display_name?: string
   status: 'active' | 'needs_reconnect' | 'disconnected'
@@ -131,8 +137,6 @@ function providerLabel(provider: IntegrationConnection['provider'] | ConnectedCa
       return 'Google Calendar'
     case 'microsoft':
       return 'Microsoft Outlook'
-    case 'notion':
-      return 'Notion'
     default:
       return provider
   }
@@ -442,7 +446,7 @@ export default function DashboardSettingsPage({
 }: {
   selectedSection: DashboardSettingsSection
 }) {
-  const { user, logout, updateProfileName, uploadProfileAvatar } = useAuth()
+  const { user, logout, logoutAllDevices, updateProfileName, uploadProfileAvatar } = useAuth()
   const shortcutApi = desktopApi.shortcuts
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const canManageShortcuts = shortcutApi.isAvailable()
@@ -510,15 +514,15 @@ export default function DashboardSettingsPage({
 
     try {
 
-      const idToken = await currentUser.getIdToken()
+      const idToken = await getAuthenticatedIdToken()
       const headers = {
         Accept: 'application/json',
         Authorization: `Bearer ${idToken}`,
       }
 
       const [connectionsResponse, calendarsResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/integrations/connections`, { headers }),
-        fetch(`${API_BASE_URL}/calendar/calendars`, { headers }),
+        authenticatedFetch(`${API_BASE_URL}/integrations/connections`, { headers }),
+        authenticatedFetch(`${API_BASE_URL}/calendar/calendars`, { headers }),
       ])
 
       if (!connectionsResponse.ok) {
@@ -628,9 +632,12 @@ export default function DashboardSettingsPage({
 
     setCalendarAction(`connect:${provider}`)
     try {
-      const idToken = await currentUser.getIdToken()
-      const result = await desktopApi.integrations.connect(provider, 'calendar', idToken)
+      const result = await desktopApi.integrations.connect(provider, 'calendar')
       if (!result.success) {
+        if (result.authInvalid) {
+          await invalidateSession()
+          throw new SessionExpiredError()
+        }
         throw new Error(result.error)
       }
       refreshCalendarViews()
@@ -652,9 +659,12 @@ export default function DashboardSettingsPage({
 
       setCalendarAction(`disconnect:${connectionID}`)
       try {
-        const idToken = await currentUser.getIdToken()
-        const result = await desktopApi.integrations.disconnect(connectionID, idToken)
+        const result = await desktopApi.integrations.disconnect(connectionID)
         if (!result.success) {
+          if (result.authInvalid) {
+            await invalidateSession()
+            throw new SessionExpiredError()
+          }
           throw new Error(result.error)
         }
         refreshCalendarViews()
@@ -687,8 +697,8 @@ export default function DashboardSettingsPage({
       )
 
       try {
-        const idToken = await currentUser.getIdToken()
-        const response = await fetch(
+        const idToken = await getAuthenticatedIdToken()
+        const response = await authenticatedFetch(
           `${API_BASE_URL}/calendar/connections/${encodeURIComponent(calendar.connection_id)}/calendars/${encodeURIComponent(calendar.id)}`,
           {
             method: 'PATCH',
@@ -870,6 +880,15 @@ export default function DashboardSettingsPage({
                 action={
                   <Button type="button" variant="outline" size="sm" onClick={logout}>
                     Log out
+                  </Button>
+                }
+              />
+              <SettingRow
+                label="All sessions"
+                value="Revoke every device and close active live connections."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={() => void logoutAllDevices()}>
+                    Log out everywhere
                   </Button>
                 }
               />
