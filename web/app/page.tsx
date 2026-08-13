@@ -4,10 +4,12 @@ import DownloadButton from "@/components/landing/download-button";
 import PageShell from "@/components/layout/page-shell";
 import Privacy from "@/components/landing/privacy";
 import { fullBleedPreview, pageHeroSpacing, pageHeroText } from "@/lib/styles";
+import { AuthErrorFragmentFallback } from "@/components/auth-error-fragment-fallback";
 
 export default function Home() {
   return (
     <PageShell>
+      <AuthErrorFragmentFallback />
       <section className={`relative isolate ${pageHeroSpacing}`}>
         <div className={pageHeroText}>
           <h1 className="max-w-3xl text-balance text-5xl font-semibold leading-[0.95] tracking-tight text-white md:text-7xl">

@@ -12,6 +12,7 @@ import {
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { useCalendarEvents, type CalendarAttendee, type CalendarEvent } from '@/hooks/useCalendarEvents'
 import { listNotesByEvent } from '@/lib/notes-client'
+import { publicAssetUrl } from '@/lib/public-asset'
 import type { NoteRecord } from '@/types/note'
 import { NoteRow } from '@/components/NoteRow'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
@@ -96,14 +97,14 @@ function getEventCalendarAction(event: CalendarEvent) {
   if (event.provider === 'google') {
     return {
       label: 'Google Calendar',
-      icon: '/google-calendar-icon.svg',
+      icon: publicAssetUrl('google-calendar-icon.svg'),
     }
   }
 
   if (event.provider === 'microsoft') {
     return {
       label: 'Outlook',
-      icon: '/microsoft-outlook-icon.svg',
+      icon: publicAssetUrl('microsoft-outlook-icon.svg'),
     }
   }
 

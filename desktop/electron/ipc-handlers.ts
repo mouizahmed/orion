@@ -3,13 +3,12 @@ import { spawn, type ChildProcess } from 'child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, isKnownRendererSender, showAuthWindow } from './window'
-import { getCurrentAuthToken, isRendererAuthenticated } from './auth-handlers'
+import { getCurrentAuthTokenForRequest, isRendererAuthenticated } from './auth-handlers'
 import { config } from './config'
-import { beginIntegrationOAuthTransaction } from './protocol-handler'
+import { beginIntegrationOAuthTransaction, cancelIntegrationOAuthTransaction } from './protocol-handler'
 import {
   restoreKeyboardShortcuts,
   unregisterKeyboardShortcuts,
-  unregisterMovementShortcuts,
   getShortcutState,
   setVisibleOverlayBounds,
   updateShortcut,
@@ -38,6 +37,19 @@ function isIntegrationProvider(value: unknown): value is IntegrationProvider {
   return value === 'google' || value === 'microsoft'
 }
 
+async function integrationBackendFetch(pathname: string, init: RequestInit): Promise<Response> {
+  const send = async (forceRefresh: boolean) => {
+    const accessToken = await getCurrentAuthTokenForRequest(forceRefresh)
+    const headers = new Headers(init.headers)
+    headers.set('Authorization', `Bearer ${accessToken}`)
+    return fetch(`${config.backendUrl}${pathname}`, { ...init, headers })
+  }
+
+  const response = await send(false)
+  if (response.status !== 401) return response
+  return send(true)
+}
+
 function validatedIntegrationAuthorizationUrl(provider: IntegrationProvider, rawUrl: string): string {
   const parsed = new URL(rawUrl)
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
@@ -47,10 +59,29 @@ function validatedIntegrationAuthorizationUrl(provider: IntegrationProvider, raw
   const allowed = provider === 'google'
     ? parsed.origin === 'https://accounts.google.com' && parsed.pathname === '/o/oauth2/v2/auth'
     : provider === 'microsoft'
-      ? parsed.origin === 'https://login.microsoftonline.com' && parsed.pathname.endsWith('/oauth2/v2.0/authorize')
+      ? parsed.origin === 'https://login.microsoftonline.com' && parsed.pathname === '/common/oauth2/v2.0/authorize'
       : false
 
-  if (!allowed) {
+  const expectedRedirect = `${config.backendUrl}/integrations/oauth/callback`
+  const state = parsed.searchParams.get('state') || ''
+  const scopes = (parsed.searchParams.get('scope') || '').split(/\s+/).filter(Boolean)
+  const allowedScopes = provider === 'google'
+    ? new Set(['openid', 'email', 'profile', 'https://www.googleapis.com/auth/calendar.readonly'])
+    : new Set(['openid', 'email', 'profile', 'offline_access', 'User.Read', 'Calendars.Read'])
+  const singletonParameters = ['response_type', 'redirect_uri', 'client_id', 'state', 'scope']
+
+  if (
+    !allowed
+    || singletonParameters.some((name) => parsed.searchParams.getAll(name).length !== 1)
+    || parsed.searchParams.get('response_type') !== 'code'
+    || parsed.searchParams.get('redirect_uri') !== expectedRedirect
+    || !parsed.searchParams.get('client_id')
+    || (parsed.searchParams.get('client_id')?.length ?? 0) > 512
+    || !/^[A-Za-z0-9_-]{43}$/.test(state)
+    || scopes.length !== allowedScopes.size
+    || scopes.some((scope) => !allowedScopes.has(scope))
+    || [...allowedScopes].some((scope) => !scopes.includes(scope))
+  ) {
     throw new Error('Integration provider returned an unexpected authorization URL')
   }
   return parsed.toString()
@@ -202,6 +233,7 @@ export function setupIpcHandlers() {
     if (!win) return
     if (win.isVisible()) {
       win.hide()
+      unregisterKeyboardShortcuts()
     } else {
       // If the dashboard is open, treat "show overlay" as "return to overlay".
       const dashboard = getDashboardWindow()
@@ -209,6 +241,7 @@ export function setupIpcHandlers() {
         closeDashboardWindow()
       }
       win.show()
+      restoreKeyboardShortcuts()
     }
   })
 
@@ -231,6 +264,7 @@ export function setupIpcHandlers() {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win || win.isDestroyed()) return
     win.hide()
+    if (win === getWindow()) unregisterKeyboardShortcuts()
   })
 
   ipcMain.on('dashboard:open', (event, payload?: { noteId?: string }) => {
@@ -315,14 +349,10 @@ export function setupIpcHandlers() {
 
     const dashboard = getDashboardWindow()
     const dashboardVisible = Boolean(dashboard && !dashboard.isDestroyed() && dashboard.isVisible())
-    if (dashboardVisible) {
+    if (dashboardVisible || !windowVisible) {
       unregisterKeyboardShortcuts()
     } else {
       restoreKeyboardShortcuts()
-    }
-
-    if (win && !windowVisible) {
-      unregisterMovementShortcuts()
     }
 
     return result
@@ -395,24 +425,23 @@ export function setupIpcHandlers() {
     ): Promise<IntegrationResult> => {
       const provider = payload?.provider
       const feature = typeof payload?.feature === 'string' ? payload.feature.trim() : ''
-      const idToken = getCurrentAuthToken()
 
-      if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated() || !idToken) {
+      if (!isKnownRendererSender(event.sender)) {
         return { success: false, error: 'Not authenticated', authInvalid: true }
       }
+      if (!isRendererAuthenticated()) return { success: false, error: 'Authentication is unavailable' }
       if (!isIntegrationProvider(provider)) {
         return { success: false, error: 'Unsupported integration provider' }
       }
-      if (!feature) {
-        return { success: false, error: 'Missing integration feature' }
+      if (feature !== 'calendar') {
+        return { success: false, error: 'Unsupported integration feature' }
       }
 
       try {
-        const response = await fetch(`${config.backendUrl}/api/integrations/connections/start`, {
+        const response = await integrationBackendFetch('/api/integrations/connections/start', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${idToken}`,
           },
           body: JSON.stringify({ provider, feature, platform: 'desktop' }),
         })
@@ -435,8 +464,13 @@ export function setupIpcHandlers() {
 		if (!state) {
 			return { success: false, error: 'Integration connection did not return a correlation state' }
 		}
-		beginIntegrationOAuthTransaction(state)
-		await shell.openExternal(authorizationURL)
+        beginIntegrationOAuthTransaction(state, provider, 'calendar')
+        try {
+          await shell.openExternal(authorizationURL)
+        } catch (error) {
+          cancelIntegrationOAuthTransaction(state)
+          throw error
+        }
         return { success: true }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
@@ -452,23 +486,20 @@ export function setupIpcHandlers() {
         typeof payload?.connectionID === 'string' && payload.connectionID.trim().length > 0
           ? payload.connectionID.trim()
           : null
-      const idToken = getCurrentAuthToken()
 
-      if (!isKnownRendererSender(event.sender) || !isRendererAuthenticated() || !idToken) {
+      if (!isKnownRendererSender(event.sender)) {
         return { success: false, error: 'Not authenticated', authInvalid: true }
       }
+      if (!isRendererAuthenticated()) return { success: false, error: 'Authentication is unavailable' }
       if (!connectionID) {
         return { success: false, error: 'Missing connection ID' }
       }
 
       try {
-        const response = await fetch(
-          `${config.backendUrl}/api/integrations/connections/${encodeURIComponent(connectionID)}`,
+        const response = await integrationBackendFetch(
+          `/api/integrations/connections/${encodeURIComponent(connectionID)}`,
           {
             method: 'DELETE',
-            headers: {
-              Authorization: `Bearer ${idToken}`,
-            },
           },
         )
 

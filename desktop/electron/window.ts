@@ -105,10 +105,14 @@ export function setAppQuitting(value: boolean) {
   isAppQuitting = value
 }
 
-export function createWindow() {
+export function createWindow(options: { show?: boolean } = {}) {
+  const shouldShow = options.show ?? true
+
   if (win && !win.isDestroyed()) {
-    win.show()
-    win.focus()
+    if (shouldShow) {
+      win.show()
+      win.focus()
+    }
     return win
   }
 
@@ -121,6 +125,7 @@ export function createWindow() {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
+    show: shouldShow,
     icon: path.join(process.env.VITE_PUBLIC!, 'orion-app-icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -131,12 +136,8 @@ export function createWindow() {
     backgroundColor: '#00000000',
   })
 
-  setAuthCallbackWindow(win)
   preventRefreshShortcuts(win)
   routeExternalLinksToBrowser(win)
-
-  // Enable content protection to hide window from screen sharing
-  win.setContentProtection(true)
 
   // Make window visible on all workspaces/desktops
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -217,10 +218,10 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
   setAuthCallbackWindow(authWin)
   preventRefreshShortcuts(authWin)
   routeExternalLinksToBrowser(authWin)
-  authWin.setContentProtection(true)
   authWin.setMenuBarVisibility(false)
 
   authWin.on('closed', () => {
+    setAuthCallbackWindow(null)
     authWin = null
   })
 
@@ -280,7 +281,6 @@ export function createDashboardWindow(noteId?: string) {
   })
 
   dashboardWin.setMenuBarVisibility(false)
-	dashboardWin.setContentProtection(true)
   preventRefreshShortcuts(dashboardWin)
   routeExternalLinksToBrowser(dashboardWin)
 

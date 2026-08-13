@@ -39,11 +39,6 @@ type IntegrationConnectionCompletedEvent = {
   error?: string
 }
 
-type AuthStateChangedPayload = {
-  isAuthenticated: boolean
-  idToken?: string
-}
-
 contextBridge.exposeInMainWorld('appEvents', {
   onMainProcessMessage: (callback: (message: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, message: unknown) => callback(message)
@@ -191,17 +186,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Session Management
   cancelAuthentication: () => ipcRenderer.invoke('auth:cancel'),
+  getAuthSnapshot: () => ipcRenderer.invoke('auth:get-snapshot'),
+  getAccessToken: (forceRefresh = false) => ipcRenderer.invoke('auth:get-access-token', forceRefresh),
   logout: () => ipcRenderer.invoke('auth:logout'),
-  notifyStateChanged: (payload: AuthStateChangedPayload) => {
-    ipcRenderer.send('auth:state-changed', payload)
-  },
+  logoutAllDevices: () => ipcRenderer.invoke('auth:logout-all'),
+  revalidateAuth: () => ipcRenderer.invoke('auth:revalidate'),
 
   // Event listeners
-  onAuthSessionUpdated: (callback: (data: unknown) => void) => {
+  onAuthStateChanged: (callback: (data: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, data: unknown) => callback(data)
-    ipcRenderer.on('auth-session-updated', listener)
+    ipcRenderer.on('auth:changed', listener)
     return () => {
-      ipcRenderer.off('auth-session-updated', listener)
+      ipcRenderer.off('auth:changed', listener)
     }
   },
   onIntegrationConnectionCompleted: (callback: (data: IntegrationConnectionCompletedEvent) => void) => {

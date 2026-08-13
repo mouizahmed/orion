@@ -6,7 +6,6 @@ import {
   setupProtocolHandler,
   setupProtocolEvents,
   setAuthCallbackWindow,
-  setAuthWindowRevealHandler,
   setIntegrationWindowRevealHandler,
 } from './protocol-handler'
 import {
@@ -28,7 +27,8 @@ import {
 } from './window'
 import { setupAttachmentHandlers } from './attachments'
 import {
-  registerKeyboardShortcuts,
+  configureKeyboardShortcuts,
+  restoreKeyboardShortcuts,
   unregisterKeyboardShortcuts,
 } from './shortcuts'
 import { setupIpcHandlers, stopSystemAudioCapture } from './ipc-handlers'
@@ -101,7 +101,7 @@ if (!gotTheLock) {
   // Setup protocol event listeners (for handling orion:// URLs from second instance)
   setupProtocolEvents()
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     configureContentSecurityPolicy()
 
     // Route renderer getDisplayMedia() requests through Electron desktopCapturer on Windows.
@@ -135,10 +135,6 @@ if (!gotTheLock) {
 
     // Setup attachment handlers
     setupAttachmentHandlers()
-    setAuthWindowRevealHandler(() => {
-      destroyOverlayWindow()
-      showAuthWindow()
-    })
     setIntegrationWindowRevealHandler(() => {
       if (!isRendererAuthenticated()) {
         showAuthWindow()
@@ -151,6 +147,7 @@ if (!gotTheLock) {
       if (overlay && !overlay.isDestroyed()) {
         overlay.setIgnoreMouseEvents(true, { forward: true })
         overlay.setOpacity(0)
+        overlay.hide()
       }
 
       const dashboard = createDashboardWindow()
@@ -184,7 +181,7 @@ if (!gotTheLock) {
       return Boolean(dash && !dash.isDestroyed() && dash.isVisible())
     }
 
-    const registerOverlayShortcuts = () => {
+    const configureOverlayShortcuts = () => {
       const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
         if (isDashboardOpen()) return
         const overlay = getWindow()
@@ -203,8 +200,10 @@ if (!gotTheLock) {
         if (!overlay || overlay.isDestroyed()) return
         if (overlay.isVisible()) {
           overlay.hide()
+          unregisterKeyboardShortcuts()
         } else {
           overlay.show()
+          restoreKeyboardShortcuts()
           setTimeout(() => {
             if (!overlay.isDestroyed() && overlay.isVisible()) {
               overlay.focus()
@@ -225,7 +224,7 @@ if (!gotTheLock) {
         }, 16)
       }
 
-      registerKeyboardShortcuts(toggleVisibilityHandler, focusNotepadHandler, {
+      configureKeyboardShortcuts(toggleVisibilityHandler, focusNotepadHandler, {
         toggleNotepad: () => toggleOverlayPanel('notepad'),
         toggleTranscript: () => toggleOverlayPanel('transcript'),
         toggleAsk: () => toggleOverlayPanel('ask'),
@@ -233,16 +232,16 @@ if (!gotTheLock) {
       })
     }
 
-    // Register auth IPC before loading the renderer, otherwise a restored
-    // Firebase session can emit auth state before the main process is listening.
-    setupAuthHandlers({
+    // Register auth IPC and validate the encrypted main-process session before
+    // loading any renderer that could show authenticated application state.
+    await setupAuthHandlers({
       isKnownRendererSender,
       isAuthRendererSender,
       onSignedIn: () => {
-        const overlay = createWindow()
-        if (overlay.isVisible()) overlay.hide()
+        createWindow({ show: false })
         closeAuthWindow()
-        registerOverlayShortcuts()
+        configureOverlayShortcuts()
+        unregisterKeyboardShortcuts()
         const dashboard = createDashboardWindow()
         dashboard.show()
         dashboard.focus()
@@ -297,6 +296,7 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     if (isRendererAuthenticated()) {
       createWindow()
+      restoreKeyboardShortcuts()
     } else {
       showAuthWindow()
     }

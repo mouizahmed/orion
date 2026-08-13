@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from '@/lib/utils'
 import './App.css'
 import { createNote } from '@/lib/notes-client'
-import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
+import { authenticatedFetch, getAuthenticatedAccessToken } from '@/lib/auth-session'
 import { useTranscription } from '@/hooks/useTranscription'
 import { desktopApi } from '@/lib/desktop-api'
 
@@ -25,15 +25,10 @@ const OVERLAY_MEETING_COMPACT_WIDTH = 464
 const OVERLAY_EXPANDED_WIDTH = 520
 const PANEL_UNDER_PILL_CLASSNAME = 'w-full'
 type MeetingPanel = 'notepad' | 'transcript' | 'insights' | 'ask'
-type WelcomeLayout = 'compact' | 'large'
-
-const WELCOME_LAYOUT_WIDTH: Record<WelcomeLayout, number> = {
-  compact: 592,
-  large: 1254,
-}
+const WELCOME_WIDTH = 592
 
 const LAYOUT_WIDTH: Record<'welcome' | 'compact' | 'compactMeeting' | 'expandedMeeting', number> = {
-  welcome: WELCOME_LAYOUT_WIDTH.compact,
+  welcome: WELCOME_WIDTH,
   compact: OVERLAY_COMPACT_WIDTH,
   compactMeeting: OVERLAY_EXPANDED_WIDTH,
   expandedMeeting: OVERLAY_MEETING_COMPACT_WIDTH,
@@ -44,7 +39,6 @@ function AppContent() {
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [meetingPanel, setMeetingPanel] = useState<MeetingPanel | null>(null)
-  const [welcomeLayout, setWelcomeLayout] = useState<WelcomeLayout>('compact')
   const [contentEl, setContentEl] = useState<HTMLDivElement | null>(null)
   const contentRef = useCallback((node: HTMLDivElement | null) => {
     setContentEl(node)
@@ -91,20 +85,6 @@ function AppContent() {
     desktopApi.window.onDragOffset((offset) => {
       setDragOffset(offset)
     })
-  }, [])
-
-  useEffect(() => {
-    const handleWelcomeLayoutChange = (event: Event) => {
-      const layout = (event as CustomEvent<{ layout?: WelcomeLayout }>).detail?.layout
-      if (layout === 'compact' || layout === 'large') {
-        setWelcomeLayout(layout)
-      }
-    }
-
-    window.addEventListener('welcome-layout-change', handleWelcomeLayoutChange)
-    return () => {
-      window.removeEventListener('welcome-layout-change', handleWelcomeLayoutChange)
-    }
   }, [])
 
   useLayoutEffect(() => {
@@ -266,7 +246,7 @@ function AppContent() {
       const contentWidth = windowLayoutKey === 'compact' || windowLayoutKey === 'expandedMeeting'
         ? Math.ceil(contentEl.getBoundingClientRect().width)
         : windowLayoutKey === 'welcome'
-          ? WELCOME_LAYOUT_WIDTH[welcomeLayout]
+          ? WELCOME_WIDTH
         : LAYOUT_WIDTH[windowLayoutKey]
       const width = contentWidth + WINDOW_HORIZONTAL_PADDING
       const visibleEl = contentEl.querySelector<HTMLElement>('[data-overlay-visible]')
@@ -298,24 +278,24 @@ function AppContent() {
     return () => {
       observer.disconnect()
     }
-  }, [contentEl, welcomeLayout, windowLayoutKey])
+  }, [contentEl, windowLayoutKey])
 
   // Show nothing while loading auth state
   if (isLoading) {
     return null
   }
 
-  const getIdToken = async () => {
-    return getAuthenticatedIdToken()
+  const getAccessToken = async () => {
+    return getAuthenticatedAccessToken()
   }
 
   const startRecording = async (noteId: string) => {
-    const idToken = await getIdToken()
+    const accessToken = await getAccessToken()
     const response = await authenticatedFetch(`${API_BASE_URL}/notes/${noteId}/recording/start`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
     })
 
@@ -332,13 +312,13 @@ function AppContent() {
   }
 
   const stopRecording = async (noteId: string, sessionId: string, transcript?: string) => {
-    const idToken = await getIdToken()
+    const accessToken = await getAccessToken()
     const response = await authenticatedFetch(`${API_BASE_URL}/notes/${noteId}/recording/${sessionId}/stop`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         final_transcript: transcript || undefined,
@@ -478,7 +458,7 @@ function AppContent() {
           width: isContentSizedLayout
             ? undefined
             : layoutKey === 'welcome'
-              ? WELCOME_LAYOUT_WIDTH[welcomeLayout]
+              ? WELCOME_WIDTH
               : LAYOUT_WIDTH[layoutKey],
         }}
         className={cn(
@@ -620,5 +600,4 @@ function App() {
 }
 
 export default App
-
 

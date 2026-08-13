@@ -2,6 +2,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { Button } from '@/components/ui/button'
 import { Paperclip, History, Settings, GripVertical, Square, Pause, Play } from 'lucide-react'
 import { AudioLines } from '@/components/animate-ui/icons/audio-lines'
+import { publicAssetUrl } from '@/lib/public-asset'
 
 type MainBarProps = {
   onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void
@@ -54,7 +55,7 @@ function MainBar({
             aria-label="Start session"
           >
             <img
-              src="/orion-mark.png"
+              src={publicAssetUrl('orion-mark.png')}
               alt="Orion logo"
               className="h-6 w-6 object-cover p-0.5"
               draggable={false}

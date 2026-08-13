@@ -234,11 +234,7 @@ export function registerKeyboardShortcuts(
   const win = getWindow()
   if (!win) return
 
-  activeShortcutRegistration = {
-    toggleVisibilityHandler,
-    focusNotepadHandler,
-    overlayPanelHandlers,
-  }
+  configureKeyboardShortcuts(toggleVisibilityHandler, focusNotepadHandler, overlayPanelHandlers)
 
   // Unregister all existing shortcuts first
   globalShortcut.unregisterAll()
@@ -278,6 +274,18 @@ export function registerKeyboardShortcuts(
       console.error(`Failed to register ${action} (${keybind}):`, error)
     }
   })
+}
+
+export function configureKeyboardShortcuts(
+  toggleVisibilityHandler: () => void,
+  focusNotepadHandler?: () => void,
+  overlayPanelHandlers?: Partial<Record<OverlayPanelAction, () => void>>,
+) {
+  activeShortcutRegistration = {
+    toggleVisibilityHandler,
+    focusNotepadHandler,
+    overlayPanelHandlers,
+  }
 }
 
 export function unregisterKeyboardShortcuts() {

@@ -1,8 +1,7 @@
 import type {
   AttachmentResult,
   AuthResult,
-  AuthSessionUpdateEvent,
-  AuthStateChangedPayload,
+  AuthSnapshot,
   IntegrationConnectionCompletedEvent,
   IntegrationProvider,
   IntegrationResult,
@@ -79,9 +78,12 @@ interface ElectronAPI {
     connectionID: string,
   ) => Promise<IntegrationResult>
   cancelAuthentication: () => Promise<AuthResult>
+  getAuthSnapshot: () => Promise<AuthSnapshot>
+  getAccessToken: (forceRefresh?: boolean) => Promise<string>
   logout: () => Promise<AuthResult>
-  notifyStateChanged: (payload: AuthStateChangedPayload) => void
-  onAuthSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
+  logoutAllDevices: () => Promise<AuthResult>
+  revalidateAuth: () => Promise<AuthSnapshot>
+  onAuthStateChanged: (callback: (data: AuthSnapshot) => void) => () => void
   onIntegrationConnectionCompleted: (
     callback: (data: IntegrationConnectionCompletedEvent) => void,
   ) => () => void

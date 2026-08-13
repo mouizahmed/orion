@@ -192,7 +192,7 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 	}
 
 	if connection.ExpiresAt != nil && time.Now().After(*connection.ExpiresAt) {
-		if err := s.refreshConnectionTokenIfNeeded(userID, connection); err != nil {
+		if err := s.refreshConnectionTokenIfNeeded(ctx, userID, connection); err != nil {
 			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
 			return err
 		}
@@ -837,7 +837,7 @@ func sleepWithContext(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-func (s *Service) refreshConnectionTokenIfNeeded(userID string, connection *models.IntegrationConnection) error {
+func (s *Service) refreshConnectionTokenIfNeeded(parent context.Context, userID string, connection *models.IntegrationConnection) error {
 	if connection.RefreshToken == nil {
 		return fmt.Errorf("no refresh token available for %s", connection.Provider)
 	}
@@ -847,12 +847,12 @@ func (s *Service) refreshConnectionTokenIfNeeded(userID string, connection *mode
 	switch connection.Provider {
 	case models.IntegrationProviderGoogle:
 		refreshURL = "https://oauth2.googleapis.com/token"
-		clientID = os.Getenv("GOOGLE_CLIENT_ID")
-		clientSecret = os.Getenv("GOOGLE_CLIENT_SECRET")
+		clientID = os.Getenv("GOOGLE_INTEGRATION_CLIENT_ID")
+		clientSecret = os.Getenv("GOOGLE_INTEGRATION_CLIENT_SECRET")
 	case models.IntegrationProviderMicrosoft:
 		refreshURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-		clientID = os.Getenv("MICROSOFT_CLIENT_ID")
-		clientSecret = os.Getenv("MICROSOFT_CLIENT_SECRET")
+		clientID = os.Getenv("MICROSOFT_INTEGRATION_CLIENT_ID")
+		clientSecret = os.Getenv("MICROSOFT_INTEGRATION_CLIENT_SECRET")
 	default:
 		return fmt.Errorf("unsupported provider: %s", connection.Provider)
 	}
@@ -872,7 +872,9 @@ func (s *Service) refreshConnectionTokenIfNeeded(userID string, connection *mode
 			TokenURL: refreshURL,
 		},
 	}
-	newToken, err := config.TokenSource(context.Background(), oauthToken).Token()
+	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+	defer cancel()
+	newToken, err := config.TokenSource(ctx, oauthToken).Token()
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "invalid_grant") {
 			if markErr := s.connections.MarkNeedsReconnect(userID, connection.ID); markErr != nil {

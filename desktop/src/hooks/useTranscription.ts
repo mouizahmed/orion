@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { auth } from '@/config/firebase'
-import { getAuthenticatedIdToken } from '@/lib/auth-session'
+import { getAuthenticatedAccessToken } from '@/lib/auth-session'
 import { DeepgramClient } from '@/lib/deepgram-client'
 import { startMicCapture, startSystemAudioCapture, type AudioCaptureHandle } from '@/lib/audio-capture'
 import type { LiveTranscriptSegment } from '@/types/live-insight'
@@ -125,11 +124,7 @@ export function useTranscription({
     setStatus('connecting')
 
     try {
-      const currentUser = auth.currentUser
-      if (!currentUser) {
-        throw new Error('Not authenticated')
-      }
-      const idToken = await getAuthenticatedIdToken()
+      const accessToken = await getAuthenticatedAccessToken()
 
       // Create realtime transcription client via backend websocket proxy
       const client = new DeepgramClient({
@@ -169,7 +164,7 @@ export function useTranscription({
       })
 
       deepgramRef.current = client
-      await client.connect({ backendWsUrl: TRANSCRIPTION_WS_URL, idToken })
+      await client.connect({ backendWsUrl: TRANSCRIPTION_WS_URL, accessToken })
 
       // Start mic capture
       try {

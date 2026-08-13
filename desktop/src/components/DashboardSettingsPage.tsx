@@ -11,10 +11,8 @@ import {
   DashboardPanelHeader,
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
-import { auth } from '@/config/firebase'
 import {
   authenticatedFetch,
-  getAuthenticatedIdToken,
   invalidateSession,
   SessionExpiredError,
 } from '@/lib/auth-session'
@@ -22,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
 import { wsClient } from '@/lib/ws-client'
+import { publicAssetUrl } from '@/lib/public-asset'
 import { toast } from 'sonner'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
@@ -119,8 +118,8 @@ const calendarProviderOptions: Array<{
   label: string
   icon: string
 }> = [
-  { provider: 'google', label: 'Google Calendar', icon: '/google-calendar-icon.svg' },
-  { provider: 'microsoft', label: 'Outlook', icon: '/microsoft-outlook-icon.svg' },
+  { provider: 'google', label: 'Google Calendar', icon: publicAssetUrl('google-calendar-icon.svg') },
+  { provider: 'microsoft', label: 'Outlook', icon: publicAssetUrl('microsoft-outlook-icon.svg') },
 ]
 
 function refreshCalendarViews() {
@@ -145,9 +144,9 @@ function providerLabel(provider: IntegrationConnection['provider'] | ConnectedCa
 function calendarProviderIcon(provider: IntegrationConnection['provider'] | ConnectedCalendar['provider']) {
   switch (provider) {
     case 'google':
-      return '/google-calendar-icon.svg'
+      return publicAssetUrl('google-calendar-icon.svg')
     case 'microsoft':
-      return '/microsoft-outlook-icon.svg'
+      return publicAssetUrl('microsoft-outlook-icon.svg')
     default:
       return null
   }
@@ -508,16 +507,13 @@ export default function DashboardSettingsPage({
   }, [uploadProfileAvatar])
 
   const loadCalendarSettings = useCallback(async () => {
-    const currentUser = auth.currentUser
-    if (!currentUser) return
+    if (!user) return
     setIsLoadingCalendars(true)
 
     try {
 
-      const idToken = await getAuthenticatedIdToken()
       const headers = {
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
       }
 
       const [connectionsResponse, calendarsResponse] = await Promise.all([
@@ -553,7 +549,7 @@ export default function DashboardSettingsPage({
     } finally {
       setIsLoadingCalendars(false)
     }
-  }, [])
+  }, [user])
 
   useEffect(() => {
     if (selectedSection !== 'calendar') return
@@ -624,8 +620,7 @@ export default function DashboardSettingsPage({
   }, [])
 
   const handleConnectCalendar = useCallback(async (provider: CalendarIntegrationProvider) => {
-    const currentUser = auth.currentUser
-    if (!currentUser) {
+    if (!user) {
       toast.error('Not authenticated')
       return
     }
@@ -647,12 +642,11 @@ export default function DashboardSettingsPage({
     } finally {
       setCalendarAction(null)
     }
-  }, [loadCalendarSettings])
+  }, [loadCalendarSettings, user])
 
   const handleDisconnectCalendar = useCallback(
     async (connectionID: string) => {
-      const currentUser = auth.currentUser
-      if (!currentUser) {
+      if (!user) {
         toast.error('Not authenticated')
         return
       }
@@ -675,13 +669,12 @@ export default function DashboardSettingsPage({
         setCalendarAction(null)
       }
     },
-    [loadCalendarSettings],
+    [loadCalendarSettings, user],
   )
 
   const handleCalendarVisibility = useCallback(
     async (calendar: ConnectedCalendar, visible: boolean) => {
-      const currentUser = auth.currentUser
-      if (!currentUser) {
+      if (!user) {
         toast.error('Not authenticated')
         return
       }
@@ -697,7 +690,6 @@ export default function DashboardSettingsPage({
       )
 
       try {
-        const idToken = await getAuthenticatedIdToken()
         const response = await authenticatedFetch(
           `${API_BASE_URL}/calendar/connections/${encodeURIComponent(calendar.connection_id)}/calendars/${encodeURIComponent(calendar.id)}`,
           {
@@ -705,7 +697,6 @@ export default function DashboardSettingsPage({
             headers: {
               'Content-Type': 'application/json',
               Accept: 'application/json',
-              Authorization: `Bearer ${idToken}`,
             },
             body: JSON.stringify({ visible }),
           },
@@ -727,7 +718,7 @@ export default function DashboardSettingsPage({
         setCalendarAction(null)
       }
     },
-    [],
+    [user],
   )
 
   const handleShortcutUpdate = useCallback(

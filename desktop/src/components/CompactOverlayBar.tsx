@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { publicAssetUrl } from '@/lib/public-asset'
 import { cn } from '@/lib/utils'
 
 type CompactOverlayBarProps = {
@@ -75,7 +76,7 @@ export default function CompactOverlayBar({
           )}
         >
           <img
-            src="/orion-mark.svg"
+            src={publicAssetUrl('orion-mark.svg')}
             alt="Orion logo"
             className={cn(
               'h-7 w-7 select-none object-contain',

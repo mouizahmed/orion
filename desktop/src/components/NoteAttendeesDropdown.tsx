@@ -9,7 +9,7 @@ import {
   dropdownItemClassName,
 } from '@/components/ui/dropdown-list'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
-import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
+import { useAuth } from '@/contexts/AuthContext'
 import type { NoteDetail } from '@/types/note'
 
 type Props = {
@@ -49,7 +49,7 @@ function Avatar({ name, email, avatarUrl, size = 'sm' }: { name: string; email: 
 }
 
 export default function NoteAttendeesDropdown({ note }: Props) {
-  const { user } = useFirebaseAuth()
+  const { user } = useAuth()
   const currentUserEmail = user?.email ?? ''
   const { noteAttendeesByNoteId, addAttendee, removeAttendee } = useDashboardNotes()
   const [open, setOpen] = useState(false)

@@ -1,6 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react'
 import { wsClient, type ConnectionStatus } from '@/lib/ws-client'
-import { useFirebaseAuth } from '@/contexts/FirebaseAuthContext'
 
 interface WebSocketContextType {
   status: ConnectionStatus
@@ -10,8 +9,11 @@ interface WebSocketContextType {
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
 
-export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const { user, getIdToken } = useFirebaseAuth()
+export function WebSocketProvider({ children, authenticated, getAccessToken }: {
+  children: ReactNode
+  authenticated: boolean
+  getAccessToken: (forceRefresh?: boolean) => Promise<string>
+}) {
   const [status, setStatus] = useState<ConnectionStatus>(wsClient.status)
 
   useEffect(() => {
@@ -19,15 +21,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!user) {
+    if (!authenticated) {
       wsClient.disconnect()
       return
     }
-    wsClient.connect(getIdToken)
+    wsClient.connect(getAccessToken)
     return () => {
       wsClient.disconnect()
     }
-  }, [user, getIdToken])
+  }, [authenticated, getAccessToken])
 
   const value = useMemo<WebSocketContextType>(
     () => ({

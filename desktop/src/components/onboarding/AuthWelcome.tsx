@@ -1,22 +1,24 @@
-import { forwardRef, useMemo, useState } from 'react'
+import { forwardRef, useState } from 'react'
 import { Check } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 import { OnboardingFrame } from '@/components/onboarding/OnboardingFrame'
-import { OnboardingShell } from '@/components/onboarding/OnboardingShell'
-import { authOnboardingSteps } from '@/components/onboarding/steps'
+import { OrionLogo } from '@/components/onboarding/OrionLogo'
+import { publicAssetUrl } from '@/lib/public-asset'
 
 const TERMS_URL = 'https://orion.app/terms'
 const PRIVACY_URL = 'https://orion.app/privacy'
 
 function TermsAgreement({
   checked,
+  disabled,
   attention,
   onCheckedChange,
   onAttentionEnd,
 }: {
   checked: boolean
+  disabled: boolean
   attention: boolean
   onCheckedChange: (checked: boolean) => void
   onAttentionEnd: () => void
@@ -24,7 +26,8 @@ function TermsAgreement({
   return (
     <label
       className={[
-        'mt-3 flex max-w-[440px] cursor-pointer items-start gap-2 rounded-lg text-xs leading-5 text-neutral-500 transition-colors dark:text-neutral-400 [-webkit-app-region:no-drag]',
+        'mt-3 flex max-w-[440px] items-start gap-2 rounded-lg text-xs leading-5 text-neutral-500 transition-colors dark:text-neutral-400 [-webkit-app-region:no-drag]',
+        disabled ? 'cursor-default' : 'cursor-pointer',
         attention ? 'animate-[terms-attention_420ms_ease-in-out] text-neutral-800 dark:text-neutral-100' : '',
       ].join(' ')}
       onAnimationEnd={onAttentionEnd}
@@ -32,11 +35,12 @@ function TermsAgreement({
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onCheckedChange(event.target.checked)}
         className="peer sr-only"
       />
       <span
-        className="mt-0.5 flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded-md border border-neutral-300/70 bg-white/70 text-transparent ring-1 ring-neutral-900/5 transition-colors peer-checked:border-neutral-400 peer-checked:bg-neutral-950 peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-neutral-900/10 dark:border-white/12 dark:bg-white/5 dark:ring-white/8 dark:peer-checked:border-white/20 dark:peer-checked:bg-white dark:peer-checked:text-neutral-950 dark:peer-focus-visible:ring-white/20"
+        className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-md border border-neutral-300/70 bg-white/70 text-transparent ring-1 ring-neutral-900/5 transition-colors peer-enabled:cursor-pointer peer-checked:border-neutral-400 peer-checked:bg-neutral-950 peer-checked:text-white peer-focus-visible:ring-2 peer-focus-visible:ring-neutral-900/10 dark:border-white/12 dark:bg-white/5 dark:ring-white/8 dark:peer-checked:border-white/20 dark:peer-checked:bg-white dark:peer-checked:text-neutral-950 dark:peer-focus-visible:ring-white/20"
         aria-hidden
       >
         <Check className="h-3 w-3" />
@@ -47,7 +51,7 @@ function TermsAgreement({
           href={TERMS_URL}
           target="_blank"
           rel="noreferrer"
-          className="font-medium text-neutral-700 underline underline-offset-2 hover:text-neutral-950 dark:text-neutral-200 dark:hover:text-white"
+          className="font-medium !text-white underline underline-offset-2"
         >
           Terms of Service
         </a>{' '}
@@ -56,7 +60,7 @@ function TermsAgreement({
           href={PRIVACY_URL}
           target="_blank"
           rel="noreferrer"
-          className="font-medium text-neutral-700 underline underline-offset-2 hover:text-neutral-950 dark:text-neutral-200 dark:hover:text-white"
+          className="font-medium !text-white underline underline-offset-2"
         >
           Privacy Policy
         </a>
@@ -67,27 +71,10 @@ function TermsAgreement({
 }
 
 const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
-  const { authError, loginLoading, loginWithGoogle, loginWithMicrosoft, cancelAuth } = useAuth()
+  const { status, authError, loginLoading, loginWithGoogle, loginWithMicrosoft, retryAuthentication, cancelAuth } = useAuth()
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [termsAttention, setTermsAttention] = useState(false)
-  const onboardingSteps = useMemo(() => authOnboardingSteps, [])
-  const [stepIndex, setStepIndex] = useState(0)
-  const step = onboardingSteps[stepIndex]
-  const layout = step.layout ?? 'compact'
-  const isSignInStep = step.id === 'sign-in'
-  const canGoBack = stepIndex > 0
-
-  const goNext = () => {
-    if (isSignInStep) {
-      return
-    }
-
-    if (stepIndex < onboardingSteps.length - 1) {
-      setStepIndex((current) => current + 1)
-      return
-    }
-    void loginWithGoogle()
-  }
+  const serviceUnavailable = status === 'service-unavailable'
 
   const promptTermsAgreement = () => {
     setTermsAttention(false)
@@ -108,92 +95,85 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
   }
 
   return (
-    <OnboardingFrame ref={ref} layout={layout}>
-      <OnboardingShell
-        step={step}
-        layout={layout}
-        stepIndex={stepIndex}
-        stepCount={onboardingSteps.length}
-        bodyOverride={
-          isSignInStep ? (
-            <>
-              <TermsAgreement
-                checked={acceptedTerms}
-                attention={termsAttention}
-                onCheckedChange={setAcceptedTerms}
-                onAttentionEnd={() => setTermsAttention(false)}
-              />
-              {authError ? (
-                <div className="mt-3 max-w-[440px] rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
-                  {authError}
-                </div>
-              ) : null}
-            </>
-          ) : undefined
-        }
-        nextDisabled={loginLoading}
-        showProgress={false}
-        showBack={canGoBack}
-        footer={
-          isSignInStep ? (
-            <div className="flex w-full items-center justify-between gap-2">
-              {canGoBack ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 rounded-full px-5 text-sm [-webkit-app-region:no-drag]"
-                  onClick={() => setStepIndex((current) => Math.max(0, current - 1))}
-                >
-                  Back
-                </Button>
-              ) : (
-                <div />
-              )}
-              {loginLoading ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 rounded-full px-5 text-sm [-webkit-app-region:no-drag]"
-                  onClick={cancelAuth}
-                >
-                  Cancel
-                </Button>
-              ) : (
-                <div className="grid w-full max-w-[360px] grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className={[
-                      'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
-                      !acceptedTerms ? 'opacity-50' : '',
-                    ].join(' ')}
-                    onClick={() => handleProviderLogin('google')}
-                    aria-disabled={!acceptedTerms}
-                  >
-                    <img src="/google-signin.svg" alt="" aria-hidden="true" className="h-4 w-4" />
-                    Google
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className={[
-                      'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
-                      !acceptedTerms ? 'opacity-50' : '',
-                    ].join(' ')}
-                    onClick={() => handleProviderLogin('microsoft')}
-                    aria-disabled={!acceptedTerms}
-                  >
-                    <img src="/microsoft-signin.svg" alt="" aria-hidden="true" className="h-4 w-4" />
-                    Microsoft
-                  </Button>
-                </div>
-              )}
+    <OnboardingFrame ref={ref}>
+      <div className="flex min-h-[514px] flex-col px-6 pb-6">
+        <div className="flex min-h-0 flex-1 items-center justify-center pb-3 pt-3 [-webkit-app-region:drag]">
+          <OrionLogo className="h-44 w-44" />
+        </div>
+
+        <div className="shrink-0 pb-6">
+          <div className="text-[22px] font-semibold leading-tight text-neutral-950 dark:text-neutral-100">
+            Sign in to get started
+          </div>
+          <p className="mt-2 max-w-[440px] text-sm font-medium leading-6 text-neutral-600 dark:text-neutral-400">
+            Welcome to Orion. Your private AI notepad for calls, clear notes, follow-ups, and answers.
+          </p>
+          {!serviceUnavailable ? (
+            <TermsAgreement
+              checked={acceptedTerms}
+              disabled={loginLoading}
+              attention={termsAttention}
+              onCheckedChange={setAcceptedTerms}
+              onAttentionEnd={() => setTermsAttention(false)}
+            />
+          ) : null}
+          {authError ? (
+            <div className="mt-3 max-w-[440px] rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
+              {authError}
             </div>
-          ) : undefined
-        }
-        onBack={() => setStepIndex((current) => Math.max(0, current - 1))}
-        onNext={goNext}
-      />
+          ) : null}
+        </div>
+
+        <div className="mt-auto flex w-full justify-end">
+          {serviceUnavailable ? (
+            <Button
+              type="button"
+              className="h-10 rounded-full px-6 text-sm [-webkit-app-region:no-drag]"
+              onClick={() => { void retryAuthentication() }}
+            >
+              Retry
+            </Button>
+          ) : loginLoading ? (
+            <Button
+              type="button"
+              variant="destructive"
+              className="h-10 rounded-full px-5 text-sm [-webkit-app-region:no-drag]"
+              onClick={cancelAuth}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <div className="grid w-full max-w-[360px] grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className={[
+                  'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
+                  !acceptedTerms ? 'opacity-50' : '',
+                ].join(' ')}
+                onClick={() => handleProviderLogin('google')}
+                aria-disabled={!acceptedTerms}
+              >
+                <img src={publicAssetUrl('google-signin.svg')} alt="" aria-hidden="true" className="h-4 w-4" />
+                Google
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className={[
+                  'h-10 justify-center rounded-full text-sm [-webkit-app-region:no-drag]',
+                  !acceptedTerms ? 'opacity-50' : '',
+                ].join(' ')}
+                onClick={() => handleProviderLogin('microsoft')}
+                aria-disabled={!acceptedTerms}
+              >
+                <img src={publicAssetUrl('microsoft-signin.svg')} alt="" aria-hidden="true" className="h-4 w-4" />
+                Microsoft
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
     </OnboardingFrame>
   )
 })

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,7 +57,8 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	if err != nil {
 		authError := wsAuthErrorData(err)
 		_ = clientConn.WriteJSON(gin.H{"type": "error", "code": authError["code"], "message": authError["message"]})
-		_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "unauthorized"))
+		closeCode, closeReason := wsCloseForError(err)
+		_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 		return
 	}
 	_ = clientConn.WriteJSON(gin.H{"type": "auth_ok"})
@@ -190,7 +192,7 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 					return
 				}
 			case <-revalidate.C:
-				if _, authErr := h.principalService.Resolve(token); authErr != nil {
+				if _, authErr := h.principalService.Resolve(context.Background(), token); authErr != nil {
 					errCh <- authErr
 					return
 				}
@@ -201,8 +203,9 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 		}
 	}()
 
-	<-errCh
-	_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	terminationErr := <-errCh
+	closeCode, closeReason := wsCloseForError(terminationErr)
+	_ = writeWSMessage(clientConn, &clientWriteMu, websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 }
 
 type assemblyAIWord struct {

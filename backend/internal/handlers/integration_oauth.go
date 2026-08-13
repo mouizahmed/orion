@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	authproviders "github.com/mouizahmed/justscribe-backend/internal/auth/providers"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/redis/go-redis/v9"
@@ -21,6 +22,45 @@ import (
 )
 
 const integrationOAuthStatePrefix = "integration_oauth_state"
+
+func generateSecureState() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}
+
+func validIntegrationOAuthState(state string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(state)
+	return err == nil && len(state) == 43 && len(decoded) == 32
+}
+
+func normalizeOAuthPlatform(platform string) (string, bool) {
+	switch platform {
+	case "", "desktop":
+		return "desktop", true
+	case "web":
+		return "web", true
+	default:
+		return "", false
+	}
+}
+
+func buildCallbackURL(rawURL string, values map[string]string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	query := parsed.Query()
+	for key, value := range values {
+		if value != "" {
+			query.Set(key, value)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
 
 type IntegrationOAuthHandler struct {
 	connectionRepo  repository.IntegrationConnectionRepository
@@ -58,15 +98,18 @@ func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionR
 		connectionRepo: connectionRepo,
 		redisClient:    redisClient,
 		googleConfig: &oauth2.Config{
-			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-			Endpoint:     authproviders.GoogleOAuthEndpoint(),
-			Scopes:       googleIntegrationScopes("calendar"),
-			RedirectURL:  getIntegrationRedirectURL(string(models.IntegrationProviderGoogle)),
+			ClientID:     os.Getenv("GOOGLE_INTEGRATION_CLIENT_ID"),
+			ClientSecret: os.Getenv("GOOGLE_INTEGRATION_CLIENT_SECRET"),
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://accounts.google.com/o/oauth2/v2/auth",
+				TokenURL: "https://oauth2.googleapis.com/token",
+			},
+			Scopes:      googleIntegrationScopes("calendar"),
+			RedirectURL: getIntegrationRedirectURL(string(models.IntegrationProviderGoogle)),
 		},
 		microsoftConfig: &oauth2.Config{
-			ClientID:     os.Getenv("MICROSOFT_CLIENT_ID"),
-			ClientSecret: os.Getenv("MICROSOFT_CLIENT_SECRET"),
+			ClientID:     os.Getenv("MICROSOFT_INTEGRATION_CLIENT_ID"),
+			ClientSecret: os.Getenv("MICROSOFT_INTEGRATION_CLIENT_SECRET"),
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
 				TokenURL: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
@@ -150,13 +193,19 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 	code := c.Query("code")
 	state := c.Query("state")
 	errorParam := c.Query("error")
+	errorDescription := c.Query("error_description")
+	query := c.Request.URL.Query()
+	if len(query["code"]) > 1 || len(query["state"]) > 1 || len(query["error"]) > 1 || len(query["error_description"]) > 1 ||
+		len(code) > 4096 || len(state) > 128 || len(errorParam) > 128 || len(errorDescription) > 512 {
+		h.redirectIntegrationCallback(c, false, "", "", "desktop", "invalid_request", "Invalid authorization response")
+		return
+	}
 
 	if errorParam != "" {
-		errorDesc := c.Query("error_description")
 		if statePayload, err := h.consumeIntegrationOAuthState(c.Request.Context(), state); err == nil {
-			h.redirectIntegrationCallback(c, false, statePayload.Provider, statePayload.Feature, statePayload.Platform, errorParam, errorDesc)
+			h.redirectIntegrationCallback(c, false, statePayload.Provider, statePayload.Feature, statePayload.Platform, errorParam, errorDescription)
 		} else {
-			h.redirectIntegrationCallback(c, false, "", "", "desktop", errorParam, errorDesc)
+			h.redirectIntegrationCallback(c, false, "", "", "desktop", errorParam, errorDescription)
 		}
 		return
 	}
@@ -318,8 +367,8 @@ func revokeIntegrationToken(parent context.Context, connection *models.Integrati
 }
 
 func (h *IntegrationOAuthHandler) consumeIntegrationOAuthState(ctx context.Context, state string) (*IntegrationOAuthState, error) {
-	if state == "" {
-		return nil, fmt.Errorf("missing state")
+	if !validIntegrationOAuthState(state) {
+		return nil, fmt.Errorf("missing or invalid state")
 	}
 
 	key := fmt.Sprintf("%s:%s", integrationOAuthStatePrefix, state)
@@ -382,7 +431,7 @@ func (h *IntegrationOAuthHandler) redirectIntegrationCallback(c *gin.Context, su
 		"provider": provider,
 		"feature":  feature,
 	}
-	if state := strings.TrimSpace(c.Query("state")); state != "" {
+	if state := strings.TrimSpace(c.Query("state")); validIntegrationOAuthState(state) {
 		values["state"] = state
 	}
 	if errorCode != "" {
@@ -432,7 +481,11 @@ func exchangeGoogleIntegrationCode(ctx context.Context, config *oauth2.Config, c
 	}
 
 	client := config.Client(ctx, token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Google user info request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get Google user info: %w", err)
 	}
@@ -442,7 +495,7 @@ func exchangeGoogleIntegrationCode(ctx context.Context, config *oauth2.Config, c
 		return nil, nil, fmt.Errorf("Google user info returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read Google user info: %w", err)
 	}
@@ -469,18 +522,22 @@ func exchangeMicrosoftIntegrationCode(ctx context.Context, config *oauth2.Config
 	}
 
 	client := config.Client(ctx, token)
-	resp, err := client.Get("https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName", nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create Microsoft user info request: %w", err)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get Microsoft user info: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return nil, nil, fmt.Errorf("Microsoft user info returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read Microsoft user info: %w", err)
 	}
@@ -555,32 +612,13 @@ func grantedScopes(token *oauth2.Token, fallback []string) string {
 
 func getIntegrationRedirectURL(provider string) string {
 	if provider == string(models.IntegrationProviderMicrosoft) {
-		if value := os.Getenv("MICROSOFT_INTEGRATION_REDIRECT_URL"); value != "" {
-			return value
-		}
-		if value := os.Getenv("MICROSOFT_REDIRECT_URL"); value != "" {
-			return strings.Replace(value, "/auth/callback", "/integrations/oauth/callback", 1)
-		}
-		return "http://localhost:8080/integrations/oauth/callback"
+		return os.Getenv("MICROSOFT_INTEGRATION_REDIRECT_URL")
 	}
-
-	if value := os.Getenv("GOOGLE_INTEGRATION_REDIRECT_URL"); value != "" {
-		return value
-	}
-	if value := os.Getenv("GOOGLE_REDIRECT_URL"); value != "" {
-		return strings.Replace(value, "/auth/callback", "/integrations/oauth/callback", 1)
-	}
-	return "http://localhost:8080/integrations/oauth/callback"
+	return os.Getenv("GOOGLE_INTEGRATION_REDIRECT_URL")
 }
 
 func getIntegrationCallbackURL(platform string) string {
-	if value := os.Getenv("FRONTEND_INTEGRATION_CALLBACK_URL"); value != "" {
-		return value
-	}
-	if value := os.Getenv("FRONTEND_CALLBACK_URL"); value != "" {
-		return strings.Replace(value, "/auth/callback", "/integrations/callback", 1)
-	}
-	return "http://localhost:3000/integrations/callback"
+	return os.Getenv("FRONTEND_INTEGRATION_CALLBACK_URL")
 }
 
 func stringPtrIfNotEmpty(value string) *string {

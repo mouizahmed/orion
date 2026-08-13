@@ -111,6 +111,16 @@ func (h *UserHandler) UpdateCurrentUser(c *gin.Context) {
 }
 
 func (h *UserHandler) UploadAvatar(c *gin.Context) {
+	h.uploadAvatar(c, false)
+}
+
+// ImportProviderAvatar initializes an empty Orion avatar from a login
+// provider. It never replaces an existing or manually selected avatar.
+func (h *UserHandler) ImportProviderAvatar(c *gin.Context) {
+	h.uploadAvatar(c, true)
+}
+
+func (h *UserHandler) uploadAvatar(c *gin.Context, onlyIfEmpty bool) {
 	userID, err := getUserID(c)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
@@ -119,6 +129,17 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 	if h.avatarService == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Avatar storage is not configured"})
 		return
+	}
+	if onlyIfEmpty {
+		user, err := h.userRepo.GetUserByID(userID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		if user.AvatarURL != nil && strings.TrimSpace(*user.AvatarURL) != "" {
+			renderUser(c, user)
+			return
+		}
 	}
 
 	fileHeader, err := c.FormFile("file")
@@ -156,10 +177,9 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		return
 	}
 
-	mimeType := fileHeader.Header.Get("Content-Type")
-	if !profile.IsSupportedAvatarMimeType(mimeType) {
-		mimeType = http.DetectContentType(data)
-	}
+	// Trust the file signature, not the multipart Content-Type supplied by the
+	// caller or upstream identity provider.
+	mimeType := http.DetectContentType(data)
 	if !profile.IsSupportedAvatarMimeType(mimeType) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported avatar image type"})
 		return
@@ -170,13 +190,20 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload avatar image"})
 		return
 	}
-	if err := h.userRepo.UpdateAvatarURL(userID, avatarURL); err != nil {
-		if err.Error() == "user not found" {
-			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+	if onlyIfEmpty {
+		if _, err := h.userRepo.SetAvatarURLIfEmpty(userID, avatarURL); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to import user avatar"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user avatar"})
-		return
+	} else {
+		if err := h.userRepo.UpdateAvatarURL(userID, avatarURL); err != nil {
+			if err.Error() == "user not found" {
+				c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user avatar"})
+			return
+		}
 	}
 
 	user, err := h.userRepo.GetUserByID(userID)

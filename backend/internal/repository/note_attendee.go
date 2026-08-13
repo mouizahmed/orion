@@ -67,8 +67,20 @@ func (r *NoteAttendeeRepository) Add(noteID, email string) (*models.NoteAttendee
 	query := `
 		WITH inserted AS (
 			INSERT INTO note_attendees (note_id, email, user_id, source)
-			VALUES ($1, $2, (SELECT id FROM users WHERE email = $2 LIMIT 1), 'manual')
-			ON CONFLICT (note_id, email) DO UPDATE SET
+			VALUES ($1, $2, (
+				SELECT candidate.id
+				FROM users candidate
+				WHERE lower(btrim(candidate.email)) = lower(btrim($2))
+				  AND candidate.status = 'active' AND candidate.deleted_at IS NULL
+				  AND NOT EXISTS (
+					SELECT 1 FROM users other
+					WHERE lower(btrim(other.email)) = lower(btrim(candidate.email))
+					  AND other.status = 'active' AND other.deleted_at IS NULL
+					  AND other.id <> candidate.id
+				  )
+				LIMIT 1
+			), 'manual')
+			ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
 				user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id),
 				source = 'manual'
 			RETURNING id, note_id, email, user_id, created_at
@@ -91,7 +103,7 @@ func (r *NoteAttendeeRepository) AddByUserID(noteID, userID string) error {
 	query := `
 		INSERT INTO note_attendees (note_id, email, user_id)
 		SELECT $1, u.email, u.id FROM users u WHERE u.id = $2
-		ON CONFLICT (note_id, email) DO UPDATE SET user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
+		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
 	`
 	_, err := r.db.Exec(query, noteID, userID)
 	if err != nil {
@@ -105,13 +117,25 @@ func (r *NoteAttendeeRepository) AddByUserID(noteID, userID string) error {
 func (r *NoteAttendeeRepository) SyncNoteFromEvent(noteID, calendarEventID string) error {
 	add := `
 		INSERT INTO note_attendees (note_id, email, user_id, source)
-		SELECT $1, att->>'email', (SELECT id FROM users WHERE email = att->>'email' LIMIT 1), 'calendar'
+		SELECT $1, att->>'email', (
+			SELECT candidate.id
+			FROM users candidate
+			WHERE lower(btrim(candidate.email)) = lower(btrim(att->>'email'))
+			  AND candidate.status = 'active' AND candidate.deleted_at IS NULL
+			  AND NOT EXISTS (
+				SELECT 1 FROM users other
+				WHERE lower(btrim(other.email)) = lower(btrim(candidate.email))
+				  AND other.status = 'active' AND other.deleted_at IS NULL
+				  AND other.id <> candidate.id
+			  )
+			LIMIT 1
+		), 'calendar'
 		FROM calendar_events
 		CROSS JOIN jsonb_array_elements(attendees) AS att
 		WHERE id = $2
 		  AND jsonb_typeof(attendees) = 'array'
 		  AND att->>'email' != ''
-		ON CONFLICT (note_id, email) DO UPDATE SET
+		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
 		  user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
 	`
 	if _, err := r.db.Exec(add, noteID, calendarEventID); err != nil {
@@ -122,8 +146,8 @@ func (r *NoteAttendeeRepository) SyncNoteFromEvent(noteID, calendarEventID strin
 		DELETE FROM note_attendees
 		WHERE note_id = $1
 		  AND source = 'calendar'
-		  AND email NOT IN (
-		    SELECT att->>'email'
+		  AND lower(btrim(email)) NOT IN (
+		    SELECT lower(btrim(att->>'email'))
 		    FROM calendar_events
 		    CROSS JOIN jsonb_array_elements(attendees) AS att
 		    WHERE id = $2
@@ -142,7 +166,19 @@ func (r *NoteAttendeeRepository) SyncNoteFromEvent(noteID, calendarEventID strin
 func (r *NoteAttendeeRepository) SyncAllFromCalendarEvents(userID string) error {
 	add := `
 		INSERT INTO note_attendees (note_id, email, user_id, source)
-		SELECT DISTINCT n.id, att->>'email', (SELECT id FROM users WHERE email = att->>'email' LIMIT 1), 'calendar'
+		SELECT DISTINCT n.id, att->>'email', (
+			SELECT candidate.id
+			FROM users candidate
+			WHERE lower(btrim(candidate.email)) = lower(btrim(att->>'email'))
+			  AND candidate.status = 'active' AND candidate.deleted_at IS NULL
+			  AND NOT EXISTS (
+				SELECT 1 FROM users other
+				WHERE lower(btrim(other.email)) = lower(btrim(candidate.email))
+				  AND other.status = 'active' AND other.deleted_at IS NULL
+				  AND other.id <> candidate.id
+			  )
+			LIMIT 1
+		), 'calendar'
 		FROM notes n
 		JOIN calendar_events ce ON ce.id = n.calendar_event_id
 		CROSS JOIN jsonb_array_elements(ce.attendees) AS att
@@ -150,7 +186,7 @@ func (r *NoteAttendeeRepository) SyncAllFromCalendarEvents(userID string) error 
 		  AND n.deleted_at IS NULL
 		  AND jsonb_typeof(ce.attendees) = 'array'
 		  AND att->>'email' != ''
-		ON CONFLICT (note_id, email) DO UPDATE SET
+		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
 		  user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
 	`
 	if _, err := r.db.Exec(add, userID); err != nil {
@@ -169,7 +205,7 @@ func (r *NoteAttendeeRepository) SyncAllFromCalendarEvents(userID string) error 
 		    JOIN calendar_events ce ON ce.id = n.calendar_event_id
 		    CROSS JOIN jsonb_array_elements(ce.attendees) AS att
 		    WHERE n.id = note_attendees.note_id
-		      AND att->>'email' = note_attendees.email
+		      AND lower(btrim(att->>'email')) = lower(btrim(note_attendees.email))
 		      AND att->>'email' != ''
 		  )
 	`
@@ -180,7 +216,7 @@ func (r *NoteAttendeeRepository) SyncAllFromCalendarEvents(userID string) error 
 }
 
 func (r *NoteAttendeeRepository) Remove(noteID, email string) (bool, error) {
-	query := `DELETE FROM note_attendees WHERE note_id = $1 AND email = $2`
+	query := `DELETE FROM note_attendees WHERE note_id = $1 AND lower(btrim(email)) = lower(btrim($2))`
 
 	res, err := r.db.Exec(query, noteID, email)
 	if err != nil {

@@ -69,8 +69,12 @@ func main() {
 	if err := godotenv.Load("cmd/api/.env"); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("Failed to load cmd/api/.env: %v", err)
 	}
-	if err := auth.ValidateConfiguration(); err != nil {
+	authConfig, err := auth.LoadConfig()
+	if err != nil {
 		log.Fatalf("Invalid authentication configuration: %v", err)
+	}
+	if err := auth.ValidateIntegrationConfiguration(); err != nil {
+		log.Fatalf("Invalid integration OAuth configuration: %v", err)
 	}
 
 	// Initialize encryption utilities
@@ -78,10 +82,7 @@ func main() {
 		log.Fatalf("Failed to initialize encryption: %v", err)
 	}
 
-	// Initialize Firebase Admin SDK
-	if err := auth.InitFirebase(); err != nil {
-		log.Fatalf("Failed to initialize Firebase: %v", err)
-	}
+	supabaseAuth := auth.NewSupabaseClient(authConfig)
 
 	// Initialize database
 	db, err := database.New()
@@ -92,8 +93,7 @@ func main() {
 
 	// Initialize repositories
 	userRepo := repository.NewUserRepository(db)
-	principalService := auth.NewPrincipalService(auth.GetFirebaseClient(), userRepo)
-	authIdentityRepo := repository.NewUserAuthIdentityRepository(db)
+	principalService := auth.NewPrincipalService(supabaseAuth, userRepo)
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
 	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
@@ -161,7 +161,7 @@ func main() {
 
 	// Initialize handlers
 	wsHub := handlers.NewWsHub()
-	oauthHandler := handlers.NewOAuthHandler(authIdentityRepo, redisClient, avatarService, emailSvc, wsHub)
+	authHandler := handlers.NewAuthHandler(principalService, supabaseAuth, emailSvc, wsHub)
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
@@ -200,17 +200,9 @@ func main() {
 		api.GET("/health", func(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		})
+		api.POST("/auth/session", authHandler.Session)
 		api.GET("/transcription/stream", transcriptionHandler.Stream)
 		api.GET("/ws", wsHandler.Handle)
-	}
-
-	// OAuth routes (no auth required)
-	auth := router.Group("/auth")
-	{
-		auth.GET("/start", oauthHandler.StartOAuth)
-		auth.POST("/cancel", oauthHandler.CancelOAuth)
-		auth.GET("/callback", oauthHandler.HandleCallback)
-		auth.POST("/complete", oauthHandler.CompleteAuth) // Complete auth with one-time code
 	}
 
 	integrations := router.Group("/integrations")
@@ -220,10 +212,10 @@ func main() {
 
 	// Authenticated API routes
 	authenticated := api.Group("/")
-	authenticated.Use(middleware.FirebaseAuthMiddleware(principalService))
+	authenticated.Use(middleware.AuthMiddleware(principalService))
 	{
-		// Auth routes (require Firebase auth)
-		authenticated.POST("/auth/logout-all", oauthHandler.LogoutAllDevices)
+		// Auth routes require an active managed Supabase session and Orion user.
+		authenticated.POST("/auth/logout-all", authHandler.LogoutAllDevices)
 
 		// Integration connection routes
 		authenticated.POST("/integrations/connections/start", integrationOAuthHandler.StartConnection)
@@ -234,6 +226,7 @@ func main() {
 		authenticated.GET("/user/me", userHandler.GetCurrentUser)
 		authenticated.PATCH("/user/me", userHandler.UpdateCurrentUser)
 		authenticated.POST("/user/me/avatar", userHandler.UploadAvatar)
+		authenticated.POST("/user/me/avatar/provider", userHandler.ImportProviderAvatar)
 
 		// Dashboard routes
 		authenticated.GET("/dashboard/activity", dashboardHandler.ListActivity)

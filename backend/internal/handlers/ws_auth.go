@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -14,6 +15,12 @@ import (
 )
 
 const authTimeout = 10 * time.Second
+
+const (
+	wsCloseUnauthorized   = 4001
+	wsCloseReauthenticate = 4002
+	wsCloseForbidden      = 4003
+)
 
 type wsAuthMessage struct {
 	Type  string `json:"type"`
@@ -55,7 +62,7 @@ func authenticateWSConn(conn *websocket.Conn, service *orionauth.PrincipalServic
 		return nil, "", newWSAuthError("auth_message_invalid", "Authentication message is invalid.", nil)
 	}
 
-	principal, err := service.Resolve(authMsg.Token)
+	principal, err := service.Resolve(context.Background(), authMsg.Token)
 	if err != nil {
 		var principalErr *orionauth.PrincipalError
 		if errors.As(err, &principalErr) {
@@ -79,6 +86,38 @@ func wsAuthErrorData(err error) map[string]string {
 		"code":    string(orionauth.PrincipalServiceUnavailable),
 		"message": "Authentication service is unavailable.",
 	}
+}
+
+func wsCloseForError(err error) (int, string) {
+	var authErr *wsAuthError
+	if errors.As(err, &authErr) {
+		switch authErr.Code {
+		case "auth_reauthentication_required":
+			return wsCloseReauthenticate, "reauthentication required"
+		case string(orionauth.PrincipalUserSuspended),
+			string(orionauth.PrincipalUserDeleted),
+			string(orionauth.PrincipalUserInactive):
+			return wsCloseForbidden, "account unavailable"
+		case string(orionauth.PrincipalServiceUnavailable):
+			return websocket.CloseTryAgainLater, "authentication unavailable"
+		default:
+			return wsCloseUnauthorized, "unauthorized"
+		}
+	}
+
+	var principalErr *orionauth.PrincipalError
+	if errors.As(err, &principalErr) {
+		switch orionauth.StatusForPrincipalError(principalErr) {
+		case http.StatusForbidden:
+			return wsCloseForbidden, "account unavailable"
+		case http.StatusServiceUnavailable:
+			return websocket.CloseTryAgainLater, "authentication unavailable"
+		default:
+			return wsCloseUnauthorized, "unauthorized"
+		}
+	}
+
+	return websocket.CloseNormalClosure, ""
 }
 
 func checkWebSocketOrigin(request *http.Request) bool {

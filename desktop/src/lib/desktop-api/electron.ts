@@ -60,9 +60,12 @@ export const electronDesktopApi: DesktopApi = {
     loginWithMicrosoft: () =>
       window.electronAPI?.authenticateWithMicrosoft?.() ?? missingApi('electronAPI.authenticateWithMicrosoft'),
     cancel: () => window.electronAPI?.cancelAuthentication?.() ?? missingApi('electronAPI.cancelAuthentication'),
+    getSnapshot: () => window.electronAPI?.getAuthSnapshot?.() ?? missingApi('electronAPI.getAuthSnapshot'),
+    getAccessToken: (forceRefresh) => window.electronAPI?.getAccessToken?.(forceRefresh) ?? missingApi('electronAPI.getAccessToken'),
     logout: () => window.electronAPI?.logout?.() ?? missingApi('electronAPI.logout'),
-    notifyStateChanged: (payload) => window.electronAPI?.notifyStateChanged?.(payload),
-    onSessionUpdated: (callback) => window.electronAPI?.onAuthSessionUpdated?.(callback) ?? (() => undefined),
+    logoutAllDevices: () => window.electronAPI?.logoutAllDevices?.() ?? missingApi('electronAPI.logoutAllDevices'),
+    revalidate: () => window.electronAPI?.revalidateAuth?.() ?? missingApi('electronAPI.revalidateAuth'),
+    onStateChanged: (callback) => window.electronAPI?.onAuthStateChanged?.(callback) ?? (() => undefined),
   },
   integrations: {
     connect: (provider, feature) =>

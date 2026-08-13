@@ -1,5 +1,7 @@
 # Auth System Audit and Execution Plan
 
+> Historical implementation record: this document describes the hardened Firebase/custom-OAuth architecture implemented on `main`. The `supabase-auth` branch replaces its identity and login portions with managed Supabase Auth as defined by `docs/supabase-auth-execution-plan.md`. Its lifecycle, backend-only authorization, Electron trust-boundary, WebSocket revalidation, and calendar-integration security requirements still apply.
+
 Date: 2026-08-10
 
 Executed and re-verified: 2026-08-11
@@ -309,7 +311,7 @@ Before execution:
 Implemented current architecture: application data is backend-only.
 
 - `anon` and `authenticated` have no application schema, table, or sequence privileges.
-- The backend selects the dedicated `orion_backend` role on every physical database connection.
+- Historical implementation used `SET ROLE orion_backend` on every physical database connection. The Supabase Auth replacement supersedes this with direct authentication as the `orion_backend` LOGIN role so the process no longer holds an owner credential.
 - Treat handler and repository authorization as the primary enforcement boundary.
 - Forced RLS and complete backend-role policies provide defense in depth without exposing the Data API to clients.
 
@@ -516,7 +518,7 @@ These should follow stabilization of the current single-user authentication syst
 - Firebase proves external session identity; Orion's database controls application existence and lifecycle status.
 - The Electron renderer is untrusted. The main process owns the verified token and principal, validates IPC senders, and performs integration requests itself.
 - Browsers and desktop clients never receive application-table access. The Go backend is the only application data path.
-- PostgreSQL connections enter the `orion_backend` role. Forced RLS and ownership-aware repository queries constrain that role.
+- On the Supabase Auth branch, PostgreSQL connections authenticate directly as `orion_backend`; forced RLS and ownership-aware repository queries constrain that role.
 - Redis contains short-lived, single-use OAuth state and completion material, not a durable user session registry.
 - Integration credentials are encrypted using a versioned keyring and are hard-deleted on disconnect.
 

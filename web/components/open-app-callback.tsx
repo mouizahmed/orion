@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import Image from "next/image";
+import { Spinner } from "@/components/ui/spinner";
 import { pageBackground } from "@/lib/styles";
 
 const callbackShellClass = `flex min-h-screen items-center justify-center ${pageBackground} px-6 text-center`;
@@ -13,6 +14,8 @@ type OpenAppCallbackProps = {
   error?: string | null;
   failureTitle: string;
   failureBody: string;
+  successTitle?: string;
+  successBody?: string;
   showManualOpen?: boolean;
 }
 
@@ -21,24 +24,18 @@ export function OpenAppCallback({
   error,
   failureTitle,
   failureBody,
+  successTitle = "Opening Orion...",
+  successBody = "Your browser should prompt you to open the app automatically.",
   showManualOpen = true,
 }: OpenAppCallbackProps) {
   const router = useRouter();
+  const automaticOpenAttemptedRef = useRef(false);
 
   useEffect(() => {
-    if (!protocolUrl) return;
+    if (!protocolUrl || automaticOpenAttemptedRef.current) return;
 
-    try {
-      window.location.href = protocolUrl;
-
-      setTimeout(() => {
-        if (window.opener) {
-          window.close();
-        }
-      }, 1000);
-    } catch {
-      console.log("Could not redirect to app");
-    }
+    automaticOpenAttemptedRef.current = true;
+    window.location.href = protocolUrl;
   }, [protocolUrl]);
 
   const handleManualOpen = () => {
@@ -102,10 +99,10 @@ export function OpenAppCallback({
 
         <div className="space-y-3">
           <h1 className="text-4xl font-semibold text-zinc-50 sm:text-5xl">
-            Opening Orion...
+            {successTitle}
           </h1>
           <p className="text-sm text-zinc-400 sm:text-base">
-            Your browser should prompt you to open the app automatically.
+            {successBody}
           </p>
         </div>
 
@@ -130,7 +127,7 @@ export function OpenAppCallbackFallback() {
   return (
     <div className={`${callbackShellClass} py-12`}>
       <div className="flex flex-col items-center gap-4">
-        <div className="h-12 w-12 animate-spin rounded-full border-2 border-zinc-800 border-t-brand"></div>
+        <Spinner className="size-12 text-brand" />
         <p className="text-sm text-zinc-400">Loading...</p>
       </div>
     </div>

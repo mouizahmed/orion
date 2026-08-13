@@ -1,4 +1,4 @@
-import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
+import { authenticatedFetch, getAuthenticatedAccessToken } from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -96,8 +96,8 @@ function toMessage(m: ApiMessage): ChatMessage {
   }
 }
 
-async function getIdToken() {
-  return getAuthenticatedIdToken()
+async function getAccessToken() {
+  return getAuthenticatedAccessToken()
 }
 
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -114,7 +114,7 @@ export async function createConversation(
   noteId?: string,
   folderId?: string,
 ): Promise<Conversation> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ conversation: ApiConversation }>(
     `${API_BASE_URL}/chat/conversations`,
     {
@@ -122,7 +122,7 @@ export async function createConversation(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         title: title || 'New conversation',
@@ -138,7 +138,7 @@ export async function listConversations(
   noteId?: string,
   folderId?: string,
 ): Promise<Conversation[]> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const params = new URLSearchParams()
   if (noteId) params.set('note_id', noteId)
   if (folderId) params.set('folder_id', folderId)
@@ -146,26 +146,26 @@ export async function listConversations(
   const payload = await fetchJson<{ conversations: ApiConversation[] }>(
     `${API_BASE_URL}/chat/conversations${qs ? `?${qs}` : ''}`,
     {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     },
   )
   return (payload.conversations ?? []).map(toConversation)
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/chat/conversations/${id}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
 }
 
 export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ messages: ApiMessage[] }>(
     `${API_BASE_URL}/chat/conversations/${conversationId}/messages`,
     {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     },
   )
   return (payload.messages ?? []).map(toMessage)
@@ -176,7 +176,7 @@ export async function* sendMessage(
   content: string,
   signal?: AbortSignal,
 ): AsyncGenerator<SSEEvent> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
 
   const response = await authenticatedFetch(
     `${API_BASE_URL}/chat/conversations/${conversationId}/messages`,
@@ -185,7 +185,7 @@ export async function* sendMessage(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ content }),
       signal,
@@ -230,7 +230,7 @@ export async function* sendMessage(
 }
 
 export async function renameConversation(id: string, title: string): Promise<Conversation> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ conversation: ApiConversation }>(
     `${API_BASE_URL}/chat/conversations/${id}`,
     {
@@ -238,7 +238,7 @@ export async function renameConversation(id: string, title: string): Promise<Con
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ title }),
     },

@@ -4,43 +4,39 @@ import electron from 'vite-plugin-electron/simple'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const developmentFirebaseConfig = {
-  apiKey: 'AIzaSyCXpAhp5TRtthtYgmjRBAKvapzXJi_udjg',
-  authDomain: 'orion-1e6a1.firebaseapp.com',
-  projectId: 'orion-1e6a1',
-  storageBucket: 'orion-1e6a1.firebasestorage.app',
-  messagingSenderId: '861156340434',
-  appId: '1:861156340434:web:a62b156a38d70b60c9f30b',
-}
-
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const production = mode === 'production'
-  const read = (name: string, developmentValue: string) => {
+  const read = (name: string, developmentValue = '') => {
     const value = env[name]?.trim()
     if (value) return value
     if (production) throw new Error(`${name} is required for a production build`)
     return developmentValue
   }
-  const firebaseConfig = {
-    apiKey: read('VITE_FIREBASE_API_KEY', developmentFirebaseConfig.apiKey),
-    authDomain: read('VITE_FIREBASE_AUTH_DOMAIN', developmentFirebaseConfig.authDomain),
-    projectId: read('VITE_FIREBASE_PROJECT_ID', developmentFirebaseConfig.projectId),
-    storageBucket: read('VITE_FIREBASE_STORAGE_BUCKET', developmentFirebaseConfig.storageBucket),
-    messagingSenderId: read('VITE_FIREBASE_MESSAGING_SENDER_ID', developmentFirebaseConfig.messagingSenderId),
-    appId: read('VITE_FIREBASE_APP_ID', developmentFirebaseConfig.appId),
+  const supabaseConfig = {
+    url: read('SUPABASE_URL', 'https://njzmleaestfbhdamyitd.supabase.co'),
+    publishableKey: read('SUPABASE_PUBLISHABLE_KEY'),
+    authCallbackUrl: read(
+      'AUTH_CALLBACK_URL',
+      production ? 'https://orion.app/auth/callback' : 'http://localhost:3000/auth/callback',
+    ),
+  }
+  const electronMainDefine = {
+    __SUPABASE_CONFIG__: JSON.stringify(supabaseConfig),
   }
 
   return {
     base: './',
-    define: { __FIREBASE_CONFIG__: JSON.stringify(firebaseConfig) },
     plugins: [
       react(),
       tailwindcss(),
       electron({
-        main: { entry: 'electron/main.ts' },
+        main: {
+          entry: 'electron/main.ts',
+          vite: { define: electronMainDefine },
+        },
         preload: { input: path.join(__dirname, 'electron/preload.ts') },
-        renderer: process.env.NODE_ENV === 'test' ? undefined : {},
+        renderer: {},
       }),
     ],
     resolve: { alias: { '@': path.resolve(__dirname, './src') } },

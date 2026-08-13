@@ -2,8 +2,9 @@ export { electronDesktopApi as desktopApi } from './electron'
 export type {
   AttachmentResult,
   AuthResult,
-  AuthSessionUpdateEvent,
-  AuthStateChangedPayload,
+  AuthSnapshot,
+  AuthStatus,
+  AuthUser,
   DesktopApi,
   IntegrationConnectionCompletedEvent,
   IntegrationProvider,

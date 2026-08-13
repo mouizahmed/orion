@@ -1,4 +1,4 @@
-import { getAuthenticatedIdToken, invalidateSession } from '@/lib/auth-session'
+import { desktopApi } from '@/lib/desktop-api'
 import type { ClientEventMap, ServerEventMap } from '@/types/ws-events'
 
 const WS_URL = (() => {
@@ -19,7 +19,7 @@ class WebSocketClient {
   private _status: ConnectionStatus = 'disconnected'
   private handlers = new Map<string, Set<AnyHandler>>()
   private statusHandlers = new Set<(s: ConnectionStatus) => void>()
-  private getToken: (() => Promise<string>) | null = null
+  private getToken: ((forceRefresh?: boolean) => Promise<string>) | null = null
   private reconnectTimer: number | null = null
   private reconnectAttempt = 0
   private stopped = false
@@ -38,7 +38,7 @@ class WebSocketClient {
     return () => this.statusHandlers.delete(handler)
   }
 
-  connect(getToken: () => Promise<string>): void {
+  connect(getToken: (forceRefresh?: boolean) => Promise<string>): void {
     this.stopped = false
     this.getToken = getToken
     this.reconnectAttempt = 0
@@ -90,9 +90,7 @@ class WebSocketClient {
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.setStatus('authenticating')
-      const tokenPromise: Promise<string> = forceRefresh
-        ? getAuthenticatedIdToken(true)
-        : this.getToken!()
+      const tokenPromise = this.getToken!(forceRefresh)
 
       tokenPromise
         .then((token) => {
@@ -102,9 +100,6 @@ class WebSocketClient {
         .catch((err) => {
           console.warn('ws: token fetch failed', err)
           ws.close()
-          if (forceRefresh && !this.stopped) {
-            void invalidateSession()
-          }
         })
     }
 
@@ -140,10 +135,21 @@ class WebSocketClient {
       if (ev.code === 4001) {
         if (forceRefresh) {
           this.setStatus('disconnected')
-          void invalidateSession()
+          void desktopApi.auth.revalidate()
           return
         }
         this.openConnection(true)
+        return
+      }
+
+      if (ev.code === 4002) {
+        this.openConnection(true)
+        return
+      }
+
+      if (ev.code === 4003) {
+        this.setStatus('disconnected')
+        void desktopApi.auth.revalidate()
         return
       }
 

@@ -1,289 +1,151 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
-import { config } from './config'
-import {
-  completeActiveOAuthTransaction,
-  getActiveOAuthCodeVerifier,
-  isActiveOAuthState,
-  rejectActiveOAuthTransaction,
-} from './auth-handlers'
+import { handleAuthProtocolCallback, isRendererAuthenticated } from './auth-handlers'
 
 let authCallbackWindow: BrowserWindow | null = null
-let revealAuthWindow: (() => void) | null = null
 let revealIntegrationWindow: (() => void) | null = null
-let activeIntegrationOAuthState: string | null = null
+type IntegrationProvider = 'google' | 'microsoft'
+type ActiveIntegrationOAuth = {
+  state: string
+  provider: IntegrationProvider
+  feature: 'calendar'
+  expiresAt: number
+}
 
-export function beginIntegrationOAuthTransaction(state: string) {
-  activeIntegrationOAuthState = state
+const INTEGRATION_OAUTH_TIMEOUT_MS = 10 * 60 * 1000
+const INTEGRATION_CALLBACK_PARAMETERS = new Set([
+  'success',
+  'provider',
+  'feature',
+  'error',
+  'error_description',
+  'state',
+])
+let activeIntegrationOAuth: ActiveIntegrationOAuth | null = null
+
+export function beginIntegrationOAuthTransaction(
+  state: string,
+  provider: IntegrationProvider,
+  feature: 'calendar',
+) {
+  if (activeIntegrationOAuth && activeIntegrationOAuth.expiresAt > Date.now()) {
+    throw new Error('Another calendar connection is already in progress')
+  }
+  activeIntegrationOAuth = {
+    state,
+    provider,
+    feature,
+    expiresAt: Date.now() + INTEGRATION_OAUTH_TIMEOUT_MS,
+  }
+}
+
+export function cancelIntegrationOAuthTransaction(state: string) {
+  if (activeIntegrationOAuth?.state === state) activeIntegrationOAuth = null
 }
 
 export function setAuthCallbackWindow(win: BrowserWindow | null) {
   authCallbackWindow = win
 }
 
-export function setAuthWindowRevealHandler(handler: (() => void) | null) {
-  revealAuthWindow = handler
-}
-
 export function setIntegrationWindowRevealHandler(handler: (() => void) | null) {
   revealIntegrationWindow = handler
 }
 
-// Helper to send auth session updates to renderer
-function sendAuthUpdate(
-  success: boolean,
-  data: { firebaseToken?: string; error?: string },
-) {
-  const payload = {
-    success,
-    ...(success
-      ? { firebaseToken: data.firebaseToken }
-      : { error: data.error }),
-    timestamp: new Date().toISOString(),
-  }
-
-  if (authCallbackWindow && !authCallbackWindow.isDestroyed()) {
-    authCallbackWindow.webContents.send('auth-session-updated', payload)
-  }
+function revealAuthWindow() {
+  if (!authCallbackWindow || authCallbackWindow.isDestroyed()) return
+  if (authCallbackWindow.isMinimized()) authCallbackWindow.restore()
+  authCallbackWindow.show()
+  authCallbackWindow.focus()
 }
 
-function sendIntegrationUpdate(payload: {
-  success: boolean
-  provider?: string
-  feature?: string
-  error?: string
-}) {
-  const eventPayload = {
-    type: 'integration_connection_completed',
-    ...payload,
-  }
-
+function sendIntegrationUpdate(payload: { success: boolean; provider?: string; feature?: string; error?: string }) {
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send('integration:connection-completed', eventPayload)
-    }
+    if (!win.isDestroyed()) win.webContents.send('integration:connection-completed', { type: 'integration_connection_completed', ...payload })
   }
 }
 
 export function setupProtocolHandler() {
-  if (process.defaultApp) {
-    if (process.argv.length >= 2) {
-      const success = app.setAsDefaultProtocolClient(
-        'orion',
-        process.execPath,
-        [path.resolve(process.argv[1])],
-      )
-      if (!success) {
-        console.log('Protocol registration failed in development mode')
-      }
-    }
+  if (process.defaultApp && process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('orion', process.execPath, [path.resolve(process.argv[1])])
   } else {
-    const success = app.setAsDefaultProtocolClient('orion')
-    if (!success) {
-      console.log('Protocol registration failed in production mode')
-    }
+    app.setAsDefaultProtocolClient('orion')
   }
 }
 
 export function setupProtocolEvents() {
   app.on('second-instance', (_event, commandLine) => {
-    const url = commandLine.find((arg) => arg.startsWith('orion://'))
-    if (url) {
-      handleProtocolUrl(url)
-      return
-    }
-
-    if (authCallbackWindow) {
-      if (authCallbackWindow.isMinimized()) authCallbackWindow.restore()
-      authCallbackWindow.focus()
-      authCallbackWindow.show()
-    }
+    const protocolUrl = commandLine.find((arg) => arg.startsWith('orion://'))
+    if (protocolUrl) void handleProtocolUrl(protocolUrl)
+    else revealAuthWindow()
   })
 
-  app.on('open-url', (event, url) => {
+  app.on('open-url', (event, rawUrl) => {
     event.preventDefault()
-    handleProtocolUrl(url)
+    void handleProtocolUrl(rawUrl)
   })
 
   app.on('ready', () => {
-    const protocolUrl = process.argv.find((arg) =>
-      arg.startsWith('orion://'),
-    )
-    if (protocolUrl) {
-      handleProtocolUrl(protocolUrl)
-    }
+    const initialUrl = process.argv.find((arg) => arg.startsWith('orion://'))
+    if (initialUrl) void handleProtocolUrl(initialUrl)
   })
 }
 
-async function handleProtocolUrl(url: string) {
-  if (!url || typeof url !== 'string' || !url.startsWith('orion://')) {
+async function handleProtocolUrl(rawUrl: string) {
+  if (typeof rawUrl !== 'string' || rawUrl.length > 8192 || !rawUrl.startsWith('orion://')) return
+  let parsed: URL
+  try { parsed = new URL(rawUrl) } catch { return }
+
+  if (parsed.protocol === 'orion:' && parsed.hostname === 'auth' && parsed.pathname === '/callback') {
+    await handleAuthProtocolCallback(rawUrl)
+    // A cancelled or expired PKCE transaction must reject the callback, but
+    // activating the protocol should still bring the sign-in window forward.
+    // Successful authentication already creates and focuses the dashboard.
+    if (!isRendererAuthenticated()) revealAuthWindow()
     return
   }
-
-  try {
-    const parsed = new URL(url)
-
-    // Handle auth callback
-    if (
-      parsed.hostname === 'auth-complete' ||
-      parsed.pathname.replace(/^\/|\/$/g, '') === 'auth-complete'
-    ) {
-      await handleAuthComplete(parsed)
-      return
-    }
-
-    if (
-      parsed.hostname === 'integrations' &&
-      parsed.pathname.replace(/^\/|\/$/g, '') === 'callback'
-    ) {
-      handleIntegrationCallback(parsed)
-    }
-  } catch (error) {
-    console.error('Error parsing protocol URL:', error)
+  if (parsed.protocol === 'orion:' && parsed.hostname === 'integrations' && parsed.pathname === '/callback') {
+    handleIntegrationCallback(parsed)
   }
 }
 
 function handleIntegrationCallback(parsed: URL) {
-	const state = parsed.searchParams.get('state')
-	if (!state || state !== activeIntegrationOAuthState) {
-		console.warn('Ignoring integration OAuth callback for inactive state')
-		return
-	}
-	activeIntegrationOAuthState = null
-  const success = parsed.searchParams.get('success') === 'true'
-  const provider = parsed.searchParams.get('provider') || undefined
-  const feature = parsed.searchParams.get('feature') || undefined
-  const error = parsed.searchParams.get('error_description') || parsed.searchParams.get('error') || undefined
+  const active = activeIntegrationOAuth
+  if (!active) return
+  if (active.expiresAt <= Date.now()) {
+    activeIntegrationOAuth = null
+    return
+  }
+  for (const name of parsed.searchParams.keys()) {
+    if (!INTEGRATION_CALLBACK_PARAMETERS.has(name)) return
+  }
+  for (const name of INTEGRATION_CALLBACK_PARAMETERS) {
+    if (parsed.searchParams.getAll(name).length > 1) return
+  }
 
-  revealIntegrationWindow?.()
-
-  setTimeout(() => {
-    sendIntegrationUpdate({
-      success,
-      provider,
-      feature,
-      error,
-    })
-  }, 150)
-}
-
-async function handleAuthComplete(parsed: URL) {
+  const state = parsed.searchParams.get('state')
+  const success = parsed.searchParams.get('success')
+  const provider = parsed.searchParams.get('provider')
+  const feature = parsed.searchParams.get('feature')
   const error = parsed.searchParams.get('error')
   const errorDescription = parsed.searchParams.get('error_description')
-  const code = parsed.searchParams.get('code')
-  const state = parsed.searchParams.get('state')
+  if (
+    state !== active.state
+    || !/^[A-Za-z0-9_-]{43}$/.test(state)
+    || (success !== 'true' && success !== 'false')
+    || (provider !== null && provider !== active.provider)
+    || (feature !== null && feature !== active.feature)
+    || (error?.length ?? 0) > 128
+    || (errorDescription?.length ?? 0) > 512
+    || (success === 'true' && (provider !== active.provider || feature !== active.feature || error || errorDescription))
+    || (success === 'false' && !error)
+  ) return
 
-  if (!isActiveOAuthState(state)) {
-    console.warn('Ignoring OAuth callback for inactive state')
-    return
-  }
-
-  if (error) {
-    rejectActiveOAuthTransaction(state)
-    sendAuthUpdate(false, {
-      error:
-        errorDescription ||
-        `Authentication failed: ${error.replace(/_/g, ' ')}`,
-    })
-    revealAuthWindow?.()
-    return
-  }
-
-  if (!code) {
-    rejectActiveOAuthTransaction(state)
-    sendAuthUpdate(false, {
-      error: 'Authentication failed: No authorization code received',
-    })
-    revealAuthWindow?.()
-    return
-  }
-  const codeVerifier = getActiveOAuthCodeVerifier(state)
-  if (!codeVerifier) {
-    rejectActiveOAuthTransaction(state)
-    sendAuthUpdate(false, {
-      error: 'Authentication failed: Missing authorization verifier',
-    })
-    revealAuthWindow?.()
-    return
-  }
-
-  await completeAuthenticationWithCode(code, state, codeVerifier)
-}
-
-function validateOAuthCode(code: string): boolean {
-  // OAuth codes should be alphanumeric with possible hyphens/underscores
-  // Typically 20-128 characters long
-  if (typeof code !== 'string') return false
-  if (code.length < 10 || code.length > 256) return false
-  if (!/^[a-zA-Z0-9\-_]+$/.test(code)) return false
-  return true
-}
-
-async function completeAuthenticationWithCode(code: string, state: string, codeVerifier: string): Promise<void> {
-  if (!code || !validateOAuthCode(code)) {
-    console.warn('Invalid OAuth code format detected')
-    rejectActiveOAuthTransaction(state)
-    sendAuthUpdate(false, {
-      error: 'Authentication failed: Invalid authorization code format',
-    })
-    revealAuthWindow?.()
-    return
-  }
-
-  try {
-    const response = await fetch(`${config.backendUrl}/auth/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state, code_verifier: codeVerifier }),
-    })
-
-    if (!response.ok) {
-      const responseText = await response.text()
-      rejectActiveOAuthTransaction(state)
-      sendAuthUpdate(false, {
-        error: `Authentication failed (${response.status}): ${responseText}`,
-      })
-      revealAuthWindow?.()
-      return
-    }
-
-    const authResult = await response.json()
-
-    if (authResult.status === 'success' && authResult.user) {
-      if (authResult.firebaseToken) {
-        completeActiveOAuthTransaction(state)
-        sendAuthUpdate(true, {
-          firebaseToken: authResult.firebaseToken,
-        })
-      } else {
-        rejectActiveOAuthTransaction(state)
-        sendAuthUpdate(false, {
-          error: 'Authentication completed but no token received',
-        })
-        revealAuthWindow?.()
-      }
-    } else {
-      rejectActiveOAuthTransaction(state)
-      sendAuthUpdate(false, {
-        error:
-          authResult.error || 'Authentication was not completed successfully',
-      })
-      revealAuthWindow?.()
-    }
-  } catch (error) {
-    rejectActiveOAuthTransaction(state)
-    sendAuthUpdate(false, {
-      error: error instanceof Error ? error.message : String(error),
-    })
-    revealAuthWindow?.()
-  }
-}
-
-export function checkInitialProtocolUrl() {
-  const initialProtocolUrl = process.argv.find((arg) =>
-    arg.startsWith('orion://'),
-  )
-  if (initialProtocolUrl) {
-    setTimeout(() => handleProtocolUrl(initialProtocolUrl), 1000)
-  }
+  activeIntegrationOAuth = null
+  revealIntegrationWindow?.()
+  sendIntegrationUpdate({
+    success: success === 'true',
+    provider: active.provider,
+    feature: active.feature,
+    error: errorDescription || error || undefined,
+  })
 }

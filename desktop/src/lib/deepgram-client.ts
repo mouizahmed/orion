@@ -1,5 +1,5 @@
 import type { LiveTranscriptSegment } from '@/types/live-insight'
-import { invalidateSession } from '@/lib/auth-session'
+import { desktopApi } from '@/lib/desktop-api'
 
 export type DeepgramSegmentCallback = (segments: LiveTranscriptSegment[]) => void
 export type DeepgramErrorCallback = (error: Error) => void
@@ -75,7 +75,7 @@ export class DeepgramClient {
     this.onStatus = opts.onStatus
   }
 
-  connect(opts: { backendWsUrl: string; idToken: string }): Promise<void> {
+  connect(opts: { backendWsUrl: string; accessToken: string }): Promise<void> {
     this.onStatus('connecting')
     const wsUrl = new URL(opts.backendWsUrl)
     this.ws = new WebSocket(wsUrl.toString())
@@ -102,7 +102,7 @@ export class DeepgramClient {
 
       this.ws!.onopen = () => {
         if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
-        this.ws.send(JSON.stringify({ type: 'auth', token: opts.idToken }))
+        this.ws.send(JSON.stringify({ type: 'auth', token: opts.accessToken }))
       }
 
       this.ws!.onmessage = (event) => {
@@ -147,8 +147,8 @@ export class DeepgramClient {
         this.stopFlushInterval()
         this.authenticated = false
         this.onStatus('disconnected')
-        if (event.code === 4001) {
-          void invalidateSession()
+        if (event.code === 4001 || event.code === 4003) {
+          void desktopApi.auth.revalidate()
         }
         if (!handshakeDone) {
           clearTimeout(timer)

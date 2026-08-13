@@ -1,9 +1,10 @@
 -- Orion canonical development schema.
--- The application uses Firebase Auth and a trusted Go backend. Supabase's
+-- The application uses managed Supabase Auth and a trusted Go backend. Supabase's
 -- Data API roles intentionally have no access to application data.
 
 begin;
 
+drop schema if exists orion_internal cascade;
 drop table if exists public.note_shares cascade;
 drop table if exists public.note_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
@@ -28,7 +29,7 @@ create type public.user_plan as enum ('free', 'professional', 'business');
 create type public.user_status as enum ('active', 'suspended', 'deleted');
 
 create table public.users (
-  id text primary key default gen_random_uuid()::text,
+  id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   name text not null,
   avatar_url text,
@@ -47,33 +48,11 @@ create table public.users (
     or (status <> 'deleted' and deleted_at is null)
   )
 );
-create unique index users_normalized_email_key on public.users (lower(btrim(email)));
-
-create table public.user_auth_identities (
-  id uuid primary key default gen_random_uuid(),
-  user_id text not null references public.users(id) on delete cascade,
-  provider text not null check (provider in ('google', 'microsoft')),
-  provider_tenant_id text not null default '',
-  provider_user_id text not null,
-  provider_email text,
-  email_verified boolean not null default false,
-  display_name text,
-  avatar_url text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  last_login_at timestamptz,
-  constraint user_auth_identity_subject_not_blank check (btrim(provider_user_id) <> ''),
-  constraint user_auth_identity_tenant_valid check (
-    (provider = 'google' and provider_tenant_id = '')
-    or (provider = 'microsoft' and btrim(provider_tenant_id) <> '')
-  ),
-  unique (provider, provider_tenant_id, provider_user_id),
-  unique (user_id, provider)
-);
+create index users_normalized_email_idx on public.users (lower(btrim(email)));
 
 create table public.folders (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   name text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -83,7 +62,7 @@ create table public.folders (
 
 create table public.integration_connections (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   provider text not null check (provider in ('google', 'microsoft')),
   provider_account_id text not null,
   provider_email text,
@@ -103,7 +82,7 @@ create table public.integration_connections (
 );
 
 create table public.calendar_preferences (
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   connection_id uuid not null,
   calendar_id text not null,
   visible boolean not null default true,
@@ -115,7 +94,7 @@ create table public.calendar_preferences (
 );
 
 create table public.calendar_sources (
-  user_id text not null,
+  user_id uuid not null,
   connection_id uuid not null,
   calendar_id text not null,
   provider text not null check (provider in ('google', 'microsoft')),
@@ -141,7 +120,7 @@ create table public.calendar_sources (
 
 create table public.calendar_events (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null,
+  user_id uuid not null,
   connection_id uuid not null,
   calendar_id text not null,
   provider_event_id text not null,
@@ -170,7 +149,7 @@ create table public.calendar_events (
 create index calendar_events_user_start_idx on public.calendar_events (user_id, start_at);
 
 create table public.calendar_sync_state (
-  user_id text not null,
+  user_id uuid not null,
   connection_id uuid not null,
   status text not null default 'idle' check (status in ('idle', 'syncing', 'success', 'error')),
   calendar_last_synced_at timestamptz,
@@ -188,7 +167,7 @@ create table public.calendar_sync_state (
 
 create table public.notes (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   folder_id uuid,
   title text not null default 'Untitled note',
   note_markdown text not null default '',
@@ -226,7 +205,7 @@ create table public.transcript_segments (
 create table public.note_recording_sessions (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null,
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   status text not null default 'active' check (status in ('active', 'paused', 'stopped')),
   started_at timestamptz not null default now(),
   paused_at timestamptz,
@@ -239,7 +218,7 @@ create table public.note_recording_sessions (
 create table public.note_attachments (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null,
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   file_name text not null,
   mime_type text not null,
   size_bytes bigint not null check (size_bytes >= 0),
@@ -256,7 +235,7 @@ create table public.note_attendees (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null references public.notes(id) on delete cascade,
   email text not null,
-  user_id text references public.users(id) on delete set null,
+  user_id uuid references public.users(id) on delete set null,
   source text not null default 'manual' check (source in ('manual', 'calendar')),
   created_at timestamptz not null default now()
 );
@@ -265,9 +244,9 @@ create unique index note_attendees_note_email_key on public.note_attendees (note
 create table public.note_shares (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null,
-  shared_by text not null references public.users(id) on delete cascade,
+  shared_by uuid not null references public.users(id) on delete cascade,
   email text not null,
-  user_id text references public.users(id) on delete set null,
+  user_id uuid references public.users(id) on delete set null,
   role text not null check (role in ('viewer', 'editor')),
   status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
   created_at timestamptz not null default now(),
@@ -278,7 +257,7 @@ create unique index note_shares_note_email_key on public.note_shares (note_id, l
 
 create table public.conversations (
   id uuid primary key default gen_random_uuid(),
-  user_id text not null references public.users(id) on delete cascade,
+  user_id uuid not null references public.users(id) on delete cascade,
   title text not null default 'New conversation',
   summary text not null default '',
   summary_through_message_id uuid,
@@ -309,7 +288,6 @@ alter table public.conversations
 
 create index folders_user_idx on public.folders (user_id) where deleted_at is null;
 create index folders_user_fk_idx on public.folders (user_id);
-create index identities_user_idx on public.user_auth_identities (user_id);
 create index integration_connections_active_idx on public.integration_connections (user_id, provider) where status = 'active';
 create index calendar_preferences_connection_owner_idx on public.calendar_preferences (connection_id, user_id);
 create index calendar_sources_connection_owner_idx on public.calendar_sources (connection_id, user_id);
@@ -339,7 +317,7 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','user_auth_identities','folders','integration_connections',
+    'users','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_attendees','note_shares','conversations','messages'
@@ -352,9 +330,43 @@ end $$;
 do $$
 begin
   if not exists (select 1 from pg_roles where rolname = 'orion_backend') then
-    create role orion_backend nologin nosuperuser nocreatedb nocreaterole noinherit;
+    create role orion_backend login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
+  else
+    alter role orion_backend login nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls;
   end if;
 end $$;
+
+-- Supabase access tokens can remain valid until their JWT expiry after logout.
+-- This deliberately tiny security-definer function lets only the backend
+-- confirm that the token's session_id still exists, without granting it broad
+-- access to the managed auth schema.
+create schema orion_internal;
+revoke all on schema orion_internal from public, anon, authenticated;
+
+create function orion_internal.is_auth_session_active(
+  p_user_id uuid,
+  p_session_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1
+    from auth.sessions as session
+    where session.user_id = p_user_id
+      and session.id = p_session_id
+      and (session.not_after is null or session.not_after > now())
+  )
+$$;
+
+revoke all on function orion_internal.is_auth_session_active(uuid, uuid)
+  from public, anon, authenticated;
+grant usage on schema orion_internal to orion_backend;
+grant execute on function orion_internal.is_auth_session_active(uuid, uuid)
+  to orion_backend;
 
 revoke all on schema public from public, anon, authenticated;
 revoke all on all tables in schema public from public, anon, authenticated;
@@ -362,13 +374,16 @@ revoke all on all sequences in schema public from public, anon, authenticated;
 grant usage on schema public to orion_backend;
 grant select, insert, update, delete on all tables in schema public to orion_backend;
 grant usage, select on all sequences in schema public to orion_backend;
-grant orion_backend to postgres;
+-- Set or rotate this LOGIN role's strong password outside tracked SQL, then
+-- configure DATABASE_URL to authenticate directly as it. The backend rejects
+-- owner/admin sessions and does not use SET ROLE.
+revoke orion_backend from postgres;
 
 do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','user_auth_identities','folders','integration_connections',
+    'users','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_attendees','note_shares','conversations','messages'
@@ -381,7 +396,8 @@ begin
 end $$;
 
 -- service_role stays available for Supabase administration but is not used by
--- the desktop application. The Go backend connects directly as orion_backend.
+-- the desktop application. The Go backend authenticates directly as
+-- orion_backend and verifies both session_user and current_user at startup.
 grant usage on schema public to service_role;
 grant all on all tables in schema public to service_role;
 grant all on all sequences in schema public to service_role;
@@ -390,5 +406,6 @@ alter default privileges in schema public revoke all on tables from public, anon
 alter default privileges in schema public revoke all on sequences from public, anon, authenticated;
 alter default privileges in schema public grant select, insert, update, delete on tables to orion_backend;
 alter default privileges in schema public grant usage, select on sequences to orion_backend;
+alter default privileges in schema orion_internal revoke execute on functions from public;
 
 commit;

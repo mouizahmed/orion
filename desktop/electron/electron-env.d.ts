@@ -1,5 +1,11 @@
 /// <reference types="vite-plugin-electron/electron-env" />
 
+declare const __SUPABASE_CONFIG__: {
+  url: string
+  publishableKey: string
+  authCallbackUrl: string
+}
+
 declare namespace NodeJS {
   interface ProcessEnv {
     /**

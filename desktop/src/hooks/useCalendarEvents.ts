@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { auth } from '@/config/firebase'
-import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
+import { authenticatedFetch } from '@/lib/auth-session'
 import { useAuth } from '@/contexts/AuthContext'
 import { wsClient } from '@/lib/ws-client'
 
@@ -138,16 +137,9 @@ async function fetchCalendarEvents(silent = false) {
 
   inFlight = (async () => {
     try {
-      const currentUser = auth.currentUser
-      if (!currentUser || currentUser.uid !== requestUserId) {
-        throw new Error('Not authenticated')
-      }
-
-      const idToken = await getAuthenticatedIdToken()
       const response = await authenticatedFetch(`${API_BASE_URL}/calendar/upcoming?limit=${MAX_EVENTS}`, {
         headers: {
           Accept: 'application/json',
-          Authorization: `Bearer ${idToken}`,
         },
       })
 

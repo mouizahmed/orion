@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -35,7 +36,8 @@ func (h *WsHandler) Handle(c *gin.Context) {
 	principal, token, err := authenticateWSConn(conn, h.principalService)
 	if err != nil {
 		_ = conn.WriteJSON(gin.H{"type": "auth.error", "data": wsAuthErrorData(err)})
-		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "unauthorized"))
+		closeCode, closeReason := wsCloseForError(err)
+		_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 		return
 	}
 	_ = conn.WriteJSON(gin.H{"type": "auth.ok"})
@@ -81,7 +83,7 @@ func (h *WsHandler) Handle(c *gin.Context) {
 					return
 				}
 			case <-revalidate.C:
-				if _, authErr := h.principalService.Resolve(token); authErr != nil {
+				if _, authErr := h.principalService.Resolve(context.Background(), token); authErr != nil {
 					errCh <- authErr
 					return
 				}
@@ -92,6 +94,7 @@ func (h *WsHandler) Handle(c *gin.Context) {
 		}
 	}()
 
-	<-errCh
-	_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+	terminationErr := <-errCh
+	closeCode, closeReason := wsCloseForError(terminationErr)
+	_ = writeWSMessage(conn, &writeMu, websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 }

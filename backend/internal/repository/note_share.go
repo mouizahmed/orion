@@ -74,7 +74,7 @@ func (r *NoteShareRepository) UpsertShare(noteID, sharedBy, email, role string) 
 	query := `
 		INSERT INTO note_shares (note_id, shared_by, email, role, status)
 		VALUES ($1, $2, $3, $4, 'pending')
-		ON CONFLICT (note_id, email)
+		ON CONFLICT (note_id, lower(btrim(email)))
 		DO UPDATE SET
 			role       = EXCLUDED.role,
 			updated_at = NOW()
@@ -95,7 +95,7 @@ func (r *NoteShareRepository) UpdateShareRole(noteID, email, role string) (*mode
 	query := `
 		UPDATE note_shares
 		SET role = $3, updated_at = NOW()
-		WHERE note_id = $1 AND email = $2
+		WHERE note_id = $1 AND lower(btrim(email)) = lower(btrim($2))
 		RETURNING id, note_id, shared_by, email, user_id, role, status, created_at, updated_at
 	`
 
@@ -116,7 +116,7 @@ func (r *NoteShareRepository) UpdateShareRole(noteID, email, role string) (*mode
 func (r *NoteShareRepository) DeleteShare(noteID, email string) (bool, error) {
 	query := `
 		DELETE FROM note_shares
-		WHERE note_id = $1 AND email = $2
+		WHERE note_id = $1 AND lower(btrim(email)) = lower(btrim($2))
 	`
 
 	res, err := r.db.Exec(query, noteID, email)

@@ -48,7 +48,7 @@ The current integrations illustrate which capabilities the new architecture must
 - LLM requests are hardwired to OpenRouter in `backend/internal/ai/client.go`.
 - Embeddings use OpenAI directly in `backend/internal/memory/embedder.go`.
 - Retrieval is tied to Pinecone in `backend/internal/retrieval/pinecone.go`.
-- WebSocket authentication requires Firebase.
+- WebSocket authentication requires a backend-validated managed Supabase session.
 - Transcripts are uploaded to the backend every ten seconds by `desktop/src/hooks/useTranscription.ts`.
 - The current data model only understands individual Free and Pro users, not organizations or tenants.
 - Existing application encryption protects integration tokens, not transcript content.

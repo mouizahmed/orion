@@ -1,7 +1,6 @@
 export type AuthResult =
   | {
       success: true
-      token?: string
       expiresInSeconds?: number
     }
   | {
@@ -9,17 +8,16 @@ export type AuthResult =
       error: string
     }
 
-export type AuthSessionUpdateEvent =
-  | {
-      success: true
-      firebaseToken: string
-      timestamp: string
-    }
-  | {
-      success: false
-      error: string
-      timestamp: string
-    }
+export type AuthStatus = 'initializing' | 'validating' | 'anonymous' | 'oauth-pending' | 'authenticated' | 'service-unavailable' | 'blocked'
+
+export type AuthUser = { id: string; email: string; name: string; picture?: string }
+
+export type AuthSnapshot = {
+  status: AuthStatus
+  user: AuthUser | null
+  error: string | null
+  loginProvider: IntegrationProvider | null
+}
 
 export type IntegrationProvider = 'google' | 'microsoft'
 
@@ -39,11 +37,6 @@ export type IntegrationConnectionCompletedEvent = {
   provider?: string
   feature?: string
   error?: string
-}
-
-export type AuthStateChangedPayload = {
-  isAuthenticated: boolean
-  idToken?: string
 }
 
 export type ShortcutAction =
@@ -140,9 +133,12 @@ export type DesktopApi = {
     loginWithGoogle: () => Promise<AuthResult>
     loginWithMicrosoft: () => Promise<AuthResult>
     cancel: () => Promise<AuthResult>
+    getSnapshot: () => Promise<AuthSnapshot>
+    getAccessToken: (forceRefresh?: boolean) => Promise<string>
     logout: () => Promise<AuthResult>
-    notifyStateChanged: (payload: AuthStateChangedPayload) => void
-    onSessionUpdated: (callback: (data: AuthSessionUpdateEvent) => void) => () => void
+    logoutAllDevices: () => Promise<AuthResult>
+    revalidate: () => Promise<AuthSnapshot>
+    onStateChanged: (callback: (data: AuthSnapshot) => void) => () => void
   }
   integrations: {
     connect: (provider: IntegrationProvider, feature: string) => Promise<IntegrationResult>

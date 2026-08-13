@@ -1,5 +1,5 @@
 import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/types/note'
-import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
+import { authenticatedFetch, getAuthenticatedAccessToken } from '@/lib/auth-session'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -121,8 +121,8 @@ function toNoteShare(s: ApiNoteShare): NoteShare {
   }
 }
 
-async function getIdToken() {
-  return getAuthenticatedIdToken()
+async function getAccessToken() {
+  return getAuthenticatedAccessToken()
 }
 
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
@@ -152,7 +152,7 @@ export async function listNotesPage(params: {
   limit?: number
   cursor?: string | null
 }): Promise<{ notes: NoteSummary[]; nextCursor?: string; hasMore: boolean }> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const limit = params.limit ?? 20
   const url = new URL(`${API_BASE_URL}/notes`)
   url.searchParams.set('limit', String(limit))
@@ -164,7 +164,7 @@ export async function listNotesPage(params: {
     notes: ApiNoteSummary[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
 
   const notes = (payload.notes ?? []).map(toNoteSummary)
@@ -176,9 +176,9 @@ export async function listNotesPage(params: {
 
 export async function getNote(userId: string | undefined, noteId: string): Promise<NoteDetail | null> {
   void userId
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
   if (!payload.note) return null
   return toNoteDetail(payload.note)
@@ -195,13 +195,13 @@ export async function createNote(
   },
 ): Promise<NoteRecord> {
   void userId
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
+      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       title: initial?.title,
@@ -225,13 +225,13 @@ export async function updateNote(
   },
 ): Promise<NoteRecord | null> {
   void userId
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
-      Authorization: `Bearer ${idToken}`,
+      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       title: patch.title,
@@ -244,7 +244,7 @@ export async function updateNote(
 }
 
 export async function enhanceNote(noteId: string): Promise<{ note: NoteRecord; versionId: string }> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote; version_id?: string }>(
     `${API_BASE_URL}/notes/${noteId}/enhance`,
     {
@@ -252,7 +252,7 @@ export async function enhanceNote(noteId: string): Promise<{ note: NoteRecord; v
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: '{}',
     },
@@ -262,18 +262,18 @@ export async function enhanceNote(noteId: string): Promise<{ note: NoteRecord; v
 }
 
 export async function listVersions(noteId: string): Promise<NoteVersion[]> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ versions: NoteVersion[] }>(
     `${API_BASE_URL}/notes/${noteId}/versions`,
     {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     },
   )
   return payload.versions ?? []
 }
 
 export async function revertToVersion(noteId: string, versionId: string): Promise<NoteRecord> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(
     `${API_BASE_URL}/notes/${noteId}/revert/${versionId}`,
     {
@@ -281,7 +281,7 @@ export async function revertToVersion(noteId: string, versionId: string): Promis
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: '{}',
     },
@@ -291,12 +291,12 @@ export async function revertToVersion(noteId: string, versionId: string): Promis
 }
 
 export async function uploadNoteImage(noteId: string, file: File): Promise<string> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const form = new FormData()
   form.append('file', file)
   const res = await authenticatedFetch(`${API_BASE_URL}/notes/${noteId}/images`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${idToken}` },
+    headers: { Authorization: `Bearer ${accessToken}` },
     body: form,
   })
   if (!res.ok) throw new Error('Upload failed')
@@ -309,7 +309,7 @@ export async function listNotesByEvent(
   cursor?: string | null,
   limit = 20,
 ): Promise<{ notes: NoteRecord[]; hasMore: boolean; nextCursor?: string }> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const url = new URL(`${API_BASE_URL}/notes/by-event`)
   url.searchParams.set('calendar_event_id', calendarEventId)
   url.searchParams.set('limit', String(limit))
@@ -318,7 +318,7 @@ export async function listNotesByEvent(
     notes: ApiNote[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
   return {
     notes: (payload.notes ?? []).map(toNoteRecord),
@@ -329,10 +329,10 @@ export async function listNotesByEvent(
 
 export async function deleteNote(userId: string | undefined, noteId: string): Promise<boolean> {
   void userId
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
   return true
 }
@@ -340,10 +340,10 @@ export async function deleteNote(userId: string | undefined, noteId: string): Pr
 // ── Note shares ──────────────────────────────────────────────────────────────
 
 export async function listNoteShares(noteId: string): Promise<NoteShare[]> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ shares: ApiNoteShare[] }>(
     `${API_BASE_URL}/notes/${noteId}/shares`,
-    { headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` } },
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } },
   )
   return (payload.shares ?? []).map(toNoteShare)
 }
@@ -353,7 +353,7 @@ export async function createNoteShare(
   email: string,
   role: 'viewer' | 'editor',
 ): Promise<NoteShare> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ share: ApiNoteShare }>(
     `${API_BASE_URL}/notes/${noteId}/shares`,
     {
@@ -361,7 +361,7 @@ export async function createNoteShare(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ email, role }),
     },
@@ -374,7 +374,7 @@ export async function updateNoteShare(
   email: string,
   role: 'viewer' | 'editor',
 ): Promise<NoteShare> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ share: ApiNoteShare }>(
     `${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`,
     {
@@ -382,7 +382,7 @@ export async function updateNoteShare(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        Authorization: `Bearer ${idToken}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({ role }),
     },
@@ -391,10 +391,10 @@ export async function updateNoteShare(
 }
 
 export async function deleteNoteShare(noteId: string, email: string): Promise<boolean> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
   return true
 }
@@ -416,21 +416,21 @@ function toNoteAttendee(a: ApiNoteAttendee): NoteAttendee {
 }
 
 export async function listNoteAttendees(noteId: string): Promise<NoteAttendee[]> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ attendees: ApiNoteAttendee[] }>(
     `${API_BASE_URL}/notes/${noteId}/attendees`,
-    { headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` } },
+    { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } },
   )
   return (payload.attendees ?? []).map(toNoteAttendee)
 }
 
 export async function addNoteAttendee(noteId: string, email: string): Promise<NoteAttendee> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   const payload = await fetchJson<{ attendee: ApiNoteAttendee }>(
     `${API_BASE_URL}/notes/${noteId}/attendees`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ email }),
     },
   )
@@ -438,9 +438,9 @@ export async function addNoteAttendee(noteId: string, email: string): Promise<No
 }
 
 export async function removeNoteAttendee(noteId: string, email: string): Promise<void> {
-  const idToken = await getIdToken()
+  const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}/attendees/${encodeURIComponent(email)}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })
 }

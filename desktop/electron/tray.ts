@@ -47,9 +47,9 @@ export function setupTray(options: { onQuit: () => void }) {
           if (dashboard && !dashboard.isDestroyed()) {
             closeDashboardWindow()
           }
-          restoreKeyboardShortcuts()
           overlay?.show()
           overlay?.focus()
+          if (overlay?.isVisible()) restoreKeyboardShortcuts()
         },
       },
       {
@@ -88,6 +88,7 @@ export function setupTray(options: { onQuit: () => void }) {
     if (!overlay) return
     if (overlay.isVisible()) {
       overlay.hide()
+      unregisterKeyboardShortcuts()
       return
     }
     const dashboard = getDashboardWindow()

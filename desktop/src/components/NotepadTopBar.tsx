@@ -2,6 +2,7 @@ import type { MouseEvent as ReactMouseEvent } from 'react'
 import { GripVertical, Plus, Settings } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { publicAssetUrl } from '@/lib/public-asset'
 
 type NotepadTopBarProps = {
   onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void
@@ -18,7 +19,7 @@ export default function NotepadTopBar({ onMouseDown, onCreateNote, onOpenSetting
 
       <div className="flex items-center gap-2">
         <img
-          src="/orion-mark.png"
+          src={publicAssetUrl('orion-mark.png')}
           alt="Orion logo"
           className="h-6 w-6 rounded-md border border-white/10 bg-white/15 object-cover p-0.5"
           draggable={false}

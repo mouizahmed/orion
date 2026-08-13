@@ -3,8 +3,7 @@ import { AudioLines, Folder, Plus, RefreshCw, Search, Upload } from 'lucide-reac
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { auth } from '@/config/firebase'
-import { authenticatedFetch, getAuthenticatedIdToken } from '@/lib/auth-session'
+import { authenticatedFetch } from '@/lib/auth-session'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useWindowState } from '@/hooks/useWindowState'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
@@ -12,6 +11,7 @@ import { searchAll } from '@/lib/search-client'
 import { desktopApi } from '@/lib/desktop-api'
 import { triggerCalendarSync, resetCalendarSync } from '@/hooks/useCalendarEvents'
 import { DropdownItem, DropdownIconSlot, DropdownPopover } from '@/components/ui/dropdown-list'
+import { publicAssetUrl } from '@/lib/public-asset'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
@@ -236,20 +236,13 @@ export default function DashboardTopBar({
     calendarRefreshInFlightRef.current = true
 
     try {
-      const currentUser = auth.currentUser
-      if (currentUser) {
-        triggerCalendarSync()
-        const idToken = await getAuthenticatedIdToken()
-        const response = await authenticatedFetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            Authorization: `Bearer ${idToken}`,
-          },
-        })
-        if (!response.ok) {
-          throw new Error(`Calendar sync failed: ${response.status}`)
-        }
+      triggerCalendarSync()
+      const response = await authenticatedFetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      })
+      if (!response.ok) {
+        throw new Error(`Calendar sync failed: ${response.status}`)
       }
     } catch {
       resetCalendarSync()
@@ -278,7 +271,7 @@ export default function DashboardTopBar({
         }
       />
       <div className="relative z-10 flex items-center gap-2">
-        <img src="/orion-mark.svg" alt="Orion Logo" className="h-6 w-6" />
+        <img src={publicAssetUrl('orion-mark.svg')} alt="Orion Logo" className="h-6 w-6" />
         <SidebarTrigger />
 
         <div

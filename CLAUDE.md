@@ -44,7 +44,7 @@ Orion is an AI-powered meeting assistant with three sub-projects in a monorepo:
 - `internal/handlers/` — HTTP route handlers (one file per domain)
 - `internal/repository/` — data access layer against PostgreSQL
 - `internal/models/` — domain structs
-- `internal/auth/` — Firebase auth middleware + OAuth flows (Google, Outlook)
+- `internal/auth/` — managed Supabase session validation and Orion principal lifecycle enforcement
 - `internal/ai/` — OpenAI integration (completions, embeddings)
 - `internal/calendar/` — Google Calendar / Outlook sync
 - `internal/retrieval/` — Pinecone vector search
@@ -52,13 +52,13 @@ Orion is an AI-powered meeting assistant with three sub-projects in a monorepo:
 - `internal/queue/` — Redis-backed job queue
 - `internal/memory/` — note chunking and persistence
 
-**`web/`** — Next.js 15 App Router site used for marketing pages and OAuth callbacks (not the main app UI).
+**`web/`** — Next.js 16 App Router site used for marketing pages plus minimal authentication and calendar callback bridges (not the main app UI).
 
 ## Key Integrations
 
 | Service | Purpose |
 |---|---|
-| Firebase Auth | User auth (token verified in Go middleware) |
+| Supabase Auth | Managed Google/Microsoft login; Electron main owns PKCE and encrypted sessions |
 | PostgreSQL | Primary database (lib/pq, max 25 conns, 5s statement timeout) |
 | OpenAI | LLM completions + embeddings |
 | Pinecone | Vector search over note embeddings |
@@ -71,13 +71,16 @@ Orion is an AI-powered meeting assistant with three sub-projects in a monorepo:
 
 You have live database access via two MCP servers:
 - **Supabase MCP** — use `list_tables`, `execute_sql`, `apply_migration`, etc. (project ref: `njzmleaestfbhdamyitd`)
-- **DBeaver MCP** — use `execute_query`, `list_tables`, `get_table_schema`, etc.
 
 Prefer these over manual SQL when inspecting schema or verifying data during development. Prepared statement caching is disabled intentionally (Postgres compatibility).
 
 ## IPC (Desktop)
 
 The Electron main process exposes APIs to the renderer through `electron/preload.ts`. IPC handlers live in `electron/ipc-handlers.ts` and are registered in `electron/main.ts`. When adding a new IPC channel, register it in `ipc-handlers.ts` and expose it in `preload.ts`.
+
+Authentication is a strict Electron trust boundary: `electron/auth-handlers.ts` owns the sole Supabase client, PKCE verifier, refresh token, encrypted persistence, bootstrap validation, and sign-out. Renderers may receive validated user snapshots and request short-lived access tokens through sender-validated IPC; they must never store or receive refresh tokens.
+
+The Go process must authenticate to PostgreSQL directly as `orion_backend`; startup verifies both `session_user` and `current_user`. Do not restore the previous owner credential plus `SET ROLE` pattern.
 
 ## Conventions
 

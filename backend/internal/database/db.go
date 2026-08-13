@@ -1,14 +1,10 @@
 package database
 
 import (
-	"context"
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
 	"net/url"
 	"os"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -18,40 +14,12 @@ type DB struct {
 	*sql.DB
 }
 
-var postgresIdentifier = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+const backendDatabaseRole = "orion_backend"
 
-type roleConnector struct {
-	base driver.Connector
-	role string
-}
-
-func (c *roleConnector) Connect(ctx context.Context) (driver.Conn, error) {
-	connection, err := c.base.Connect(ctx)
-	if err != nil {
-		return nil, err
-	}
-	statement, err := connection.Prepare("SET ROLE " + c.role)
-	if err != nil {
-		connection.Close()
-		return nil, err
-	}
-	defer statement.Close()
-	if _, err := statement.Exec(nil); err != nil {
-		connection.Close()
-		return nil, err
-	}
-	return connection, nil
-}
-
-func (c *roleConnector) Driver() driver.Driver { return c.base.Driver() }
-
-func connectionString(rawURL, role string) (string, error) {
+func connectionString(rawURL string) (string, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("DATABASE_URL must be a valid PostgreSQL URL")
-	}
-	if role == "" || !postgresIdentifier.MatchString(role) {
-		return "", fmt.Errorf("DATABASE_ROLE must be a valid PostgreSQL identifier")
 	}
 
 	query := parsed.Query()
@@ -67,11 +35,7 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 
-	role := strings.TrimSpace(os.Getenv("DATABASE_ROLE"))
-	if role == "" {
-		role = "orion_backend"
-	}
-	dbURL, err := connectionString(dbURL, role)
+	dbURL, err := connectionString(dbURL)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +44,7 @@ func New() (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	db := sql.OpenDB(&roleConnector{base: baseConnector, role: role})
+	db := sql.OpenDB(baseConnector)
 
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
@@ -91,14 +55,19 @@ func New() (*DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	var currentRole string
-	if err := db.QueryRow("select current_user").Scan(&currentRole); err != nil {
+	var sessionRole, currentRole string
+	if err := db.QueryRow("select session_user, current_user").Scan(&sessionRole, &currentRole); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to verify database role: %w", err)
 	}
-	if currentRole != role {
+	if sessionRole != backendDatabaseRole || currentRole != backendDatabaseRole {
 		db.Close()
-		return nil, fmt.Errorf("database role mismatch: expected %q, got %q", role, currentRole)
+		return nil, fmt.Errorf(
+			"DATABASE_URL must authenticate directly as %q (session_user=%q, current_user=%q)",
+			backendDatabaseRole,
+			sessionRole,
+			currentRole,
+		)
 	}
 
 	return &DB{db}, nil

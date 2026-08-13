@@ -12,22 +12,14 @@ import (
 
 const principalContextKey = "authPrincipal"
 
-const (
-	authHeaderMissingCode = "auth_header_missing"
-	authHeaderInvalidCode = "auth_header_invalid"
-)
-
-// FirebaseAuthMiddleware resolves one verified, active application principal.
-// A Firebase token alone is never sufficient to authenticate an Orion request.
-func FirebaseAuthMiddleware(service *orionauth.PrincipalService) gin.HandlerFunc {
+func AuthMiddleware(service *orionauth.PrincipalService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		idToken, code, message := bearerToken(c.GetHeader("Authorization"))
+		accessToken, code, message := BearerToken(c.GetHeader("Authorization"))
 		if code != "" {
 			writeAuthError(c, http.StatusUnauthorized, code, message)
 			return
 		}
-
-		principal, err := service.Resolve(idToken)
+		principal, err := service.Resolve(c.Request.Context(), accessToken)
 		if err != nil {
 			var principalErr *orionauth.PrincipalError
 			if !errors.As(err, &principalErr) {
@@ -35,16 +27,13 @@ func FirebaseAuthMiddleware(service *orionauth.PrincipalService) gin.HandlerFunc
 				writeAuthError(c, http.StatusServiceUnavailable, string(orionauth.PrincipalServiceUnavailable), "Authentication service is unavailable.")
 				return
 			}
-
-			status := http.StatusUnauthorized
-			if principalErr.Code == orionauth.PrincipalServiceUnavailable {
-				status = http.StatusServiceUnavailable
+			status := orionauth.StatusForPrincipalError(err)
+			if status == http.StatusServiceUnavailable {
 				log.Printf("principal resolution unavailable: %v", principalErr)
 			}
 			writeAuthError(c, status, string(principalErr.Code), principalErr.Message)
 			return
 		}
-
 		c.Set(principalContextKey, principal)
 		c.Next()
 	}
@@ -59,22 +48,17 @@ func GetPrincipal(c *gin.Context) (*orionauth.Principal, bool) {
 	return principal, ok && principal != nil && principal.UserID() != ""
 }
 
-func bearerToken(header string) (token, code, message string) {
+func BearerToken(header string) (token, code, message string) {
 	if strings.TrimSpace(header) == "" {
-		return "", authHeaderMissingCode, "Authentication is required."
+		return "", "auth_header_missing", "Authentication is required."
 	}
-
 	parts := strings.Fields(header)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
-		return "", authHeaderInvalidCode, "Authorization header must use Bearer authentication."
+		return "", "auth_header_invalid", "Authorization header must use Bearer authentication."
 	}
 	return parts[1], "", ""
 }
 
 func writeAuthError(c *gin.Context, status int, code, message string) {
-	c.AbortWithStatusJSON(status, gin.H{
-		"code":    code,
-		"error":   message,
-		"message": message,
-	})
+	c.AbortWithStatusJSON(status, gin.H{"code": code, "error": message, "message": message})
 }
