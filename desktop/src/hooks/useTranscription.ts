@@ -5,8 +5,8 @@ import { startMicCapture, startSystemAudioCapture, type AudioCaptureHandle } fro
 import type { LiveTranscriptSegment } from '@/types/live-insight'
 import { saveTranscriptSegments } from '@/lib/transcript-client'
 import type { TranscriptSegmentPayload } from '@/lib/transcript-client'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 const TRANSCRIPTION_WS_URL = (() => {
   const httpUrl = new URL(`${API_BASE_URL.replace(/\/+$/, '')}/transcription/stream`)
   httpUrl.protocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:'

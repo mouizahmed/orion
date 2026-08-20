@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,17 +13,32 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	orionauth "github.com/mouizahmed/justscribe-backend/internal/auth"
+	"github.com/mouizahmed/justscribe-backend/internal/entitlements"
+	"github.com/mouizahmed/justscribe-backend/internal/repository"
 )
 
 type TranscriptionHandler struct {
 	principalService *orionauth.PrincipalService
+	usageRepository  *repository.AccountUsageRepository
+	vocabularyRepo   *repository.AccountVocabularyRepository
 	hub              *WsHub
 }
 
-func NewTranscriptionHandler(principalService *orionauth.PrincipalService, hub *WsHub) *TranscriptionHandler {
-	return &TranscriptionHandler{principalService: principalService, hub: hub}
+func NewTranscriptionHandler(
+	principalService *orionauth.PrincipalService,
+	usageRepository *repository.AccountUsageRepository,
+	vocabularyRepo *repository.AccountVocabularyRepository,
+	hub *WsHub,
+) *TranscriptionHandler {
+	return &TranscriptionHandler{
+		principalService: principalService,
+		usageRepository:  usageRepository,
+		vocabularyRepo:   vocabularyRepo,
+		hub:              hub,
+	}
 }
 
 var transcriptionUpgrader = websocket.Upgrader{
@@ -37,6 +53,7 @@ const wsPingInterval = 25 * time.Second
 const wsWriteTimeout = 10 * time.Second
 const wsMaximumLifetime = 50 * time.Minute
 const wsRevalidationInterval = time.Minute
+const transcriptionSampleRate = int64(48000)
 
 // Stream authenticates the client and proxies two-channel audio/results through AssemblyAI.
 func (h *TranscriptionHandler) Stream(c *gin.Context) {
@@ -61,12 +78,38 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 		_ = clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 		return
 	}
+	meterLimit, err := entitlements.ResolveMeterLimit(
+		principal.User.Plan,
+		entitlements.MeterTranscriptionSeconds,
+	)
+	if err != nil || h.usageRepository == nil {
+		_ = clientConn.WriteJSON(gin.H{
+			"type":    "error",
+			"code":    "usage_service_unavailable",
+			"message": "Usage authorization is unavailable.",
+		})
+		_ = clientConn.WriteMessage(
+			websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "usage authorization unavailable"),
+		)
+		return
+	}
+	terms := []string{}
+	if h.vocabularyRepo != nil {
+		vocabulary, vocabularyErr := h.vocabularyRepo.Get(c.Request.Context(), principal.UserID())
+		if vocabularyErr != nil {
+			log.Printf("transcription: vocabulary unavailable; continuing without keyterms")
+		} else {
+			terms = vocabulary.Terms
+		}
+	}
 	_ = clientConn.WriteJSON(gin.H{"type": "auth_ok"})
 	var clientWriteMu sync.Mutex
+	var entitlementMu sync.RWMutex
 	h.hub.Register(principal.UserID(), clientConn, &clientWriteMu)
 	defer h.hub.Unregister(principal.UserID(), clientConn)
 
-	assemblyConns, err := dialAssemblyAIChannels(key, 2)
+	assemblyConns, err := dialAssemblyAIChannels(key, terms, 2)
 	if err != nil {
 		_ = clientConn.WriteJSON(gin.H{"type": "error", "message": "failed to connect transcription provider"})
 		return
@@ -95,6 +138,60 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	for i := range channelTurns {
 		channelTurns[i] = map[int]assemblyTurnState{}
 	}
+	usageOperationKey := uuid.NewString()
+	var usagePeriod entitlements.UsagePeriod
+	var receivedFrames int64
+	var authorizedSeconds int64
+	authorizeAudio := func(frameCount int64) error {
+		entitlementMu.RLock()
+		currentLimit := meterLimit
+		entitlementMu.RUnlock()
+
+		currentPeriod, periodErr := entitlements.PeriodFor(currentLimit, time.Now())
+		if periodErr != nil {
+			return newWSAuthError(
+				"usage_service_unavailable",
+				"Usage authorization is unavailable.",
+				periodErr,
+			)
+		}
+		if usagePeriod.StartedAt.IsZero() || !usagePeriod.StartedAt.Equal(currentPeriod.StartedAt) {
+			usagePeriod = currentPeriod
+			receivedFrames = 0
+			authorizedSeconds = 0
+		}
+
+		nextReceivedFrames := receivedFrames + frameCount
+		requestedSeconds := (nextReceivedFrames + transcriptionSampleRate - 1) / transcriptionSampleRate
+		if requestedSeconds > authorizedSeconds {
+			consumption, consumeErr := h.usageRepository.Consume(
+				context.Background(),
+				principal.UserID(),
+				entitlements.MeterTranscriptionSeconds,
+				usagePeriod,
+				usageOperationKey,
+				requestedSeconds,
+				currentLimit.IncludedQuantity,
+			)
+			if consumeErr != nil {
+				return newWSAuthError(
+					"usage_service_unavailable",
+					"Usage authorization is unavailable.",
+					consumeErr,
+				)
+			}
+			if !consumption.Allowed {
+				return newWSAuthError(
+					"usage_limit_exceeded",
+					"Your monthly transcription allowance has been used.",
+					nil,
+				)
+			}
+			authorizedSeconds = requestedSeconds
+		}
+		receivedFrames = nextReceivedFrames
+		return nil
+	}
 	sendAudioToAssembly := func(payload []byte) error {
 		if len(payload) == 0 {
 			for i, conn := range assemblyConns {
@@ -107,6 +204,9 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 
 		ch0, ch1, err := splitInterleavedStereoPCM16(payload)
 		if err != nil {
+			return err
+		}
+		if err := authorizeAudio(int64(len(ch0) / 2)); err != nil {
 			return err
 		}
 		if len(ch0) > 0 {
@@ -192,10 +292,26 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 					return
 				}
 			case <-revalidate.C:
-				if _, authErr := h.principalService.Resolve(context.Background(), token); authErr != nil {
+				refreshedPrincipal, authErr := h.principalService.Resolve(context.Background(), token)
+				if authErr != nil {
 					errCh <- authErr
 					return
 				}
+				refreshedLimit, limitErr := entitlements.ResolveMeterLimit(
+					refreshedPrincipal.User.Plan,
+					entitlements.MeterTranscriptionSeconds,
+				)
+				if limitErr != nil {
+					errCh <- newWSAuthError(
+						"usage_service_unavailable",
+						"Usage authorization is unavailable.",
+						limitErr,
+					)
+					return
+				}
+				entitlementMu.Lock()
+				meterLimit = refreshedLimit
+				entitlementMu.Unlock()
 			case <-expires.C:
 				errCh <- newWSAuthError("auth_reauthentication_required", "Authentication must be renewed.", nil)
 				return
@@ -204,6 +320,15 @@ func (h *TranscriptionHandler) Stream(c *gin.Context) {
 	}()
 
 	terminationErr := <-errCh
+	var usageErr *wsAuthError
+	if errors.As(terminationErr, &usageErr) &&
+		(usageErr.Code == "usage_limit_exceeded" || usageErr.Code == "usage_service_unavailable") {
+		_ = writeWSJSON(clientConn, &clientWriteMu, gin.H{
+			"type":    "error",
+			"code":    usageErr.Code,
+			"message": usageErr.Message,
+		})
+	}
 	closeCode, closeReason := wsCloseForError(terminationErr)
 	_ = writeWSMessage(clientConn, &clientWriteMu, websocket.CloseMessage, websocket.FormatCloseMessage(closeCode, closeReason))
 }
@@ -256,7 +381,7 @@ type providerResponse struct {
 	Channel      providerChannel `json:"channel"`
 }
 
-func dialAssemblyAIChannels(key string, count int) ([]*websocket.Conn, error) {
+func dialAssemblyAIChannels(key string, terms []string, count int) ([]*websocket.Conn, error) {
 	params := url.Values{}
 	params.Set("sample_rate", "48000")
 	params.Set("encoding", "pcm_s16le")
@@ -266,6 +391,13 @@ func dialAssemblyAIChannels(key string, count int) ([]*websocket.Conn, error) {
 	params.Set("max_turn_silence", "1800")
 	params.Set("end_of_turn_confidence_threshold", "0.4")
 	params.Set("inactivity_timeout", "3600")
+	if len(terms) > 0 {
+		encodedTerms, err := json.Marshal(terms)
+		if err != nil {
+			return nil, fmt.Errorf("encode assemblyai keyterms")
+		}
+		params.Set("keyterms_prompt", string(encodedTerms))
+	}
 
 	assemblyURL := "wss://streaming.assemblyai.com/v3/ws?" + params.Encode()
 	header := http.Header{}
@@ -278,7 +410,7 @@ func dialAssemblyAIChannels(key string, count int) ([]*websocket.Conn, error) {
 			for _, opened := range conns {
 				_ = opened.Close()
 			}
-			return nil, fmt.Errorf("dial assemblyai channel %d: %w", i, err)
+			return nil, fmt.Errorf("dial assemblyai channel %d failed", i)
 		}
 		conns = append(conns, conn)
 	}

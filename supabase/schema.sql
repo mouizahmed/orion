@@ -5,6 +5,33 @@
 begin;
 
 drop schema if exists orion_internal cascade;
+create schema orion_internal;
+revoke all on schema orion_internal from public, anon, authenticated;
+
+create function orion_internal.vocabulary_terms_valid(p_terms text[])
+returns boolean
+language sql
+immutable
+strict
+set search_path = ''
+as $$
+  select
+    cardinality(p_terms) <= 100
+    and coalesce(array_ndims(p_terms), 1) = 1
+    and not exists (
+      select 1
+      from unnest(p_terms) as term(value)
+      where term.value is null
+        or term.value = ''
+        or term.value <> btrim(term.value)
+        or length(term.value) > 50
+    )
+    and cardinality(p_terms) = (
+      select count(distinct lower(term.value))
+      from unnest(p_terms) as term(value)
+    )
+$$;
+
 drop table if exists public.note_shares cascade;
 drop table if exists public.note_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
@@ -21,11 +48,18 @@ drop table if exists public.conversations cascade;
 drop table if exists public.notes cascade;
 drop table if exists public.folders cascade;
 drop table if exists public.user_auth_identities cascade;
+drop table if exists public.account_usage_operations cascade;
+drop table if exists public.account_usage_periods cascade;
+drop table if exists public.account_plan_changes cascade;
+drop table if exists public.billing_webhook_events cascade;
+drop table if exists public.subscriptions cascade;
+drop table if exists public.billing_customers cascade;
+drop table if exists public.account_vocabulary cascade;
+drop table if exists public.accounts cascade;
 drop table if exists public.users cascade;
-drop type if exists public.user_plan cascade;
+drop type if exists public.user_plan;
 drop type if exists public.user_status cascade;
 
-create type public.user_plan as enum ('free', 'professional', 'business');
 create type public.user_status as enum ('active', 'suspended', 'deleted');
 
 create table public.users (
@@ -33,9 +67,6 @@ create table public.users (
   email text not null,
   name text not null,
   avatar_url text,
-  plan public.user_plan not null default 'free',
-  api_quota_used integer not null default 0 check (api_quota_used >= 0),
-  api_quota_limit integer not null default 1000 check (api_quota_limit >= 0),
   status public.user_status not null default 'active',
   email_verified boolean not null default false,
   created_at timestamptz not null default now(),
@@ -49,6 +80,297 @@ create table public.users (
   )
 );
 create index users_normalized_email_idx on public.users (lower(btrim(email)));
+
+create table public.accounts (
+  id uuid primary key references public.users(id) on delete cascade,
+  effective_plan_key text not null default 'free',
+  plan_source text not null default 'default',
+  plan_valid_until timestamptz,
+  plan_changed_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint accounts_effective_plan_key_not_blank check (btrim(effective_plan_key) <> ''),
+  constraint accounts_plan_source_valid check (
+    plan_source in ('default', 'subscription', 'promotion', 'admin')
+  )
+);
+
+-- Provider-neutral spelling hints owned by an account. Provider-specific
+-- prompting syntax is assembled only at the backend integration boundary.
+create table public.account_vocabulary (
+  account_id uuid primary key references public.accounts(id) on delete cascade,
+  terms text[] not null default '{}'::text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_vocabulary_terms_valid check (
+    orion_internal.vocabulary_terms_valid(terms)
+  )
+);
+
+create table public.account_plan_changes (
+  id bigint generated always as identity primary key,
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  previous_plan_key text,
+  new_plan_key text not null,
+  source text not null,
+  source_reference text,
+  changed_by_user_id uuid references public.users(id) on delete set null,
+  reason text,
+  changed_at timestamptz not null default now(),
+  constraint account_plan_changes_previous_plan_key_not_blank check (
+    previous_plan_key is null or btrim(previous_plan_key) <> ''
+  ),
+  constraint account_plan_changes_new_plan_key_not_blank check (
+    btrim(new_plan_key) <> ''
+  ),
+  constraint account_plan_changes_plan_changed check (
+    previous_plan_key is distinct from new_plan_key
+  ),
+  constraint account_plan_changes_source_valid check (
+    source in ('default', 'subscription', 'promotion', 'admin', 'reconciliation')
+  )
+);
+create index account_plan_changes_account_idx
+  on public.account_plan_changes (account_id, changed_at desc, id desc);
+create index account_plan_changes_changed_by_user_idx
+  on public.account_plan_changes (changed_by_user_id)
+  where changed_by_user_id is not null;
+
+create table public.account_usage_periods (
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  meter_key text not null,
+  period_started_at timestamptz not null,
+  period_ends_at timestamptz not null,
+  consumed_quantity bigint not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (account_id, meter_key, period_started_at),
+  constraint account_usage_periods_meter_key_valid check (
+    meter_key = btrim(meter_key)
+    and meter_key <> ''
+    and length(meter_key) <= 64
+  ),
+  constraint account_usage_periods_period_valid check (
+    period_ends_at > period_started_at
+  ),
+  constraint account_usage_periods_consumed_quantity_valid check (
+    consumed_quantity >= 0
+  )
+);
+create index account_usage_periods_active_lookup_idx
+  on public.account_usage_periods (account_id, meter_key, period_ends_at desc);
+
+-- Mutable operation totals are retained only with their usage period. They are
+-- deduplication state, not an immutable or customer-facing usage-event ledger.
+create table public.account_usage_operations (
+  account_id uuid not null,
+  meter_key text not null,
+  period_started_at timestamptz not null,
+  operation_key text not null,
+  consumed_quantity bigint not null default 0,
+  period_consumed_after bigint not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (account_id, meter_key, period_started_at, operation_key),
+  foreign key (account_id, meter_key, period_started_at)
+    references public.account_usage_periods(account_id, meter_key, period_started_at)
+    on delete cascade,
+  constraint account_usage_operations_operation_key_valid check (
+    operation_key = btrim(operation_key)
+    and operation_key <> ''
+    and length(operation_key) <= 200
+  ),
+  constraint account_usage_operations_consumed_quantity_valid check (
+    consumed_quantity >= 0
+  ),
+  constraint account_usage_operations_period_consumed_after_valid check (
+    period_consumed_after >= consumed_quantity
+  )
+);
+
+-- Provider customer identities are billing integration state, not account
+-- entitlement state. Runtime access is limited to the billing repository.
+create table public.billing_customers (
+  id bigint generated always as identity primary key,
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  provider text not null default 'stripe',
+  provider_customer_id text not null,
+  livemode boolean not null,
+  provider_created_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz,
+  constraint billing_customers_provider_valid check (provider = 'stripe'),
+  constraint billing_customers_provider_customer_id_valid check (
+    provider_customer_id = btrim(provider_customer_id)
+    and provider_customer_id <> ''
+    and length(provider_customer_id) <= 255
+  ),
+  constraint billing_customers_account_provider_mode_key
+    unique (account_id, provider, livemode),
+  constraint billing_customers_provider_customer_mode_key
+    unique (provider, provider_customer_id, livemode)
+);
+
+-- Local projection and history of provider subscription state. Stripe remains
+-- authoritative; the backend may only select, insert, and update projections.
+create table public.subscriptions (
+  id bigint generated always as identity primary key,
+  billing_customer_id bigint not null
+    references public.billing_customers(id) on delete cascade,
+  provider_subscription_id text not null,
+  provider_subscription_item_id text not null,
+  provider_price_id text not null,
+  provider_latest_invoice_id text,
+  plan_key text not null,
+  status text not null,
+  is_current boolean not null default true,
+  current_period_started_at timestamptz,
+  current_period_ends_at timestamptz,
+  trial_started_at timestamptz,
+  trial_ends_at timestamptz,
+  cancel_at_period_end boolean not null default false,
+  cancel_at timestamptz,
+  canceled_at timestamptz,
+  ended_at timestamptz,
+  provider_created_at timestamptz not null,
+  last_synced_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint subscriptions_provider_subscription_id_valid check (
+    provider_subscription_id = btrim(provider_subscription_id)
+    and provider_subscription_id <> ''
+    and length(provider_subscription_id) <= 255
+  ),
+  constraint subscriptions_provider_subscription_item_id_valid check (
+    provider_subscription_item_id = btrim(provider_subscription_item_id)
+    and provider_subscription_item_id <> ''
+    and length(provider_subscription_item_id) <= 255
+  ),
+  constraint subscriptions_provider_price_id_valid check (
+    provider_price_id = btrim(provider_price_id)
+    and provider_price_id <> ''
+    and length(provider_price_id) <= 255
+  ),
+  constraint subscriptions_provider_latest_invoice_id_valid check (
+    provider_latest_invoice_id is null
+    or (
+      provider_latest_invoice_id = btrim(provider_latest_invoice_id)
+      and provider_latest_invoice_id <> ''
+      and length(provider_latest_invoice_id) <= 255
+    )
+  ),
+  constraint subscriptions_plan_key_valid check (
+    plan_key = btrim(plan_key)
+    and plan_key <> ''
+    and length(plan_key) <= 64
+  ),
+  constraint subscriptions_status_valid check (status in (
+    'incomplete',
+    'incomplete_expired',
+    'trialing',
+    'active',
+    'past_due',
+    'canceled',
+    'unpaid',
+    'paused'
+  )),
+  constraint subscriptions_customer_provider_subscription_key
+    unique (billing_customer_id, provider_subscription_id),
+  constraint subscriptions_current_period_valid check (
+    current_period_started_at is null
+    or current_period_ends_at is null
+    or current_period_ends_at > current_period_started_at
+  ),
+  constraint subscriptions_trial_period_valid check (
+    trial_started_at is null
+    or trial_ends_at is null
+    or trial_ends_at > trial_started_at
+  )
+);
+create index subscriptions_customer_history_idx
+  on public.subscriptions (billing_customer_id, provider_created_at desc);
+create unique index subscriptions_one_current_per_customer_idx
+  on public.subscriptions (billing_customer_id)
+  where is_current;
+
+-- Durable receipt inbox for verified provider events. Only the backend can
+-- receive, process, retain, and purge verified Stripe event payloads.
+create table public.billing_webhook_events (
+  id bigint generated always as identity primary key,
+  provider text not null default 'stripe',
+  provider_event_id text not null,
+  event_type text not null,
+  livemode boolean not null,
+  provider_created_at timestamptz not null,
+  payload jsonb not null,
+  processing_status text not null default 'pending',
+  attempt_count integer not null default 0,
+  next_attempt_at timestamptz,
+  processing_started_at timestamptz,
+  processed_at timestamptz,
+  last_error text,
+  purge_after timestamptz not null,
+  received_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint billing_webhook_events_provider_valid check (provider = 'stripe'),
+  constraint billing_webhook_events_provider_event_id_valid check (
+    provider_event_id = btrim(provider_event_id)
+    and provider_event_id <> ''
+    and length(provider_event_id) <= 255
+  ),
+  constraint billing_webhook_events_event_type_valid check (
+    event_type = btrim(event_type)
+    and event_type <> ''
+    and length(event_type) <= 255
+  ),
+  constraint billing_webhook_events_payload_valid check (
+    jsonb_typeof(payload) = 'object'
+  ),
+  constraint billing_webhook_events_processing_status_valid check (
+    processing_status in ('pending', 'processing', 'processed', 'failed', 'ignored')
+  ),
+  constraint billing_webhook_events_attempt_count_valid check (attempt_count >= 0),
+  constraint billing_webhook_events_processing_started_at_valid check (
+    processing_started_at is null or processing_started_at >= received_at
+  ),
+  constraint billing_webhook_events_processed_at_valid check (
+    processed_at is null or processed_at >= received_at
+  ),
+  constraint billing_webhook_events_last_error_valid check (
+    last_error is null or last_error in ('subscription_sync_failed')
+  ),
+  constraint billing_webhook_events_purge_after_valid check (
+    purge_after > received_at
+  ),
+  constraint billing_webhook_events_provider_event_key
+    unique (provider, provider_event_id)
+);
+create index billing_webhook_events_pending_idx
+  on public.billing_webhook_events (next_attempt_at, received_at)
+  where processing_status in ('pending', 'failed');
+
+insert into public.accounts (id)
+select id
+from public.users
+where status = 'active' and deleted_at is null;
+
+insert into public.account_plan_changes (
+  account_id,
+  previous_plan_key,
+  new_plan_key,
+  source,
+  reason,
+  changed_at
+)
+select
+  id,
+  null,
+  effective_plan_key,
+  plan_source,
+  'Initial account state',
+  plan_changed_at
+from public.accounts;
 
 create table public.folders (
   id uuid primary key default gen_random_uuid(),
@@ -311,13 +633,15 @@ create index conversations_summary_message_idx on public.conversations (summary_
 create index transcript_segments_note_idx on public.transcript_segments (note_id, segment_index);
 create index messages_conversation_created_idx on public.messages (conversation_id, created_at);
 
--- Defense in depth: even table owners must respect RLS if a future policy is
--- introduced. No policies exist because application access is backend-only.
+-- Defense in depth: even table owners must respect RLS. There are no client
+-- policies; only the dedicated backend role receives application-data access.
 do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','folders','integration_connections',
+    'users','accounts','account_vocabulary','account_plan_changes','account_usage_periods',
+    'account_usage_operations','billing_customers','subscriptions',
+    'billing_webhook_events','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_attendees','note_shares','conversations','messages'
@@ -340,9 +664,6 @@ end $$;
 -- This deliberately tiny security-definer function lets only the backend
 -- confirm that the token's session_id still exists, without granting it broad
 -- access to the managed auth schema.
-create schema orion_internal;
-revoke all on schema orion_internal from public, anon, authenticated;
-
 create function orion_internal.is_auth_session_active(
   p_user_id uuid,
   p_session_id uuid
@@ -362,10 +683,253 @@ as $$
   )
 $$;
 
+-- Atomically creates/locks a usage period, applies only the unconsumed part of
+-- a cumulative operation total, enforces the trusted backend-supplied limit,
+-- and returns a stable result for exact retries. Static limits deliberately
+-- remain in backend code rather than being copied into usage rows.
+create function orion_internal.consume_account_usage(
+  p_account_id uuid,
+  p_meter_key text,
+  p_period_started_at timestamptz,
+  p_period_ends_at timestamptz,
+  p_operation_key text,
+  p_operation_total_quantity bigint,
+  p_effective_limit bigint
+)
+returns table (
+  allowed boolean,
+  period_consumed_quantity bigint,
+  limit_quantity bigint,
+  operation_consumed_quantity bigint,
+  replayed boolean
+)
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $$
+declare
+  v_now timestamptz := now();
+  v_existing_period_end timestamptz;
+  v_previous_operation_quantity bigint;
+  v_previous_period_result bigint;
+  v_delta bigint;
+  v_period_consumed bigint;
+begin
+  if p_account_id is null then
+    raise exception using errcode = '22023', message = 'account_id is required';
+  end if;
+  if p_meter_key is null
+    or p_meter_key <> btrim(p_meter_key)
+    or p_meter_key = ''
+    or length(p_meter_key) > 64 then
+    raise exception using errcode = '22023', message = 'meter_key is invalid';
+  end if;
+  if p_operation_key is null
+    or p_operation_key <> btrim(p_operation_key)
+    or p_operation_key = ''
+    or length(p_operation_key) > 200 then
+    raise exception using errcode = '22023', message = 'operation_key is invalid';
+  end if;
+  if p_period_started_at is null
+    or p_period_ends_at is null
+    or p_period_ends_at <= p_period_started_at then
+    raise exception using errcode = '22023', message = 'usage period is invalid';
+  end if;
+  if p_operation_total_quantity is null or p_operation_total_quantity <= 0 then
+    raise exception using errcode = '22023', message = 'operation total must be positive';
+  end if;
+  if p_effective_limit is null or p_effective_limit < 0 then
+    raise exception using errcode = '22023', message = 'effective limit must be nonnegative';
+  end if;
+  if not exists (
+    select 1
+    from public.accounts as account
+    join public.users as app_user on app_user.id = account.id
+    where account.id = p_account_id
+      and app_user.status = 'active'
+      and app_user.deleted_at is null
+  ) then
+    raise exception using errcode = '23503', message = 'active account does not exist';
+  end if;
+
+  insert into public.account_usage_periods (
+    account_id,
+    meter_key,
+    period_started_at,
+    period_ends_at
+  ) values (
+    p_account_id,
+    p_meter_key,
+    p_period_started_at,
+    p_period_ends_at
+  )
+  on conflict (account_id, meter_key, period_started_at) do nothing;
+
+  select usage_period.period_ends_at
+  into strict v_existing_period_end
+  from public.account_usage_periods as usage_period
+  where usage_period.account_id = p_account_id
+    and usage_period.meter_key = p_meter_key
+    and usage_period.period_started_at = p_period_started_at
+  for update;
+
+  if v_existing_period_end is distinct from p_period_ends_at then
+    raise exception using errcode = '22023', message = 'usage period end does not match';
+  end if;
+
+  insert into public.account_usage_operations (
+    account_id,
+    meter_key,
+    period_started_at,
+    operation_key
+  ) values (
+    p_account_id,
+    p_meter_key,
+    p_period_started_at,
+    p_operation_key
+  )
+  on conflict (account_id, meter_key, period_started_at, operation_key) do nothing;
+
+  select
+    usage_operation.consumed_quantity,
+    usage_operation.period_consumed_after
+  into strict
+    v_previous_operation_quantity,
+    v_previous_period_result
+  from public.account_usage_operations as usage_operation
+  where usage_operation.account_id = p_account_id
+    and usage_operation.meter_key = p_meter_key
+    and usage_operation.period_started_at = p_period_started_at
+    and usage_operation.operation_key = p_operation_key
+  for update;
+
+  if p_operation_total_quantity < v_previous_operation_quantity then
+    raise exception using errcode = '22023', message = 'operation total cannot decrease';
+  end if;
+
+  v_delta := p_operation_total_quantity - v_previous_operation_quantity;
+  if v_delta = 0 then
+    return query select
+      true,
+      v_previous_period_result,
+      p_effective_limit,
+      v_previous_operation_quantity,
+      true;
+    return;
+  end if;
+
+  update public.account_usage_periods as usage_period
+  set
+    consumed_quantity = usage_period.consumed_quantity + v_delta,
+    updated_at = v_now
+  where usage_period.account_id = p_account_id
+    and usage_period.meter_key = p_meter_key
+    and usage_period.period_started_at = p_period_started_at
+    and usage_period.consumed_quantity <= p_effective_limit - v_delta
+  returning usage_period.consumed_quantity into v_period_consumed;
+
+  if not found then
+    select usage_period.consumed_quantity
+    into strict v_period_consumed
+    from public.account_usage_periods as usage_period
+    where usage_period.account_id = p_account_id
+      and usage_period.meter_key = p_meter_key
+      and usage_period.period_started_at = p_period_started_at;
+
+    return query select
+      false,
+      v_period_consumed,
+      p_effective_limit,
+      v_previous_operation_quantity,
+      false;
+    return;
+  end if;
+
+  update public.account_usage_operations as usage_operation
+  set
+    consumed_quantity = p_operation_total_quantity,
+    period_consumed_after = v_period_consumed,
+    updated_at = v_now
+  where usage_operation.account_id = p_account_id
+    and usage_operation.meter_key = p_meter_key
+    and usage_operation.period_started_at = p_period_started_at
+    and usage_operation.operation_key = p_operation_key;
+
+  return query select
+    true,
+    v_period_consumed,
+    p_effective_limit,
+    p_operation_total_quantity,
+    false;
+end
+$$;
+
+-- Expired temporary overrides fail closed unless a verified, mode-matched
+-- current subscription projection still grants access. Reconciliation later
+-- materializes the same subscription state back into public.accounts.
+create function orion_internal.resolve_account_plan(
+  p_account_id uuid,
+  p_billing_enabled boolean,
+  p_livemode boolean
+)
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select case
+    when account.plan_valid_until is null or account.plan_valid_until > now()
+      then account.effective_plan_key
+    when account.plan_source not in ('promotion', 'admin') or not p_billing_enabled
+      then 'free'
+    else coalesce((
+      select subscription.plan_key
+      from public.billing_customers as customer
+      join public.subscriptions as subscription
+        on subscription.billing_customer_id = customer.id
+       and subscription.is_current
+      where customer.account_id = account.id
+        and customer.provider = 'stripe'
+        and customer.livemode = p_livemode
+        and customer.deleted_at is null
+        and (
+          (subscription.status = 'trialing' and
+            least(subscription.trial_ends_at, subscription.cancel_at) > now())
+          or
+          (subscription.status = 'active' and
+            least(subscription.current_period_ends_at, subscription.cancel_at) > now())
+          or
+          (subscription.status = 'past_due' and
+            subscription.current_period_started_at + interval '72 hours' > now())
+        )
+      order by subscription.provider_created_at desc
+      limit 1
+    ), 'free')
+  end
+  from public.accounts as account
+  where account.id = p_account_id
+$$;
+
 revoke all on function orion_internal.is_auth_session_active(uuid, uuid)
   from public, anon, authenticated;
 grant usage on schema orion_internal to orion_backend;
+revoke all on function orion_internal.vocabulary_terms_valid(text[])
+  from public, anon, authenticated;
+grant execute on function orion_internal.vocabulary_terms_valid(text[])
+  to orion_backend;
 grant execute on function orion_internal.is_auth_session_active(uuid, uuid)
+  to orion_backend;
+revoke all on function orion_internal.consume_account_usage(
+  uuid, text, timestamptz, timestamptz, text, bigint, bigint
+) from public, anon, authenticated;
+grant execute on function orion_internal.consume_account_usage(
+  uuid, text, timestamptz, timestamptz, text, bigint, bigint
+) to orion_backend;
+revoke all on function orion_internal.resolve_account_plan(uuid, boolean, boolean)
+  from public, anon, authenticated;
+grant execute on function orion_internal.resolve_account_plan(uuid, boolean, boolean)
   to orion_backend;
 
 revoke all on schema public from public, anon, authenticated;
@@ -373,7 +937,27 @@ revoke all on all tables in schema public from public, anon, authenticated;
 revoke all on all sequences in schema public from public, anon, authenticated;
 grant usage on schema public to orion_backend;
 grant select, insert, update, delete on all tables in schema public to orion_backend;
-grant usage, select on all sequences in schema public to orion_backend;
+grant usage on all sequences in schema public to orion_backend;
+revoke all on table public.accounts from orion_backend;
+grant select, insert, update on table public.accounts to orion_backend;
+revoke all on table public.account_vocabulary from orion_backend;
+grant select, insert, update on table public.account_vocabulary to orion_backend;
+revoke all on table public.account_plan_changes from orion_backend;
+grant insert on table public.account_plan_changes to orion_backend;
+revoke all on table public.account_usage_periods from orion_backend;
+revoke all on table public.account_usage_operations from orion_backend;
+revoke all on table public.billing_customers from orion_backend;
+grant select, insert on table public.billing_customers to orion_backend;
+revoke all on sequence public.billing_customers_id_seq from orion_backend;
+grant usage on sequence public.billing_customers_id_seq to orion_backend;
+revoke all on table public.subscriptions from orion_backend;
+grant select, insert, update on table public.subscriptions to orion_backend;
+revoke all on sequence public.subscriptions_id_seq from orion_backend;
+grant usage on sequence public.subscriptions_id_seq to orion_backend;
+revoke all on table public.billing_webhook_events from orion_backend;
+grant select, insert, update on table public.billing_webhook_events to orion_backend;
+revoke all on sequence public.billing_webhook_events_id_seq from orion_backend;
+grant usage on sequence public.billing_webhook_events_id_seq to orion_backend;
 -- Set or rotate this LOGIN role's strong password outside tracked SQL, then
 -- configure DATABASE_URL to authenticate directly as it. The backend rejects
 -- owner/admin sessions and does not use SET ROLE.
@@ -395,6 +979,42 @@ begin
   end loop;
 end $$;
 
+create policy backend_select on public.accounts
+  for select to orion_backend using (true);
+create policy backend_insert on public.accounts
+  for insert to orion_backend with check (true);
+create policy backend_update on public.accounts
+  for update to orion_backend using (true) with check (true);
+
+create policy backend_select on public.account_vocabulary
+  for select to orion_backend using (true);
+create policy backend_insert on public.account_vocabulary
+  for insert to orion_backend with check (true);
+create policy backend_update on public.account_vocabulary
+  for update to orion_backend using (true) with check (true);
+
+create policy backend_insert on public.account_plan_changes
+  for insert to orion_backend with check (true);
+
+create policy backend_select on public.billing_customers
+  for select to orion_backend using (true);
+create policy backend_insert on public.billing_customers
+  for insert to orion_backend with check (true);
+
+create policy backend_select on public.subscriptions
+  for select to orion_backend using (true);
+create policy backend_insert on public.subscriptions
+  for insert to orion_backend with check (true);
+create policy backend_update on public.subscriptions
+  for update to orion_backend using (true) with check (true);
+
+create policy backend_insert on public.billing_webhook_events
+  for insert to orion_backend with check (true);
+create policy backend_select on public.billing_webhook_events
+  for select to orion_backend using (true);
+create policy backend_update on public.billing_webhook_events
+  for update to orion_backend using (true) with check (true);
+
 -- service_role stays available for Supabase administration but is not used by
 -- the desktop application. The Go backend authenticates directly as
 -- orion_backend and verifies both session_user and current_user at startup.
@@ -405,7 +1025,7 @@ grant all on all sequences in schema public to service_role;
 alter default privileges in schema public revoke all on tables from public, anon, authenticated;
 alter default privileges in schema public revoke all on sequences from public, anon, authenticated;
 alter default privileges in schema public grant select, insert, update, delete on tables to orion_backend;
-alter default privileges in schema public grant usage, select on sequences to orion_backend;
+alter default privileges in schema public grant usage on sequences to orion_backend;
 alter default privileges in schema orion_internal revoke execute on functions from public;
 
 commit;

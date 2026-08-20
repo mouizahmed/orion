@@ -13,6 +13,7 @@ require (
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/resend/resend-go/v2 v2.28.0
 	github.com/sashabaranov/go-openai v1.41.2
+	github.com/stripe/stripe-go/v86 v86.3.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.21.0
 	google.golang.org/protobuf v1.36.11

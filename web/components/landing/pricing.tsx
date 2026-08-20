@@ -3,44 +3,47 @@
 import { useState } from "react";
 import { Check, Plus } from "lucide-react";
 import { pageContainer, pageHeroSpacing, pageNarrow } from "@/lib/styles";
+import catalogJson from "../../../backend/internal/entitlements/catalog.json";
 
-type Plan = {
+type CatalogPlan = {
+  key: "free" | "professional" | "business";
   name: string;
-  price: string;
-  cents?: string;
-  suffix?: string;
+  includedTranscriptionMinutes: number;
   features: string[];
-  button: string;
+  marketed?: boolean;
 };
 
-const plans: Plan[] = [
-  {
-    name: "Free",
-    price: "$0",
-    suffix: "/month",
-    features: [
-      "200 minutes / month credits",
-      "AI meeting notes and summaries",
-      "Extract custom insights with AI",
-      "Basic integrations (Slack, Gmail, etc)",
-    ],
-    button: "Get started",
-  },
-  {
-    name: "Pro",
-    price: "$8",
-    cents: ".33",
-    suffix: "/month",
-    features: [
-      "1500 minutes / month credits",
-      "Extract custom insights with AI",
-      "Unlimited live suggestions and coaching",
-      "Send pre-readings before meeting",
-      "CRM integration",
-    ],
-    button: "Start trial",
-  },
-];
+type CatalogOffer = {
+  key: "professional_monthly" | "professional_annual";
+  planKey: "professional";
+  currency: "usd";
+  unitAmountCents: number;
+  interval: "month" | "year";
+  trialDays: number;
+};
+
+const catalog = catalogJson as { plans: CatalogPlan[]; offers: CatalogOffer[] };
+const plans = catalog.plans.filter((plan) => plan.marketed !== false && plan.key !== "business");
+function catalogOffer(key: CatalogOffer["key"]) {
+  const offer = catalog.offers.find((candidate) => candidate.key === key);
+  if (!offer) throw new Error(`Product catalog is missing offer ${key}`);
+  return offer;
+}
+const monthlyOffer = catalogOffer("professional_monthly");
+const annualOffer = catalogOffer("professional_annual");
+const annualMonthlyCents = Math.round(annualOffer.unitAmountCents / 12);
+const annualDiscount = Math.round(
+  (1 - annualOffer.unitAmountCents / (monthlyOffer.unitAmountCents * 12)) * 100,
+);
+
+function formatUSD(cents: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+}
 
 export default function Pricing() {
   const [isAnnual, setIsAnnual] = useState(true);
@@ -49,10 +52,10 @@ export default function Pricing() {
     <section id="pricing" className={`relative min-h-screen pb-20 text-white ${pageHeroSpacing}`}>
       <div className={`${pageNarrow} relative mb-12 text-center`}>
         <h1 className="text-5xl font-semibold tracking-tight text-white md:text-6xl">
-          Free for 7 days
+          Free for {annualOffer.trialDays} days
         </h1>
         <p className="mt-5 text-lg font-medium text-zinc-400 md:text-xl">
-          No credit card required. Cancel anytime.
+          Payment method required. Cancel anytime.
         </p>
       </div>
 
@@ -84,7 +87,7 @@ export default function Pricing() {
               <span className={isAnnual ? "text-zinc-100" : "text-zinc-600"}>
                 Yearly
               </span>
-              <span className="text-brand">-20%</span>
+              <span className="text-brand">-{annualDiscount}%</span>
             </div>
           </div>
 
@@ -96,32 +99,28 @@ export default function Pricing() {
                   index % 2 === 0 ? "md:border-r" : ""
                 } ${index === 0 ? "border-b md:border-b-0" : ""}`}
               >
-                <h2 className="text-lg font-bold text-zinc-700">{plan.name}</h2>
+                <h2 className="text-lg font-bold text-zinc-400">{plan.name}</h2>
 
                 <div className="mt-7 flex items-end">
-                  {plan.price === "Contact us" ? (
-                    <div className="text-5xl font-semibold tracking-tight text-zinc-400">
-                      Contact us
-                    </div>
-                  ) : (
-                    <>
-                      <span className="text-5xl font-semibold tracking-tight text-white">
-                        {plan.price}
-                      </span>
-                      {plan.cents && (
-                        <span className="pb-1 text-3xl font-semibold text-zinc-400">
-                          {plan.cents}
-                        </span>
-                      )}
-                      <span className="pb-2 text-base font-semibold text-zinc-700">
-                        {plan.suffix}
-                      </span>
-                    </>
-                  )}
+                  <span className="text-5xl font-semibold tracking-tight text-white">
+                    {plan.key === "free"
+                      ? "$0"
+                      : isAnnual
+                        ? formatUSD(annualMonthlyCents)
+                        : formatUSD(monthlyOffer.unitAmountCents)}
+                  </span>
+                  <span className="pb-2 text-base font-semibold text-zinc-500">/month</span>
                 </div>
+                {plan.key === "professional" ? (
+                  <p className="mt-2 text-sm font-medium text-zinc-500">
+                    {isAnnual
+                      ? `${formatUSD(annualOffer.unitAmountCents)} billed annually`
+                      : `${formatUSD(monthlyOffer.unitAmountCents)} billed monthly`}
+                  </p>
+                ) : null}
 
                 <ul className="mt-7 space-y-3 text-sm font-semibold">
-                  {plan.features.map((feature, featureIndex) => (
+                  {[`${plan.includedTranscriptionMinutes.toLocaleString()} transcription minutes each month`, ...plan.features].map((feature, featureIndex) => (
                     <li key={feature} className="flex items-start gap-2">
                       <span
                         className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${
@@ -142,7 +141,7 @@ export default function Pricing() {
                 </ul>
 
                 <button className="mt-auto h-[52px] rounded-md bg-zinc-100 text-sm font-semibold text-zinc-950 transition hover:bg-white">
-                  {plan.button}
+                  {plan.key === "free" ? "Get started" : "Start trial"}
                 </button>
               </article>
             ))}

@@ -4,20 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	orionauth "github.com/mouizahmed/justscribe-backend/internal/auth"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
+	"github.com/mouizahmed/justscribe-backend/internal/entitlements"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 )
 
 type UserRepository struct {
-	db *database.DB
+	db              *database.DB
+	billingEnabled  bool
+	billingLivemode bool
 }
 
-func NewUserRepository(db *database.DB) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *database.DB, billingEnabled, billingLivemode bool) *UserRepository {
+	return &UserRepository{db: db, billingEnabled: billingEnabled, billingLivemode: billingLivemode}
 }
 
 // IsAuthSessionActive gives the backend an immediate logout guarantee without
@@ -85,15 +89,65 @@ func (r *UserRepository) EnsureUserFromAuth(ctx context.Context, authUser *orion
 			return nil, false, fmt.Errorf("refresh application user identity data: %w", err)
 		}
 	}
+	accountCreated := false
+	result, err = tx.ExecContext(ctx, `
+		INSERT INTO accounts (id)
+		SELECT id FROM users
+		WHERE id=$1 AND status='active' AND deleted_at IS NULL
+		ON CONFLICT (id) DO NOTHING
+	`, authUser.ID)
+	if err != nil {
+		return nil, false, fmt.Errorf("provision application account: %w", err)
+	}
+	rows, err = result.RowsAffected()
+	if err != nil {
+		return nil, false, fmt.Errorf("confirm application account: %w", err)
+	}
+	accountCreated = rows == 1
+	if accountCreated {
+		result, err = tx.ExecContext(ctx, `
+			INSERT INTO account_plan_changes (
+				account_id,
+				previous_plan_key,
+				new_plan_key,
+				source,
+				reason,
+				changed_at
+			)
+			SELECT id,NULL,effective_plan_key,plan_source,$2,plan_changed_at
+			FROM accounts
+			WHERE id=$1
+		`, authUser.ID, "Initial account state")
+		if err != nil {
+			return nil, false, fmt.Errorf("record initial account plan: %w", err)
+		}
+		rows, err = result.RowsAffected()
+		if err != nil {
+			return nil, false, fmt.Errorf("confirm initial account plan: %w", err)
+		}
+		if rows != 1 {
+			return nil, false, fmt.Errorf("initial account plan was not recorded")
+		}
+	}
+
 	user, err := scanUser(tx.QueryRowContext(ctx, `
-		SELECT id,email,name,avatar_url,plan,status,created_at,updated_at,deleted_at
-		FROM users WHERE id=$1 FOR UPDATE
-	`, authUser.ID))
+		SELECT u.id,u.email,u.name,u.avatar_url,
+			orion_internal.resolve_account_plan(u.id,$2,$3),
+			u.status,u.created_at,u.updated_at,u.deleted_at
+		FROM users u
+		LEFT JOIN accounts a ON a.id=u.id
+		WHERE u.id=$1
+		FOR UPDATE OF u
+	`, authUser.ID, r.billingEnabled, r.billingLivemode))
 	if err != nil {
 		return nil, false, fmt.Errorf("load provisioned user: %w", err)
 	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, false, fmt.Errorf("commit user provisioning: %w", err)
+	}
+	if !created && accountCreated {
+		log.Printf("auth: repaired missing account for active user %s", authUser.ID)
 	}
 	return user, created, nil
 }
@@ -158,9 +212,14 @@ func requireOneUser(result sql.Result, err error, operation string) error {
 
 func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 	user, err := scanUser(r.db.QueryRow(`
-		SELECT id,email,name,avatar_url,plan,status,created_at,updated_at,deleted_at
-		FROM users WHERE id=$1 AND status='active' AND deleted_at IS NULL LIMIT 1
-	`, id))
+		SELECT u.id,u.email,u.name,u.avatar_url,
+			orion_internal.resolve_account_plan(u.id,$2,$3),
+			u.status,u.created_at,u.updated_at,u.deleted_at
+		FROM users u
+		JOIN accounts a ON a.id=u.id
+		WHERE u.id=$1 AND u.status='active' AND u.deleted_at IS NULL
+		LIMIT 1
+	`, id, r.billingEnabled, r.billingLivemode))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("user not found")
 	}
@@ -174,9 +233,14 @@ func (r *UserRepository) GetUserByID(id string) (*models.User, error) {
 // can distinguish a deleted account from a missing application identity.
 func (r *UserRepository) GetUserByIDForAuthentication(id string) (*models.User, error) {
 	user, err := scanUser(r.db.QueryRow(`
-		SELECT id,email,name,avatar_url,plan,status,created_at,updated_at,deleted_at
-		FROM users WHERE id=$1 LIMIT 1
-	`, id))
+		SELECT u.id,u.email,u.name,u.avatar_url,
+			orion_internal.resolve_account_plan(u.id,$2,$3),
+			u.status,u.created_at,u.updated_at,u.deleted_at
+		FROM users u
+		LEFT JOIN accounts a ON a.id=u.id
+		WHERE u.id=$1
+		LIMIT 1
+	`, id, r.billingEnabled, r.billingLivemode))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -188,7 +252,24 @@ func (r *UserRepository) GetUserByIDForAuthentication(id string) (*models.User, 
 
 func scanUser(row interface{ Scan(...interface{}) error }) (*models.User, error) {
 	var user models.User
-	err := row.Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &user.Plan,
+	var effectivePlanKey sql.NullString
+	err := row.Scan(&user.ID, &user.Email, &user.Name, &user.AvatarURL, &effectivePlanKey,
 		&user.Status, &user.CreatedAt, &user.UpdatedAt, &user.DeletedAt)
-	return &user, err
+	if err != nil {
+		return &user, err
+	}
+	if user.Status != models.UserStatusActive || user.DeletedAt != nil {
+		if effectivePlanKey.Valid {
+			user.Plan = models.UserPlan(effectivePlanKey.String)
+		}
+		return &user, nil
+	}
+	if !effectivePlanKey.Valid {
+		return &user, fmt.Errorf("active user is missing an application account")
+	}
+	user.Plan = models.UserPlan(effectivePlanKey.String)
+	if _, err := entitlements.ResolvePlan(user.Plan); err != nil {
+		return &user, fmt.Errorf("resolve effective plan: %w", err)
+	}
+	return &user, nil
 }

@@ -10,7 +10,13 @@ export type AuthResult =
 
 export type AuthStatus = 'initializing' | 'validating' | 'anonymous' | 'oauth-pending' | 'authenticated' | 'service-unavailable' | 'blocked'
 
-export type AuthUser = { id: string; email: string; name: string; picture?: string }
+export type AuthUser = {
+  id: string
+  email: string
+  name: string
+  plan: 'free' | 'professional' | 'business'
+  picture?: string
+}
 
 export type AuthSnapshot = {
   status: AuthStatus

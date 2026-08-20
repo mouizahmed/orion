@@ -22,7 +22,7 @@ type User struct {
 	Email     string     `json:"email" db:"email"`
 	Name      string     `json:"name" db:"name"`
 	AvatarURL *string    `json:"avatar_url" db:"avatar_url"`
-	Plan      UserPlan   `json:"plan" db:"plan"`
+	Plan      UserPlan   `json:"plan" db:"effective_plan_key"`
 	Status    UserStatus `json:"status" db:"status"`
 	CreatedAt time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at" db:"updated_at"`

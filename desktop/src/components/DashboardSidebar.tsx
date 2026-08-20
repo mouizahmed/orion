@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Home, Notebook, Settings, Users } from 'lucide-react'
+import { CalendarDays, Home, Notebook, Settings } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -163,12 +163,6 @@ export default function DashboardSidebar({
             <NavButton
               icon={Notebook}
               label="My Notes"
-              onClick={() => {}}
-              isActive={false}
-            />
-            <NavButton
-              icon={Users}
-              label="Shared with me"
               onClick={() => {}}
               isActive={false}
             />

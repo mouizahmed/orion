@@ -6,6 +6,7 @@ import {
   setupProtocolHandler,
   setupProtocolEvents,
   setAuthCallbackWindow,
+  setBillingWindowRevealHandler,
   setIntegrationWindowRevealHandler,
 } from './protocol-handler'
 import {
@@ -150,6 +151,23 @@ if (!gotTheLock) {
         overlay.hide()
       }
 
+      const dashboard = createDashboardWindow()
+      if (dashboard.isMinimized()) dashboard.restore()
+      dashboard.show()
+      dashboard.focus()
+    })
+    setBillingWindowRevealHandler(() => {
+      if (!isRendererAuthenticated()) {
+        showAuthWindow()
+        return
+      }
+      unregisterKeyboardShortcuts()
+      const overlay = getWindow()
+      if (overlay && !overlay.isDestroyed()) {
+        overlay.setIgnoreMouseEvents(true, { forward: true })
+        overlay.setOpacity(0)
+        overlay.hide()
+      }
       const dashboard = createDashboardWindow()
       if (dashboard.isMinimized()) dashboard.restore()
       dashboard.show()

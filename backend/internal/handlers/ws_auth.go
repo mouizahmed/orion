@@ -20,6 +20,7 @@ const (
 	wsCloseUnauthorized   = 4001
 	wsCloseReauthenticate = 4002
 	wsCloseForbidden      = 4003
+	wsCloseUsageLimit     = 4004
 )
 
 type wsAuthMessage struct {
@@ -94,6 +95,10 @@ func wsCloseForError(err error) (int, string) {
 		switch authErr.Code {
 		case "auth_reauthentication_required":
 			return wsCloseReauthenticate, "reauthentication required"
+		case "usage_limit_exceeded":
+			return wsCloseUsageLimit, "usage limit exceeded"
+		case "usage_service_unavailable":
+			return websocket.CloseTryAgainLater, "usage authorization unavailable"
 		case string(orionauth.PrincipalUserSuspended),
 			string(orionauth.PrincipalUserDeleted),
 			string(orionauth.PrincipalUserInactive):

@@ -1,0 +1,41 @@
+{
+  "plans": [
+    {
+      "key": "free",
+      "name": "Free",
+      "includedTranscriptionMinutes": 200,
+      "features": ["Core notes, transcripts, and integrations"]
+    },
+    {
+      "key": "professional",
+      "name": "Professional",
+      "includedTranscriptionMinutes": 1500,
+      "features": ["Core notes, transcripts, and integrations"]
+    },
+    {
+      "key": "business",
+      "name": "Business",
+      "includedTranscriptionMinutes": 1500,
+      "features": ["Core notes, transcripts, and integrations"],
+      "marketed": false
+    }
+  ],
+  "offers": [
+    {
+      "key": "professional_monthly",
+      "planKey": "professional",
+      "currency": "usd",
+      "unitAmountCents": 1500,
+      "interval": "month",
+      "trialDays": 7
+    },
+    {
+      "key": "professional_annual",
+      "planKey": "professional",
+      "currency": "usd",
+      "unitAmountCents": 14400,
+      "interval": "year",
+      "trialDays": 7
+    }
+  ]
+}

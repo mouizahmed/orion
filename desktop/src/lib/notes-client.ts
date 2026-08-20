@@ -1,7 +1,7 @@
 import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/types/note'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/lib/auth-session'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 type ApiAttendee = {
   name?: string

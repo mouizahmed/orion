@@ -1,29 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 
 type OS = "windows" | "mac" | "linux" | "android" | "ios" | "unknown";
 
 export function useOS() {
-  const [os, setOS] = useState<OS>("unknown");
+  return useSyncExternalStore(
+    () => () => undefined,
+    detectOS,
+    () => "unknown",
+  );
+}
 
-  useEffect(() => {
-    const userAgent = navigator.userAgent.toLowerCase();
-
-    if (userAgent.includes("windows")) {
-      setOS("windows");
-    } else if (userAgent.includes("mac")) {
-      setOS("mac");
-    } else if (userAgent.includes("linux")) {
-      setOS("linux");
-    } else if (userAgent.includes("android")) {
-      setOS("android");
-    } else if (userAgent.includes("iphone") || userAgent.includes("ipad")) {
-      setOS("ios");
-    } else {
-      setOS("unknown");
-    }
-  }, []);
-
-  return os;
+function detectOS(): OS {
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (userAgent.includes("windows")) return "windows";
+  if (userAgent.includes("android")) return "android";
+  if (userAgent.includes("iphone") || userAgent.includes("ipad")) return "ios";
+  if (userAgent.includes("mac")) return "mac";
+  if (userAgent.includes("linux")) return "linux";
+  return "unknown";
 }

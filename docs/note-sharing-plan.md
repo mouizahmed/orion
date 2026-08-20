@@ -1,4 +1,6 @@
-# Note Attendees & Sharing — Phased Plan
+# Note Attendees & Sharing — Historical Phased Plan
+
+> **Status: not authoritative for new execution.** This document reflects the earlier destination-app direction and includes editor roles, app-only invite flows, and collaboration behavior that Orion is now deliberately deferring. The current product direction is defined in [`private-enterprise-strategy.md`](./private-enterprise-strategy.md): initial sharing should be private by default, securely revocable, and view-only. Preserve this document only as implementation history until sharing is redesigned around that narrower scope.
 
 ## Context
 

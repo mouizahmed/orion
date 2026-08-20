@@ -10,10 +10,11 @@ import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { searchAll } from '@/lib/search-client'
 import { desktopApi } from '@/lib/desktop-api'
 import { triggerCalendarSync, resetCalendarSync } from '@/hooks/useCalendarEvents'
+import { useAuth } from '@/contexts/AuthContext'
 import { DropdownItem, DropdownIconSlot, DropdownPopover } from '@/components/ui/dropdown-list'
 import { publicAssetUrl } from '@/lib/public-asset'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 export default function DashboardTopBar({
   onBackToOverlay,
@@ -21,6 +22,7 @@ export default function DashboardTopBar({
   onBackToOverlay: () => void
 }) {
   const isMacOS = desktopApi.platform.current() === 'darwin'
+  const { user } = useAuth()
   const { isMaximized } = useWindowState()
   const {
     folders,
@@ -236,7 +238,7 @@ export default function DashboardTopBar({
     calendarRefreshInFlightRef.current = true
 
     try {
-      triggerCalendarSync()
+      if (user) triggerCalendarSync(user.id)
       const response = await authenticatedFetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
         method: 'POST',
         headers: { Accept: 'application/json' },
@@ -245,7 +247,7 @@ export default function DashboardTopBar({
         throw new Error(`Calendar sync failed: ${response.status}`)
       }
     } catch {
-      resetCalendarSync()
+      if (user) resetCalendarSync(user.id)
     } finally {
       calendarRefreshInFlightRef.current = false
     }

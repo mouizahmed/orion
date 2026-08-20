@@ -4,6 +4,7 @@ import { handleAuthProtocolCallback, isRendererAuthenticated } from './auth-hand
 
 let authCallbackWindow: BrowserWindow | null = null
 let revealIntegrationWindow: (() => void) | null = null
+let revealBillingWindow: (() => void) | null = null
 type IntegrationProvider = 'google' | 'microsoft'
 type ActiveIntegrationOAuth = {
   state: string
@@ -49,6 +50,10 @@ export function setAuthCallbackWindow(win: BrowserWindow | null) {
 
 export function setIntegrationWindowRevealHandler(handler: (() => void) | null) {
   revealIntegrationWindow = handler
+}
+
+export function setBillingWindowRevealHandler(handler: (() => void) | null) {
+  revealBillingWindow = handler
 }
 
 function revealAuthWindow() {
@@ -105,6 +110,25 @@ async function handleProtocolUrl(rawUrl: string) {
   }
   if (parsed.protocol === 'orion:' && parsed.hostname === 'integrations' && parsed.pathname === '/callback') {
     handleIntegrationCallback(parsed)
+    return
+  }
+  if (parsed.protocol === 'orion:' && parsed.hostname === 'billing' && parsed.pathname === '/complete') {
+    handleBillingCallback(parsed)
+  }
+}
+
+function handleBillingCallback(parsed: URL) {
+  if (!isRendererAuthenticated()) return
+  if ([...parsed.searchParams.keys()].some((name) => name !== 'result')) return
+  if (parsed.searchParams.getAll('result').length !== 1) return
+  const result = parsed.searchParams.get('result')
+  if (result !== 'success' && result !== 'cancelled' && result !== 'portal') return
+
+  revealBillingWindow?.()
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('main-process-message', { type: 'billing_state_changed', result })
+    }
   }
 }
 

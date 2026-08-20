@@ -12,6 +12,7 @@ go.work
 go.work.sum
 
 .env
+/backend/cmd/api/.env.billing
 database_design.md
 database_schema.sql
 /backend/cmd/url-extractor

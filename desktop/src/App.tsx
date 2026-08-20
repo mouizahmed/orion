@@ -12,13 +12,13 @@ import { cn } from '@/lib/utils'
 import './App.css'
 import { createNote } from '@/lib/notes-client'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/lib/auth-session'
+import { API_BASE_URL } from '@/lib/api-config'
 import { useTranscription } from '@/hooks/useTranscription'
 import { desktopApi } from '@/lib/desktop-api'
 
 const WINDOW_VERTICAL_PADDING = 0
 const MAX_APP_HEIGHT = 900
 const WINDOW_HORIZONTAL_PADDING = 0
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 const TEMP_BYPASS_MEETING_BACKEND = true
 const OVERLAY_COMPACT_WIDTH = 356
 const OVERLAY_MEETING_COMPACT_WIDTH = 464
@@ -600,4 +600,3 @@ function App() {
 }
 
 export default App
-

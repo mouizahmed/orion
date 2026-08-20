@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, Download, ExternalLink, FileText, KeyRound, Keyboard, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, ExternalLink, KeyRound, Keyboard, LayoutGrid, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,39 +18,26 @@ import {
   SessionExpiredError,
 } from '@/lib/auth-session'
 import { useAuth } from '@/contexts/AuthContext'
+import { useBilling } from '@/contexts/BillingContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
 import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
-import { wsClient } from '@/lib/ws-client'
 import { publicAssetUrl } from '@/lib/public-asset'
+import { API_BASE_URL } from '@/lib/api-config'
+import { billingOffer, billingPlan, formatUSD } from '@/lib/billing-catalog'
+import { useUpdateVocabularyMutation, useVocabularyQuery } from '@/hooks/useVocabularyQuery'
+import { useCalendarSettingsQuery, useCalendarVisibilityMutation } from '@/hooks/useCalendarSettingsQuery'
+import type { ConnectedCalendar, IntegrationConnection } from '@/types/calendar-settings'
+import { queryKeys } from '@/lib/query-keys'
+import {
+  CHECKOUT_OPERATION_LIFETIME_MS,
+  readPendingCheckoutOperation,
+  writePendingCheckoutOperation,
+  type PendingCheckoutOperation,
+} from '@/lib/billing-checkout'
 import { toast } from 'sonner'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
-export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
-
-type ConnectedCalendar = {
-  id: string
-  connection_id: string
-  account_email?: string
-  name: string
-  provider: string
-  color?: string
-  background_color?: string
-  foreground_color?: string
-  primary: boolean
-  selected: boolean
-  visible: boolean
-  access_role?: string
-}
-
-type IntegrationConnection = {
-  id: string
-  provider: 'google' | 'microsoft'
-  provider_email?: string
-  display_name?: string
-  status: 'active' | 'needs_reconnect' | 'disconnected'
-  connected_at: string
-}
+export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
 
 type CalendarIntegrationProvider = Extract<IntegrationProvider, 'google' | 'microsoft'>
 
@@ -84,35 +72,6 @@ const shortcutGroups: ShortcutGroup[] = [
   },
 ]
 
-const billingPlans = [
-  {
-    name: 'Free',
-    price: '$0',
-    suffix: '/month',
-    button: 'Current plan',
-    current: true,
-    features: [
-      '200 minutes / month credits',
-      'AI meeting notes and summaries',
-      'Extract custom insights with AI',
-      'Basic integrations',
-    ],
-  },
-  {
-    name: 'Pro',
-    price: '$8.33',
-    suffix: '/month',
-    button: 'Upgrade',
-    current: false,
-    features: [
-      '1500 minutes / month credits',
-      'Unlimited live suggestions and coaching',
-      'Send pre-readings before meeting',
-      'CRM integration',
-    ],
-  },
-]
-
 const calendarProviderOptions: Array<{
   provider: CalendarIntegrationProvider
   label: string
@@ -122,8 +81,8 @@ const calendarProviderOptions: Array<{
   { provider: 'microsoft', label: 'Outlook', icon: publicAssetUrl('microsoft-outlook-icon.svg') },
 ]
 
-function refreshCalendarViews() {
-  refreshCalendarEvents()
+function refreshCalendarViews(accountID: string | undefined) {
+  if (accountID) refreshCalendarEvents(accountID)
 }
 
 function accountLabel(connection: IntegrationConnection) {
@@ -152,10 +111,6 @@ function calendarProviderIcon(provider: IntegrationConnection['provider'] | Conn
   }
 }
 
-function isCalendarProvider(provider: IntegrationConnection['provider']): provider is CalendarIntegrationProvider {
-  return provider === 'google' || provider === 'microsoft'
-}
-
 function groupCalendarsByConnection(calendars: ConnectedCalendar[]) {
   return calendars.reduce<Record<string, ConnectedCalendar[]>>((groups, calendar) => {
     const key = calendar.connection_id
@@ -169,6 +124,7 @@ const sectionMeta: Record<DashboardSettingsSection, { title: string; icon: typeo
   account: { title: 'Account', icon: User },
   billing: { title: 'Billing', icon: CreditCard },
   calendar: { title: 'Calendar', icon: CalendarDays },
+  connectors: { title: 'Connectors', icon: LayoutGrid },
   vocabulary: { title: 'Vocabulary', icon: SpellCheck },
   extracts: { title: 'Extracts', icon: ScanText },
   emailDraft: { title: 'Email Draft Templates', icon: Mail },
@@ -179,6 +135,33 @@ const sectionMeta: Record<DashboardSettingsSection, { title: string; icon: typeo
 }
 
 const MODIFIER_KEYS = new Set(['Control', 'Shift', 'Alt', 'Meta'])
+const MAX_VOCABULARY_TERMS = 100
+const MAX_VOCABULARY_TERM_LENGTH = 50
+const EMPTY_VOCABULARY_TERMS: string[] = []
+
+function vocabularyTermsEqual(left: string[], right: string[]) {
+  return left.length === right.length && left.every((term, index) => term === right[index])
+}
+
+function mergeVocabularyTerms(current: string[], candidates: string[]) {
+  const terms = [...current]
+  const seen = new Set(current.map((term) => term.toLowerCase()))
+  for (const candidate of candidates) {
+    const term = candidate.trim()
+    if (!term) continue
+    if ([...term].length > MAX_VOCABULARY_TERM_LENGTH) {
+      return { terms: current, error: 'Each vocabulary term must be 50 characters or fewer.' }
+    }
+    const key = term.toLowerCase()
+    if (seen.has(key)) continue
+    if (terms.length >= MAX_VOCABULARY_TERMS) {
+      return { terms: current, error: 'Vocabulary can contain at most 100 terms.' }
+    }
+    seen.add(key)
+    terms.push(term)
+  }
+  return { terms, error: null }
+}
 
 function getKeyLabel(key: string) {
   switch (key) {
@@ -265,134 +248,337 @@ function ToggleSwitch({
   )
 }
 
+const freePlanDefinition = billingPlan('free')
+const professionalPlanDefinition = billingPlan('professional')
+const professionalMonthlyOffer = billingOffer('professional_monthly')
+const professionalAnnualOffer = billingOffer('professional_annual')
+const professionalAnnualMonthlyCents = Math.round(professionalAnnualOffer.unitAmountCents / 12)
+const professionalAnnualDiscount = Math.round(
+  (1 - professionalAnnualOffer.unitAmountCents / (professionalMonthlyOffer.unitAmountCents * 12)) * 100,
+)
+function formatBillingDate(value?: string) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+}
+
+type BillingUsageMeterProps = {
+  label: string
+  used?: number
+  allowance?: number
+  unit: string
+  unlimited?: boolean
+}
+
+function BillingUsageMeter({ label, used = 0, allowance = 0, unit, unlimited = false }: BillingUsageMeterProps) {
+  const percentage = unlimited || allowance <= 0
+    ? null
+    : Math.min(100, Math.round((used / allowance) * 100))
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">{label}</div>
+        <div className="text-xs text-neutral-500 dark:text-neutral-400">
+          {unlimited ? 'Unlimited' : `${used.toLocaleString()} of ${allowance.toLocaleString()} ${unit}`}
+        </div>
+      </div>
+      {percentage !== null ? (
+        <div
+          className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-white/10"
+          role="progressbar"
+          aria-label={`${label} usage`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={percentage}
+        >
+          <div
+            className="h-full rounded-full bg-[#7c3aed] transition-[width] dark:bg-[#9f73f2]"
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+      ) : (
+        <div className="mt-2 text-[11px] text-neutral-400 dark:text-neutral-500">Included with your plan</div>
+      )}
+    </div>
+  )
+}
+
 function BillingSettingsContent() {
+  const { status, hasAuthoritativeStatus, processingReturn, error: billingError, refresh } = useBilling()
+  const [annual, setAnnual] = useState(() => status?.offer !== 'professional_monthly')
+  const [action, setAction] = useState<'checkout' | 'portal' | null>(null)
+  const checkoutOperationRef = useRef<PendingCheckoutOperation | null>(readPendingCheckoutOperation())
+
+  useEffect(() => {
+    if (status?.offer === 'professional_monthly') setAnnual(false)
+    if (status?.offer === 'professional_annual') setAnnual(true)
+  }, [status?.offer])
+
+  useEffect(() => {
+    void refresh().catch(() => undefined)
+  }, [refresh])
+
+  const openHostedBilling = useCallback(async (kind: 'checkout' | 'portal') => {
+    setAction(kind)
+    try {
+      const offer = annual ? 'professional_annual' : 'professional_monthly'
+      if (kind === 'checkout') checkoutOperationRef.current = readPendingCheckoutOperation()
+      if (
+        kind === 'checkout'
+        && (
+          checkoutOperationRef.current?.offer !== offer
+          || Date.now() - checkoutOperationRef.current.createdAt >= CHECKOUT_OPERATION_LIFETIME_MS
+        )
+      ) {
+        checkoutOperationRef.current = { offer, requestID: crypto.randomUUID(), createdAt: Date.now() }
+        writePendingCheckoutOperation(checkoutOperationRef.current)
+      }
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/billing/${kind === 'checkout' ? 'checkout-sessions' : 'portal-sessions'}`,
+        {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: kind === 'checkout'
+            ? JSON.stringify({
+                offer,
+                request_id: checkoutOperationRef.current?.requestID,
+              })
+            : undefined,
+        },
+      )
+      const payload = await response.json().catch(() => ({})) as { url?: string; error?: string }
+      if (!response.ok || !payload.url) {
+        if (response.status === 400 || response.status === 409) {
+          checkoutOperationRef.current = null
+          writePendingCheckoutOperation(null)
+        }
+        throw new Error(payload.error || 'Billing is unavailable')
+      }
+      window.open(payload.url, '_blank')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Billing is unavailable')
+    } finally {
+      setAction(null)
+    }
+  }, [annual])
+
+  const professional = status?.effective_plan === 'professional'
+  const managedPlan = status?.effective_plan === 'business'
+  const hasBillingAccount = Boolean(status?.subscription_status)
+  const hasBlockingSubscription = Boolean(
+    status?.subscription_status
+    && status.subscription_status !== 'canceled'
+    && status.subscription_status !== 'incomplete_expired',
+  )
+  const canStartTrial = !professional && !managedPlan && !hasBlockingSubscription
+  const dateLabel = formatBillingDate(status?.renews_or_ends_at)
+  const planLifecycleLabel = dateLabel
+    ? `${status?.scheduled_to_end ? 'Ends' : status?.subscription_status === 'trialing' ? 'Trial ends' : 'Renews'} ${dateLabel}`
+    : null
+  // Placeholder usage values until the backend usage endpoint is connected.
+  const usagePreview = professional || managedPlan
+    ? {
+        transcriptionUsed: 480,
+        transcriptionAllowance: professionalPlanDefinition.includedTranscriptionMinutes,
+        aiChatUsed: 0,
+        aiChatAllowance: 0,
+        aiChatUnlimited: true,
+      }
+    : {
+        transcriptionUsed: 168,
+        transcriptionAllowance: freePlanDefinition.includedTranscriptionMinutes,
+        aiChatUsed: 18,
+        aiChatAllowance: 25,
+        aiChatUnlimited: false,
+      }
+  const usageResetDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+    new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1)),
+  )
+  const usageApproachingLimit = !professional && !managedPlan && (
+    usagePreview.transcriptionUsed / usagePreview.transcriptionAllowance >= 0.8
+    || (!usagePreview.aiChatUnlimited && usagePreview.aiChatUsed / usagePreview.aiChatAllowance >= 0.8)
+  )
+
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-neutral-200 bg-white/60 px-3 py-3 dark:border-white/10 dark:bg-white/[0.03]">
         <div className="flex min-h-11 items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">
-              Credits This Month
+              Current plan
             </div>
             <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">
-              Your credit usage resets at the start of each billing cycle
+              {status?.enabled === false
+                ? 'Billing is disabled in this environment.'
+                : `${professional ? 'Professional' : managedPlan ? 'Business' : 'Free'}${status?.subscription_status && status.subscription_status !== 'trialing' ? ` · ${status.subscription_status.split('_').join(' ')}` : ''}${planLifecycleLabel ? ` · ${planLifecycleLabel}` : ''}`}
             </div>
-          </div>
-          <div className="w-48 shrink-0">
-            <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-white/10">
-              <div className="h-full w-[97%] rounded-full bg-[#7c3aed] dark:bg-[#9f73f2]" />
-            </div>
-            <div className="mt-1.5 text-right text-xs text-neutral-500 dark:text-neutral-400">
-              194 / 200 minutes remaining
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between gap-3 pb-1 pl-2">
-          <div className="text-xs font-semibold text-neutral-400">Credit History</div>
-          <div className="flex items-center gap-1.5">
-            <Select defaultValue="2026-04">
-              <SelectTrigger
-                className="w-28"
-                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                <SelectItem value="2026-04">2026-04</SelectItem>
-                <SelectItem value="2026-03">2026-03</SelectItem>
-                <SelectItem value="2026-02">2026-02</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button type="button" variant="outline" size="sm" disabled>
-              <Download className="h-3.5 w-3.5" />
-              Download
-            </Button>
-          </div>
-        </div>
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-neutral-200 bg-white/60 p-1 sidebar-scrollbar dark:border-white/10 dark:bg-white/[0.03]">
-          {[
-            ['Meeting', '2026/04/28'],
-            ['Meeting', '2026/04/27'],
-            ['Meeting', '2026/04/27'],
-            ['Meeting', '2026/04/26'],
-            ['Meeting', '2026/04/26'],
-            ['Meeting', '2026/04/25'],
-          ].map(([label, date], index) => (
-            <div
-              key={`${label}-${date}-${index}`}
-              className="flex h-8 min-w-0 items-center gap-2 rounded-full px-2 text-xs text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white"
-            >
-              <FileText className="h-3.5 w-3.5 shrink-0 text-neutral-500 dark:text-neutral-400" />
-              <span className="min-w-0 truncate">{label}</span>
-              <span className="shrink-0 text-neutral-400 dark:text-neutral-500">{date}</span>
-              <span className="ml-auto shrink-0 text-xs font-medium text-red-500 dark:text-red-300">-1 minute</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Plans</div>
-        <div className="grid gap-2 lg:grid-cols-2">
-          {billingPlans.map((plan) => (
-            <div
-              key={plan.name}
-              className="flex min-h-56 flex-col rounded-lg border border-neutral-200 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{plan.name}</div>
-                  <div className="mt-2 flex items-end gap-1">
-                    <span className="text-2xl font-semibold leading-none text-neutral-950 dark:text-white">
-                      {plan.price}
-                    </span>
-                    <span className="pb-0.5 text-xs text-neutral-500 dark:text-neutral-400">{plan.suffix}</span>
-                  </div>
-                </div>
-                {plan.current ? (
-                  <span className="rounded-full border border-neutral-200 bg-neutral-100 px-2 py-1 text-xs font-medium text-neutral-600 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300">
-                    Current
-                  </span>
-                ) : (
-                  <div className="flex items-center gap-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                    <span>Monthly</span>
-                    <ToggleSwitch enabled />
-                    <span className="text-neutral-900 dark:text-neutral-100">Yearly</span>
-                    <span className="text-[#7c3aed] dark:text-[#9f73f2]">-20%</span>
-                  </div>
-                )}
+            {billingError && !hasAuthoritativeStatus ? (
+              <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                Billing details are temporarily unavailable.
               </div>
-              <div className="mt-3 space-y-2">
-                {plan.features.map((feature, index) => (
-                  <div key={feature} className="flex items-start gap-2 text-xs text-neutral-600 dark:text-neutral-300">
-                    <span
-                      className={[
-                        'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
-                        index === 0
-                          ? 'bg-[#7c3aed] text-white dark:bg-[#9f73f2]'
-                          : 'bg-neutral-100 text-neutral-500 dark:bg-white/8 dark:text-neutral-300',
-                      ].join(' ')}
-                    >
-                      {index === 0 ? <Plus className="h-3 w-3" /> : <Check className="h-3 w-3" />}
-                    </span>
-                    <span>{feature}</span>
-                  </div>
-                ))}
+            ) : null}
+            {processingReturn ? (
+              <div className="mt-1 text-xs text-[#7c3aed] dark:text-[#9f73f2]">
+                Stripe is confirming your subscription...
+              </div>
+            ) : null}
+          </div>
+          {hasAuthoritativeStatus && status?.enabled && hasBillingAccount ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              disabled={action !== null}
+              onClick={() => void openHostedBilling('portal')}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {action === 'portal' ? 'Opening...' : 'Manage billing'}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3 px-2 pb-2">
+          <div className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Usage</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">Resets {usageResetDate}</div>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="grid grid-cols-1 divide-y divide-neutral-200 dark:divide-white/10 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+            <BillingUsageMeter
+              label="Transcription minutes"
+              used={usagePreview.transcriptionUsed}
+              allowance={usagePreview.transcriptionAllowance}
+              unit="minutes"
+            />
+            <BillingUsageMeter
+              label="AI chat"
+              used={usagePreview.aiChatUsed}
+              allowance={usagePreview.aiChatAllowance}
+              unit="messages"
+              unlimited={usagePreview.aiChatUnlimited}
+            />
+          </div>
+          {usageApproachingLimit ? (
+            <div className="flex items-center justify-between gap-3 border-t border-neutral-200 px-4 py-3 dark:border-white/10">
+              <div>
+                <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Approaching your monthly limit</div>
+                <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Upgrade for more transcription minutes and unlimited AI chat.</div>
               </div>
               <Button
                 type="button"
-                variant={plan.current ? 'outline' : 'secondary'}
+                variant="brand"
                 size="sm"
-                className="mt-auto w-full"
-                disabled
+                className="shrink-0"
+                disabled={!hasAuthoritativeStatus || status?.enabled !== true || action !== null || hasBlockingSubscription}
+                onClick={() => void openHostedBilling('checkout')}
               >
-                {plan.button}
+                {action === 'checkout' ? 'Opening...' : 'Upgrade'}
               </Button>
             </div>
-          ))}
+          ) : null}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-3 px-2 pb-2">
+          <div className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Compare plans</div>
+          <div className="flex items-center gap-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+            <span>Monthly</span>
+            <ToggleSwitch
+              enabled={annual}
+              onClick={() => setAnnual((value) => !value)}
+              disabled={!hasAuthoritativeStatus || hasBlockingSubscription || managedPlan}
+            />
+            <span className="text-neutral-900 dark:text-neutral-100">Yearly</span>
+            <span className="text-[#7c3aed] dark:text-[#9f73f2]">-{professionalAnnualDiscount}%</span>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+          <div className="grid min-w-[620px] grid-cols-[minmax(170px,1.2fr)_minmax(180px,1fr)_minmax(210px,1.1fr)]">
+            <div className="px-4 py-4" />
+
+            <div className="px-4 py-4 text-center">
+              <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Free</div>
+              <div className="mt-1 flex items-baseline justify-center gap-1">
+                <span className="text-xl font-semibold text-neutral-950 dark:text-white">$0</span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">/month</span>
+              </div>
+              {status?.effective_plan === 'free' ? (
+                <span className="mt-3 inline-flex h-8 items-center rounded-full border border-neutral-200 bg-neutral-100 px-3 text-xs font-medium text-neutral-600 dark:border-white/10 dark:bg-white/5 dark:text-neutral-300">
+                  Current plan
+                </span>
+              ) : (
+                <div className="mt-3 h-8" />
+              )}
+            </div>
+
+            <div className="border-l border-neutral-200 bg-[#7c3aed]/[0.04] px-4 py-4 text-center dark:border-white/10 dark:bg-[#9f73f2]/[0.07]">
+              <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {professionalPlanDefinition.name}
+              </div>
+              <div className="mt-1 flex items-baseline justify-center gap-1">
+                <span className="text-xl font-semibold text-neutral-950 dark:text-white">
+                  {annual ? formatUSD(professionalAnnualMonthlyCents) : formatUSD(professionalMonthlyOffer.unitAmountCents)}
+                </span>
+                <span className="text-xs text-neutral-500 dark:text-neutral-400">/month</span>
+              </div>
+              <Button
+                type="button"
+                variant={canStartTrial ? 'brand' : 'outline'}
+                size="sm"
+                className="mt-3"
+                disabled={!hasAuthoritativeStatus || status?.enabled !== true || action !== null || professional || hasBlockingSubscription || managedPlan}
+                onClick={() => void openHostedBilling('checkout')}
+              >
+                {professional
+                  ? 'Current plan'
+                  : managedPlan
+                    ? 'Managed plan'
+                    : hasBlockingSubscription
+                      ? 'Manage existing subscription'
+                      : action === 'checkout'
+                        ? 'Opening Checkout...'
+                        : `Start ${professionalAnnualOffer.trialDays}-day trial`}
+              </Button>
+            </div>
+
+            {[
+              {
+                label: 'Transcription minutes',
+                free: `${freePlanDefinition.includedTranscriptionMinutes.toLocaleString()} / month`,
+                professional: `${professionalPlanDefinition.includedTranscriptionMinutes.toLocaleString()} / month`,
+              },
+              { label: 'AI chat', free: '25 / month', professional: 'Unlimited' },
+              { label: 'Notes and transcripts', free: true, professional: true },
+              { label: 'Integrations', free: false, professional: true },
+              { label: 'MCP access', free: false, professional: true },
+            ].map((feature) => (
+              <Fragment key={feature.label}>
+                <div className="flex min-h-12 items-center border-t border-neutral-200 px-4 py-3 text-xs font-medium text-neutral-700 dark:border-white/10 dark:text-neutral-300">
+                  {feature.label}
+                </div>
+                <div className="flex min-h-12 items-center justify-center border-t border-neutral-200 px-4 py-3 text-center text-xs text-neutral-600 dark:border-white/10 dark:text-neutral-300">
+                  {feature.free === true
+                    ? <Check className="h-4 w-4 text-[#7c3aed] dark:text-[#9f73f2]" />
+                    : feature.free === false
+                      ? <X className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
+                      : feature.free}
+                </div>
+                <div className="flex min-h-12 items-center justify-center border-l border-t border-neutral-200 bg-[#7c3aed]/[0.04] px-4 py-3 text-center text-xs text-neutral-700 dark:border-white/10 dark:bg-[#9f73f2]/[0.07] dark:text-neutral-200">
+                  {feature.professional === true
+                    ? <Check className="h-4 w-4 text-[#7c3aed] dark:text-[#9f73f2]" />
+                    : feature.professional === false
+                      ? <X className="h-4 w-4 text-neutral-400 dark:text-neutral-500" />
+                      : feature.professional}
+                </div>
+              </Fragment>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -422,7 +608,7 @@ export function DashboardSettingsNav({
         const Icon = sectionMeta[section].icon
         return (
           <Fragment key={section}>
-            {section === 'vocabulary' || section === 'security' ? (
+            {section === 'calendar' || section === 'vocabulary' || section === 'security' ? (
               <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
             ) : null}
             <SidebarRowButton
@@ -446,16 +632,16 @@ export default function DashboardSettingsPage({
   selectedSection: DashboardSettingsSection
 }) {
   const { user, logout, logoutAllDevices, updateProfileName, uploadProfileAvatar } = useAuth()
+  const queryClient = useQueryClient()
   const shortcutApi = desktopApi.shortcuts
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const vocabularyInputRef = useRef<HTMLInputElement | null>(null)
+  const wasSavingVocabularyRef = useRef(false)
   const canManageShortcuts = shortcutApi.isAvailable()
   const [shortcutState, setShortcutState] = useState<ShortcutState | null>(null)
   const [isLoadingShortcuts, setIsLoadingShortcuts] = useState(false)
   const [recordingAction, setRecordingAction] = useState<ShortcutAction | null>(null)
   const [updatingAction, setUpdatingAction] = useState<ShortcutAction | null>(null)
-  const [calendarConnections, setCalendarConnections] = useState<IntegrationConnection[]>([])
-  const [connectedCalendars, setConnectedCalendars] = useState<ConnectedCalendar[]>([])
-  const [isLoadingCalendars, setIsLoadingCalendars] = useState(true)
   const [calendarAction, setCalendarAction] = useState<string | null>(null)
   const [profileName, setProfileName] = useState(user?.name || '')
   const [profileAction, setProfileAction] = useState<'name' | 'avatar' | null>(null)
@@ -463,6 +649,25 @@ export default function DashboardSettingsPage({
     storageLocation: 'server',
     localRecordingsPath: '',
   })
+  const [vocabularyInput, setVocabularyInput] = useState('')
+  const [vocabularyError, setVocabularyError] = useState<string | null>(null)
+  const vocabularyQuery = useVocabularyQuery(user?.id)
+  const updateVocabularyMutation = useUpdateVocabularyMutation(user?.id)
+  const vocabularyTerms = vocabularyQuery.data?.terms ?? EMPTY_VOCABULARY_TERMS
+  const isLoadingVocabulary = vocabularyQuery.isPending
+  const isSavingVocabulary = updateVocabularyMutation.isPending
+  const refetchVocabulary = vocabularyQuery.refetch
+  const displayedVocabularyError = vocabularyError
+    ?? (vocabularyQuery.error instanceof Error ? vocabularyQuery.error.message : null)
+  const calendarSettingsQuery = useCalendarSettingsQuery(user?.id, selectedSection === 'calendar')
+  const calendarVisibilityMutation = useCalendarVisibilityMutation(user?.id)
+  const calendarConnections = calendarSettingsQuery.data?.connections ?? []
+  const connectedCalendars = calendarSettingsQuery.data?.calendars ?? []
+  const isLoadingCalendars = calendarSettingsQuery.isPending
+  const calendarSettingsError = calendarSettingsQuery.error instanceof Error
+    ? calendarSettingsQuery.error.message
+    : null
+  const refetchCalendarSettings = calendarSettingsQuery.refetch
   const avatarSrc = user?.picture ?? null
   const displayName = user?.name || user?.email || 'Account'
   const initials = displayName
@@ -475,6 +680,48 @@ export default function DashboardSettingsPage({
   useEffect(() => {
     setProfileName(user?.name || '')
   }, [user?.name])
+
+  useEffect(() => {
+    const saveFinished = wasSavingVocabularyRef.current && !isSavingVocabulary
+    wasSavingVocabularyRef.current = isSavingVocabulary
+    if (
+      saveFinished
+      && selectedSection === 'vocabulary'
+      && !isLoadingVocabulary
+      && vocabularyTerms.length < MAX_VOCABULARY_TERMS
+    ) {
+      vocabularyInputRef.current?.focus()
+    }
+  }, [isLoadingVocabulary, isSavingVocabulary, selectedSection, vocabularyTerms.length])
+
+  const persistVocabularyTerms = useCallback(async (nextTerms: string[]) => {
+    setVocabularyError(null)
+    try {
+      await updateVocabularyMutation.mutateAsync(nextTerms)
+    } catch (error) {
+      setVocabularyError(error instanceof Error ? error.message : 'Failed to update vocabulary')
+    }
+  }, [updateVocabularyMutation])
+
+  const addVocabularyTerms = useCallback((candidates: string[]) => {
+    const result = mergeVocabularyTerms(vocabularyTerms, candidates)
+    if (result.error) {
+      setVocabularyError(result.error)
+      return false
+    }
+    setVocabularyError(null)
+    if (!vocabularyTermsEqual(result.terms, vocabularyTerms)) {
+      void persistVocabularyTerms(result.terms)
+    }
+    return true
+  }, [persistVocabularyTerms, vocabularyTerms])
+
+  const commitVocabularyInput = useCallback(() => {
+    if (!vocabularyInput.trim()) return true
+    const added = addVocabularyTerms([vocabularyInput])
+    if (added) setVocabularyInput('')
+    return added
+  }, [addVocabularyTerms, vocabularyInput])
 
   const trimmedProfileName = profileName.trim()
   const canSaveProfileName = Boolean(user) && trimmedProfileName !== '' && trimmedProfileName !== (user?.name || '')
@@ -506,63 +753,6 @@ export default function DashboardSettingsPage({
     }
   }, [uploadProfileAvatar])
 
-  const loadCalendarSettings = useCallback(async () => {
-    if (!user) return
-    setIsLoadingCalendars(true)
-
-    try {
-
-      const headers = {
-        Accept: 'application/json',
-      }
-
-      const [connectionsResponse, calendarsResponse] = await Promise.all([
-        authenticatedFetch(`${API_BASE_URL}/integrations/connections`, { headers }),
-        authenticatedFetch(`${API_BASE_URL}/calendar/calendars`, { headers }),
-      ])
-
-      if (!connectionsResponse.ok) {
-        throw new Error(`Failed to fetch calendar accounts: ${connectionsResponse.status}`)
-      }
-      if (!calendarsResponse.ok) {
-        throw new Error(`Failed to fetch calendars: ${calendarsResponse.status}`)
-      }
-
-      const [connectionsData, calendarsData] = await Promise.all([
-        connectionsResponse.json(),
-        calendarsResponse.json(),
-      ])
-
-      setCalendarConnections(
-        connectionsData.status === 'success' && Array.isArray(connectionsData.connections)
-          ? connectionsData.connections.filter((connection: IntegrationConnection) => isCalendarProvider(connection.provider))
-          : [],
-      )
-      setConnectedCalendars(
-        calendarsData.status === 'success' && Array.isArray(calendarsData.calendars)
-          ? calendarsData.calendars
-          : [],
-      )
-    } catch {
-      setCalendarConnections([])
-      setConnectedCalendars([])
-    } finally {
-      setIsLoadingCalendars(false)
-    }
-  }, [user])
-
-  useEffect(() => {
-    if (selectedSection !== 'calendar') return
-    return wsClient.subscribe('calendar.sync_status', (data) => {
-      if (!data.syncing) void loadCalendarSettings()
-    })
-  }, [selectedSection, loadCalendarSettings])
-
-  useEffect(() => {
-    if (selectedSection !== 'calendar') return
-    void loadCalendarSettings()
-  }, [loadCalendarSettings, selectedSection])
-
   useEffect(() => {
     return desktopApi.integrations.onConnectionCompleted((event) => {
       if (event.provider && event.provider !== 'google' && event.provider !== 'microsoft') return
@@ -573,12 +763,12 @@ export default function DashboardSettingsPage({
         return
       }
 
-      refreshCalendarViews()
-      if (selectedSection === 'calendar') {
-        void loadCalendarSettings()
+      refreshCalendarViews(user?.id)
+      if (user?.id) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.calendarSettings(user.id) })
       }
     })
-  }, [loadCalendarSettings, selectedSection, user?.id])
+  }, [queryClient, user?.id])
 
   useEffect(() => {
     if (selectedSection !== 'security' || !desktopApi.recordingSettings.isAvailable()) return
@@ -635,14 +825,14 @@ export default function DashboardSettingsPage({
         }
         throw new Error(result.error)
       }
-      refreshCalendarViews()
-      void loadCalendarSettings()
+      refreshCalendarViews(user.id)
+      void refetchCalendarSettings()
     } catch (connectError) {
       toast.error(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
     } finally {
       setCalendarAction(null)
     }
-  }, [loadCalendarSettings, user])
+  }, [refetchCalendarSettings, user])
 
   const handleDisconnectCalendar = useCallback(
     async (connectionID: string) => {
@@ -661,15 +851,15 @@ export default function DashboardSettingsPage({
           }
           throw new Error(result.error)
         }
-        refreshCalendarViews()
-        await loadCalendarSettings()
+        refreshCalendarViews(user.id)
+        await refetchCalendarSettings()
       } catch (disconnectError) {
         toast.error(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
       } finally {
         setCalendarAction(null)
       }
     },
-    [loadCalendarSettings, user],
+    [refetchCalendarSettings, user],
   )
 
   const handleCalendarVisibility = useCallback(
@@ -681,44 +871,17 @@ export default function DashboardSettingsPage({
 
       const actionKey = `toggle:${calendar.connection_id}:${calendar.id}`
       setCalendarAction(actionKey)
-      setConnectedCalendars((current) =>
-        current.map((item) =>
-          item.connection_id === calendar.connection_id && item.id === calendar.id
-            ? { ...item, visible }
-            : item,
-        ),
-      )
 
       try {
-        const response = await authenticatedFetch(
-          `${API_BASE_URL}/calendar/connections/${encodeURIComponent(calendar.connection_id)}/calendars/${encodeURIComponent(calendar.id)}`,
-          {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-            body: JSON.stringify({ visible }),
-          },
-        )
-        if (!response.ok) {
-          throw new Error(`Failed to update calendar visibility: ${response.status}`)
-        }
-        refreshCalendarViews()
+        await calendarVisibilityMutation.mutateAsync({ calendar, visible })
+        refreshCalendarViews(user.id)
       } catch (visibilityError) {
-        setConnectedCalendars((current) =>
-          current.map((item) =>
-            item.connection_id === calendar.connection_id && item.id === calendar.id
-              ? { ...item, visible: calendar.visible }
-              : item,
-          ),
-        )
         toast.error(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
       } finally {
         setCalendarAction(null)
       }
     },
-    [user],
+    [calendarVisibilityMutation, user],
   )
 
   const handleShortcutUpdate = useCallback(
@@ -865,36 +1028,60 @@ export default function DashboardSettingsPage({
                 }
               />
               <SettingRow label="Email" value={user?.email || 'Not signed in'} />
-              <SettingRow
-                label="Session"
-                value="Manage sign-in on this device."
-                action={
-                  <Button type="button" variant="outline" size="sm" onClick={logout}>
-                    Log out
-                  </Button>
-                }
-              />
-              <SettingRow
-                label="All sessions"
-                value="Revoke every device and close active live connections."
-                action={
-                  <Button type="button" variant="outline" size="sm" onClick={() => void logoutAllDevices()}>
-                    Log out everywhere
-                  </Button>
-                }
-              />
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-red-500/25 bg-red-50/70 dark:border-red-400/20 dark:bg-red-950/20">
-              <SettingRow
-                label="Delete account"
-                value="Permanently delete your account and all synced data."
-                action={
-                  <Button type="button" variant="destructive" size="sm" disabled>
-                    Coming soon
-                  </Button>
-                }
-              />
+            <div className="space-y-2">
+              <div className="px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Session management</div>
+              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+                <SettingRow
+                  label="Session"
+                  value="Manage sign-in on this device."
+                  action={
+                    <Button type="button" variant="outline" size="sm" onClick={logout}>
+                      Log out
+                    </Button>
+                  }
+                />
+                <SettingRow
+                  label="All sessions"
+                  value="Revoke every device and close active live connections."
+                  action={
+                    <Button type="button" variant="outline" size="sm" onClick={() => void logoutAllDevices()}>
+                      Log out everywhere
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Data management</div>
+              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+                <SettingRow
+                  label="Export data"
+                  value="Generate a CSV export of your meeting notes, typically ready within a few hours."
+                  action={
+                    <Button type="button" variant="outline" size="sm" disabled>
+                      Generate CSV
+                    </Button>
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Danger zone</div>
+              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+                <SettingRow
+                  label="Delete my account"
+                  value="Permanently delete your account and all synced data."
+                  action={
+                    <Button type="button" variant="destructive" size="sm" disabled>
+                      Delete my account
+                    </Button>
+                  }
+                />
+              </div>
             </div>
           </div>
         ) : null}
@@ -967,6 +1154,18 @@ export default function DashboardSettingsPage({
 
         {selectedSection === 'calendar' ? (
           <div className="space-y-3">
+            {calendarSettingsError && calendarSettingsQuery.data ? (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/25 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200">
+                <span>Calendar settings could not be refreshed. Showing the last available data.</span>
+                <button
+                  type="button"
+                  className="shrink-0 font-medium underline-offset-2 hover:underline"
+                  onClick={() => void refetchCalendarSettings()}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : null}
             <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
                 <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Calendar accounts</div>
@@ -1034,6 +1233,17 @@ export default function DashboardSettingsPage({
                 })
               ) : isLoadingCalendars ? (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">Loading accounts...</div>
+              ) : calendarSettingsError ? (
+                <div className="flex items-center justify-between gap-3 px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span>Calendar settings are unavailable.</span>
+                  <button
+                    type="button"
+                    className="font-medium text-[#7c3aed] hover:text-[#6d28d9] dark:text-[#9f73f2] dark:hover:text-[#b79df7]"
+                    onClick={() => void refetchCalendarSettings()}
+                  >
+                    Retry
+                  </button>
+                </div>
               ) : (
                 <div className="px-3 py-4 text-xs text-neutral-500 dark:text-neutral-400">No calendar accounts connected.</div>
               )}
@@ -1045,7 +1255,7 @@ export default function DashboardSettingsPage({
                   type="button"
                   className="text-xs font-medium text-[#7c3aed] hover:text-[#6d28d9] dark:text-[#9f73f2] dark:hover:text-[#b79df7]"
                   style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                  onClick={() => void loadCalendarSettings()}
+                  onClick={() => void refetchCalendarSettings()}
                 >
                   Refresh
                 </button>
@@ -1105,25 +1315,98 @@ export default function DashboardSettingsPage({
           </div>
         ) : null}
 
-        {selectedSection === 'vocabulary' ? (
-          <div className="space-y-2">
+        {selectedSection === 'connectors' ? (
+          <div className="space-y-3">
             <div className="px-2">
-              <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Custom vocabulary</div>
+              <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Connectors</div>
               <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                Define key terms or product names. Orion will transcribe them more accurately.
+                Connect external tools so Orion can pull context into your meetings.
               </div>
             </div>
-            <div className="relative">
-              <textarea
-                placeholder="e.g. Orion, Salesforce, BANT, SPICED, ..."
-                maxLength={350}
-                className="min-h-24 w-full resize-none rounded-lg border border-neutral-200 bg-white/60 px-3 py-3 pr-24 text-xs text-neutral-900 outline-none placeholder:text-neutral-400 focus:border-neutral-300 focus:ring-2 focus:ring-neutral-900/10 dark:border-white/10 dark:bg-white/[0.03] dark:text-neutral-100 dark:placeholder:text-neutral-500 dark:focus:border-white/20 dark:focus:ring-white/10"
-                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-              />
-              <div className="absolute bottom-3 right-3 text-xs text-neutral-400 dark:text-neutral-500">
-                0 / 350 chars
-              </div>
+          </div>
+        ) : null}
+
+        {selectedSection === 'vocabulary' ? (
+          <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+              <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Recognition terms</div>
+              <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{vocabularyTerms.length} / 100 terms</span>
             </div>
+            {isLoadingVocabulary ? (
+              <div className="px-3 py-5 text-xs text-neutral-500 dark:text-neutral-400">Loading vocabulary...</div>
+            ) : (
+              <div className="px-3 py-3">
+                <div className="text-xs text-neutral-500 dark:text-neutral-400">
+                  Add names, brands, products, acronyms, or specialized terminology. Changes apply to new recordings.
+                </div>
+                <Input
+                  ref={vocabularyInputRef}
+                  value={vocabularyInput}
+                  placeholder="Type a term, then press Enter"
+                  className="mt-3 h-9 text-xs"
+                  disabled={isSavingVocabulary || vocabularyTerms.length >= MAX_VOCABULARY_TERMS}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if ([...value].length > MAX_VOCABULARY_TERM_LENGTH) {
+                      setVocabularyError('Each vocabulary term must be 50 characters or fewer.')
+                      return
+                    }
+                    setVocabularyInput(value)
+                    setVocabularyError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') return
+                    event.preventDefault()
+                    commitVocabularyInput()
+                  }}
+                  onPaste={(event) => {
+                    const pasted = event.clipboardData.getData('text')
+                    if (!pasted.includes('\n')) return
+                    event.preventDefault()
+                    if (addVocabularyTerms(pasted.split(/\r?\n/))) setVocabularyInput('')
+                  }}
+                />
+                <div className="mt-3 flex min-h-7 flex-wrap gap-1.5">
+                  {vocabularyTerms.map((term) => (
+                    <span
+                      key={term.toLowerCase()}
+                      className="inline-flex h-7 max-w-full items-center gap-1 rounded-full border border-neutral-200 bg-neutral-100 px-2.5 text-xs text-neutral-700 dark:border-white/10 dark:bg-white/[0.06] dark:text-neutral-200"
+                    >
+                      <span className="truncate">{term}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${term}`}
+                        className="rounded-full text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-200"
+                        disabled={isSavingVocabulary}
+                        onClick={() => {
+                          const nextTerms = vocabularyTerms.filter((candidate) => candidate !== term)
+                          void persistVocabularyTerms(nextTerms)
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                  {vocabularyTerms.length === 0 ? (
+                    <div className="flex h-7 items-center text-xs text-neutral-400 dark:text-neutral-500">No terms added yet.</div>
+                  ) : null}
+                </div>
+                {displayedVocabularyError ? (
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-red-600 dark:text-red-400" aria-live="polite">
+                    <span>{displayedVocabularyError}</span>
+                    {vocabularyQuery.isError ? (
+                      <button
+                        type="button"
+                        className="shrink-0 font-medium underline-offset-2 hover:underline"
+                        onClick={() => void refetchVocabulary()}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -1156,15 +1439,9 @@ export default function DashboardSettingsPage({
                 action={<ToggleSwitch enabled />}
               />
               <SettingRow
-                label="Save draft in Gmail"
-                value="Save the draft email in your Gmail account."
-                action={
-                  <Button type="button" variant="outline" size="sm">
-                    <span className="font-semibold text-[#4285f4]">G</span>
-                    Connect
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                }
+                label="Include sharing link in the email body"
+                value="e.g. You can review the full meeting notes here: https://orion.so/m/..."
+                action={<ToggleSwitch enabled />}
               />
             </div>
 
@@ -1185,17 +1462,6 @@ export default function DashboardSettingsPage({
                 Add new template
               </Button>
 
-            </div>
-
-            <div>
-              <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Options</div>
-              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
-                <SettingRow
-                  label="Include sharing link in the email body"
-                  value="e.g. You can review the full meeting notes here: https://orion.so/m/..."
-                  action={<ToggleSwitch enabled />}
-                />
-              </div>
             </div>
           </div>
         ) : null}
@@ -1252,35 +1518,6 @@ export default function DashboardSettingsPage({
                   </div>
                 )
               })}
-            </div>
-
-            <div>
-              <div className="px-2 pb-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">Meeting permissions</div>
-              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
-                <SettingRow
-                  label="Default permission for new meetings"
-                  value="Choose who can access meetings by default"
-                  action={
-                    <Select defaultValue="only-me">
-                      <SelectTrigger
-                        className="w-40"
-                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="only-me">Only me</SelectItem>
-                        <SelectItem value="link">Anyone with the link</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-                <SettingRow
-                  label="Change permission to 'Anyone with the link' when sharing meetings"
-                  value="Automatically changes permission when copying share link or composing follow-up emails"
-                  action={<ToggleSwitch enabled />}
-                />
-              </div>
             </div>
 
             <div>

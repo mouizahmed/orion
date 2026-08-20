@@ -6,6 +6,7 @@ const LOGOUT_STORAGE_KEYS = [
   'dashboard:selectedFolderId',
   'chat:activeConversationId',
   'orion:cached-user',
+  'orion.billing.pending-checkout',
 ]
 
 export const SESSION_EXPIRED_MESSAGE = 'Your session expired. Please sign in again.'

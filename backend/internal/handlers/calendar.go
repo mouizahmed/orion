@@ -13,6 +13,7 @@ import (
 	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 )
 
 type CalendarHandler struct {
@@ -21,6 +22,7 @@ type CalendarHandler struct {
 	cacheRepo      repository.CalendarCacheRepository
 	syncService    *calendarservice.Service
 	hub            *WsHub
+	events         resourceevents.Publisher
 }
 
 type CalendarEvent struct {
@@ -75,13 +77,14 @@ type calendarCacheMetadata struct {
 	LastError    string     `json:"last_error,omitempty"`
 }
 
-func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, hub *WsHub) *CalendarHandler {
+func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, hub *WsHub, events resourceevents.Publisher) *CalendarHandler {
 	return &CalendarHandler{
 		connectionRepo: connectionRepo,
 		preferenceRepo: preferenceRepo,
 		cacheRepo:      cacheRepo,
 		syncService:    syncService,
 		hub:            hub,
+		events:         events,
 	}
 }
 
@@ -167,6 +170,7 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 			return
 		}
 		h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
+		h.publishSyncChanges(context.Background(), userID, calendarservice.SyncScopeAll)
 		c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": false})
 		return
 	}
@@ -231,6 +235,7 @@ func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
 			log.Printf("calendar: failed to clear sync token for connection %s calendar %s: %v", connectionID, calendarID, err)
 		}
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarSettings, nil)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":        "success",
@@ -463,7 +468,17 @@ func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarser
 			return
 		}
 		h.sendCalendarSyncMetadata(context.Background(), userID, scope)
+		h.publishSyncChanges(context.Background(), userID, scope)
 	}()
+}
+
+func (h *CalendarHandler) publishSyncChanges(ctx context.Context, userID string, scope calendarservice.SyncScope) {
+	if scope == calendarservice.SyncScopeAll || scope == calendarservice.SyncScopeCalendars {
+		resourceevents.PublishBestEffort(ctx, h.events, userID, resourceevents.ResourceCalendarSettings, nil)
+	}
+	if scope == calendarservice.SyncScopeAll || scope == calendarservice.SyncScopeEvents {
+		resourceevents.PublishBestEffort(ctx, h.events, userID, resourceevents.ResourceCalendarEvents, nil)
+	}
 }
 
 func (h *CalendarHandler) sendCalendarSyncMetadata(ctx context.Context, userID string, scope calendarservice.SyncScope) {

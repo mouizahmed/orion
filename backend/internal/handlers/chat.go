@@ -454,7 +454,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, userID, convID, activeNoteI
 				toolResult = fmt.Sprintf("Tool error: %s", execErr.Error())
 			}
 
-			log.Printf("tool [%s] input=%s output=%s", tu.Name, tu.Input, toolResult)
+			log.Printf("tool [%s] completed", tu.Name)
 
 			writeSSE(c, "tool_result", map[string]interface{}{
 				"tool_name": tu.Name,

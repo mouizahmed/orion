@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/oauth2"
 )
@@ -67,6 +68,7 @@ type IntegrationOAuthHandler struct {
 	redisClient     *redis.Client
 	googleConfig    *oauth2.Config
 	microsoftConfig *oauth2.Config
+	events          resourceevents.Publisher
 }
 
 type IntegrationOAuthState struct {
@@ -93,10 +95,11 @@ type integrationConnectionResponse struct {
 	ConnectedAt   time.Time                          `json:"connected_at"`
 }
 
-func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionRepository, redisClient *redis.Client) *IntegrationOAuthHandler {
+func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionRepository, redisClient *redis.Client, events resourceevents.Publisher) *IntegrationOAuthHandler {
 	return &IntegrationOAuthHandler{
 		connectionRepo: connectionRepo,
 		redisClient:    redisClient,
+		events:         events,
 		googleConfig: &oauth2.Config{
 			ClientID:     os.Getenv("GOOGLE_INTEGRATION_CLIENT_ID"),
 			ClientSecret: os.Getenv("GOOGLE_INTEGRATION_CLIENT_SECRET"),
@@ -263,6 +266,7 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 	}
 
 	log.Printf("Integration OAuth completed (provider: %s, feature: %s)", statePayload.Provider, statePayload.Feature)
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, statePayload.UserID, resourceevents.ResourceCalendarSettings, nil)
 	h.redirectIntegrationCallback(c, true, statePayload.Provider, statePayload.Feature, statePayload.Platform, "", "")
 }
 
@@ -333,6 +337,7 @@ func (h *IntegrationOAuthHandler) DisconnectConnection(c *gin.Context) {
 	}
 
 	log.Printf("Integration connection disconnected (provider: %s)", connection.Provider)
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarSettings, nil)
 	c.JSON(http.StatusOK, gin.H{
 		"status":        "success",
 		"connection_id": connectionID,

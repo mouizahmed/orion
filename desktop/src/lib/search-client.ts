@@ -1,8 +1,8 @@
 import { authenticatedFetch } from '@/lib/auth-session'
 import type { FolderRecord } from '@/types/folder'
 import type { NoteSummary } from '@/types/note'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 type ApiNote = {
   id: string

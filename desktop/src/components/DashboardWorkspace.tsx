@@ -22,8 +22,8 @@ import DashboardHome from '@/components/DashboardHome'
 import DashboardSettingsPage, { type DashboardSettingsSection } from '@/components/DashboardSettingsPage'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/components/NoteAttendeesDropdown'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 
 type MeetingOption = {
   id: string

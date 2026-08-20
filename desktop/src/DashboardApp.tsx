@@ -1,3 +1,4 @@
+import { QueryClientProvider } from '@tanstack/react-query'
 import { DashboardAuthRoot, useAuth } from '@/contexts/AuthContext'
 import { ChatProvider } from '@/contexts/ChatContext'
 import DashboardWorkspace from '@/components/DashboardWorkspace'
@@ -10,6 +11,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
 import { Toaster } from 'sonner'
+import { BillingProvider } from '@/contexts/BillingContext'
+import ServerStateSessionBoundary from '@/components/ServerStateSessionBoundary'
+import { dashboardQueryClient } from '@/lib/query-client'
+import CalendarQueryEvents from '@/components/CalendarQueryEvents'
+import ServerStateInvalidationBridge from '@/components/ServerStateInvalidationBridge'
 
 
 function useDashboardNoteIdFromUrl() {
@@ -137,21 +143,29 @@ function DashboardContent() {
 export default function DashboardApp() {
   return (
     <DashboardAuthRoot>
-      <ChatProvider>
-        <SidebarProvider defaultOpen={true}>
-          <DashboardContent />
-        </SidebarProvider>
-      </ChatProvider>
-      <Toaster
-        position="bottom-center"
-        theme="system"
-        toastOptions={{
-          style: {
-            borderRadius: '10px',
-            fontSize: '13px',
-          },
-        }}
-      />
+      <QueryClientProvider client={dashboardQueryClient}>
+        <ServerStateSessionBoundary>
+          <CalendarQueryEvents />
+          <ServerStateInvalidationBridge />
+          <BillingProvider>
+            <ChatProvider>
+              <SidebarProvider defaultOpen={true}>
+                <DashboardContent />
+              </SidebarProvider>
+            </ChatProvider>
+          </BillingProvider>
+          <Toaster
+            position="bottom-center"
+            theme="system"
+            toastOptions={{
+              style: {
+                borderRadius: '10px',
+                fontSize: '13px',
+              },
+            }}
+          />
+        </ServerStateSessionBoundary>
+      </QueryClientProvider>
     </DashboardAuthRoot>
   )
 }

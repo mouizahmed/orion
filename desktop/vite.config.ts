@@ -21,12 +21,30 @@ export default defineConfig(({ mode }) => {
       production ? 'https://orion.app/auth/callback' : 'http://localhost:3000/auth/callback',
     ),
   }
+  const apiBaseUrl = read('VITE_API_BASE_URL', 'http://localhost:8080/api')
+  const parsedApiBaseUrl = new URL(apiBaseUrl)
+  if (
+    (parsedApiBaseUrl.protocol !== 'http:' && parsedApiBaseUrl.protocol !== 'https:')
+    || parsedApiBaseUrl.username !== ''
+    || parsedApiBaseUrl.password !== ''
+    || parsedApiBaseUrl.search !== ''
+    || parsedApiBaseUrl.hash !== ''
+    || (production && (
+      parsedApiBaseUrl.protocol !== 'https:'
+      || ['localhost', '127.0.0.1', '::1'].includes(parsedApiBaseUrl.hostname.toLowerCase())
+    ))
+  ) {
+    throw new Error('VITE_API_BASE_URL must use a non-loopback HTTPS origin for a production build')
+  }
   const electronMainDefine = {
     __SUPABASE_CONFIG__: JSON.stringify(supabaseConfig),
   }
 
   return {
     base: './',
+    define: {
+      'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl),
+    },
     plugins: [
       react(),
       tailwindcss(),

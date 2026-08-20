@@ -2,8 +2,8 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { WebSocketProvider } from '@/contexts/WebSocketContext'
 import { desktopApi, type AuthSnapshot, type AuthStatus, type AuthUser } from '@/lib/desktop-api'
 import { authenticatedFetch, consumeSessionExpiredMessage, SESSION_EXPIRED_EVENT, SESSION_EXPIRED_MESSAGE } from '@/lib/auth-session'
+import { API_BASE_URL } from '@/lib/api-config'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
 export type User = AuthUser
 
 type AuthContextValue = {
@@ -30,14 +30,18 @@ const INITIAL: AuthSnapshot = { status: 'initializing', user: null, error: null,
 
 function mapBackendUser(payload: unknown): User {
   const data = payload as Record<string, unknown>
+  const plan: User['plan'] | null = data.plan === 'free' || data.plan === 'professional' || data.plan === 'business'
+    ? data.plan
+    : null
   const user = {
     id: typeof data.id === 'string' ? data.id : '',
     email: typeof data.email === 'string' ? data.email : '',
     name: typeof data.name === 'string' ? data.name : '',
+    plan,
     picture: typeof data.avatar_url === 'string' && data.avatar_url ? data.avatar_url : undefined,
   }
-  if (!user.id || !user.email || !user.name) throw new Error('Profile response was invalid')
-  return user
+  if (!user.id || !user.email || !user.name || !user.plan) throw new Error('Profile response was invalid')
+  return { ...user, plan: user.plan }
 }
 
 async function readBackendUser(response: Response): Promise<User> {

@@ -1,12 +1,8 @@
 import { desktopApi } from '@/lib/desktop-api'
 import type { ClientEventMap, ServerEventMap } from '@/types/ws-events'
+import { apiWebSocketUrl } from '@/lib/api-config'
 
-const WS_URL = (() => {
-  const base = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
-  const u = new URL(`${base.replace(/\/+$/, '')}/ws`)
-  u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
-  return u.toString()
-})()
+const WS_URL = apiWebSocketUrl('ws')
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'authenticating' | 'connected'
 

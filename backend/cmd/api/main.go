@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -13,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/mouizahmed/justscribe-backend/internal/ai"
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
+	"github.com/mouizahmed/justscribe-backend/internal/billing"
 	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/email"
@@ -22,6 +26,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/profile"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 	"github.com/mouizahmed/justscribe-backend/internal/retrieval"
 	"github.com/mouizahmed/justscribe-backend/internal/storage"
 	"github.com/mouizahmed/justscribe-backend/internal/utils"
@@ -66,8 +71,10 @@ func trustedProxiesFromEnv() []string {
 }
 
 func main() {
-	if err := godotenv.Load("cmd/api/.env"); err != nil && !os.IsNotExist(err) {
-		log.Fatalf("Failed to load cmd/api/.env: %v", err)
+	for _, envFile := range []string{"cmd/api/.env", "cmd/api/.env.billing"} {
+		if err := godotenv.Load(envFile); err != nil && !os.IsNotExist(err) {
+			log.Fatalf("Failed to load %s: %v", envFile, err)
+		}
 	}
 	authConfig, err := auth.LoadConfig()
 	if err != nil {
@@ -75,6 +82,16 @@ func main() {
 	}
 	if err := auth.ValidateIntegrationConfiguration(); err != nil {
 		log.Fatalf("Invalid integration OAuth configuration: %v", err)
+	}
+	billingConfig, err := billing.LoadConfig()
+	if err != nil {
+		log.Fatalf("Invalid Stripe billing configuration: %v", err)
+	}
+	billingRuntime := billing.NewRuntime(billingConfig)
+	if billingRuntime.Enabled() {
+		log.Printf("Stripe billing enabled in %s mode", billingRuntime.Mode())
+	} else {
+		log.Printf("Stripe billing disabled")
 	}
 
 	// Initialize encryption utilities
@@ -92,7 +109,7 @@ func main() {
 	defer db.Close()
 
 	// Initialize repositories
-	userRepo := repository.NewUserRepository(db)
+	userRepo := repository.NewUserRepository(db, billingConfig.Enabled, billingConfig.Livemode())
 	principalService := auth.NewPrincipalService(supabaseAuth, userRepo)
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
@@ -107,6 +124,13 @@ func main() {
 	transcriptRepo := repository.NewTranscriptRepository(db)
 	conversationRepo := repository.NewConversationRepository(db)
 	messageRepo := repository.NewMessageRepository(db)
+	accountUsageRepo := repository.NewAccountUsageRepository(db)
+	accountVocabularyRepo := repository.NewAccountVocabularyRepository(db)
+	billingCustomerRepo := repository.NewBillingCustomerRepository(db)
+	subscriptionRepo := repository.NewSubscriptionRepository(db)
+	billingWebhookRepo := repository.NewBillingWebhookRepository(db)
+	billingCustomerService := billing.NewCustomerService(billingRuntime, billingCustomerRepo)
+	billingWebhookService := billing.NewWebhookService(billingRuntime, billingWebhookRepo)
 
 	// Initialize AI services
 	aiClient := ai.NewClient()
@@ -144,13 +168,35 @@ func main() {
 		log.Fatalf("Failed to connect to Redis: %v", err)
 	}
 	defer redisClient.Close()
+	resourceEventMetrics := resourceevents.NewMetrics()
+	resourceEventPublisher := resourceevents.NewPublisher(redisClient, resourceEventMetrics)
+	wsHub := handlers.NewWsHub()
+	resourceEventSubscriber := resourceevents.NewSubscriber(redisClient, func(accountID string, change resourceevents.Change) int {
+		return wsHub.SendToUser(accountID, map[string]any{
+			"type": "resource.changed",
+			"data": change,
+		})
+	}, resourceEventMetrics)
+	billingEventProcessor := billing.NewEventProcessor(billingRuntime, billingCustomerRepo, subscriptionRepo, billingWebhookRepo, resourceEventPublisher)
+	billingReconciler := billing.NewReconciler(billingRuntime, billingCustomerRepo, subscriptionRepo, billingEventProcessor)
+	billingRateLimiter := billing.NewRateLimiter(redisClient)
+	checkoutService := billing.NewCheckoutService(billingRuntime, billingCustomerService, subscriptionRepo, billingRateLimiter)
+	portalService := billing.NewPortalService(billingRuntime, billingCustomerRepo, billingRateLimiter)
+	billingStatusService := billing.NewStatusService(billingRuntime, subscriptionRepo)
 
 	// Initialize queue and worker
 	indexQueue := queue.NewQueue(redisClient)
 	w := worker.NewWorker(indexQueue, embedder, pineconeClient, noteRepo, transcriptRepo)
-	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	workerCtx, cancelWorker := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelWorker()
 	go w.Start(workerCtx)
+	go billingEventProcessor.Start(workerCtx)
+	go billingReconciler.Start(workerCtx)
+	resourceEventSubscriberDone := make(chan struct{})
+	go func() {
+		defer close(resourceEventSubscriberDone)
+		resourceEventSubscriber.Run(workerCtx)
+	}()
 
 	// Initialize email service
 	emailSvc := email.NewService(os.Getenv("RESEND_API_KEY"), email.Config{
@@ -160,21 +206,22 @@ func main() {
 	})
 
 	// Initialize handlers
-	wsHub := handlers.NewWsHub()
 	authHandler := handlers.NewAuthHandler(principalService, supabaseAuth, emailSvc, wsHub)
-	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient)
+	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient, resourceEventPublisher)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
+	vocabularyHandler := handlers.NewVocabularyHandler(accountVocabularyRepo, resourceEventPublisher)
+	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
 	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo, emailSvc)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
-	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, wsHub)
+	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, wsHub)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
 	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, noteAttendeeRepo, redisClient)
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
-	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub)
+	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub, resourceEventPublisher)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
@@ -210,6 +257,9 @@ func main() {
 		integrations.GET("/oauth/callback", integrationOAuthHandler.HandleCallback)
 	}
 
+	// Stripe authenticates this endpoint with its request signature, not a user session.
+	router.POST("/webhooks/stripe", billingHandler.ReceiveStripeWebhook)
+
 	// Authenticated API routes
 	authenticated := api.Group("/")
 	authenticated.Use(middleware.AuthMiddleware(principalService))
@@ -227,6 +277,15 @@ func main() {
 		authenticated.PATCH("/user/me", userHandler.UpdateCurrentUser)
 		authenticated.POST("/user/me/avatar", userHandler.UploadAvatar)
 		authenticated.POST("/user/me/avatar/provider", userHandler.ImportProviderAvatar)
+
+		// Vocabulary is account-owned and is never accepted through a stream handshake.
+		authenticated.GET("/vocabulary", vocabularyHandler.Get)
+		authenticated.PUT("/vocabulary", vocabularyHandler.Put)
+
+		// Billing routes return hosted Stripe URLs only. Provider callbacks never grant access.
+		authenticated.POST("/billing/checkout-sessions", billingHandler.CreateCheckoutSession)
+		authenticated.POST("/billing/portal-sessions", billingHandler.CreatePortalSession)
+		authenticated.GET("/billing/status", billingHandler.GetStatus)
 
 		// Dashboard routes
 		authenticated.GET("/dashboard/activity", dashboardHandler.ListActivity)
@@ -298,9 +357,37 @@ func main() {
 	}
 	log.Printf("Starting server on port %s", port)
 
-	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	} else {
-		log.Printf("Server started on port %s", port)
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("Failed to start server: %v", err)
+		}
+		cancelWorker()
+	case <-workerCtx.Done():
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancelShutdown()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("Server shutdown failed: %v", err)
+		}
+		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("Server stopped with an error: %v", err)
+		}
+	}
+
+	cancelWorker()
+	select {
+	case <-resourceEventSubscriberDone:
+	case <-time.After(2 * time.Second):
+		log.Printf("resource events: subscriber shutdown timed out")
 	}
 }

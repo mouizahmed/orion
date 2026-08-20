@@ -40,11 +40,11 @@ func (h *WsHub) Unregister(userID string, conn *websocket.Conn) {
 	}
 }
 
-func (h *WsHub) SendToUser(userID string, msg any) {
+func (h *WsHub) SendToUser(userID string, msg any) int {
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("ws_hub: marshal error for user %s: %v", userID, err)
-		return
+		return 0
 	}
 
 	h.mu.RLock()
@@ -55,11 +55,15 @@ func (h *WsHub) SendToUser(userID string, msg any) {
 	}
 	h.mu.RUnlock()
 
+	delivered := 0
 	for conn, mu := range conns {
 		if err := writeWSMessage(conn, mu, websocket.TextMessage, raw); err != nil {
 			log.Printf("ws_hub: send error for user %s: %v", userID, err)
+			continue
 		}
+		delivered++
 	}
+	return delivered
 }
 
 // DisconnectUser terminates every currently registered socket for a user.

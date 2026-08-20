@@ -16,6 +16,7 @@ export type AuthUser = {
   id: string
   email: string
   name: string
+  plan: 'free' | 'professional' | 'business'
   picture?: string
 }
 
@@ -204,9 +205,10 @@ function asUser(payload: unknown): AuthUser {
   const id = typeof data.id === 'string' ? data.id : ''
   const email = typeof data.email === 'string' ? data.email : ''
   const name = typeof data.name === 'string' ? data.name : ''
+  const plan = data.plan === 'free' || data.plan === 'professional' || data.plan === 'business' ? data.plan : ''
   const picture = typeof data.avatar_url === 'string' && data.avatar_url ? data.avatar_url : undefined
-  if (!id || !email || !name) throw new Error('Backend session response did not contain a valid user')
-  return { id, email, name, picture }
+  if (!id || !email || !name || !plan) throw new Error('Backend session response did not contain a valid user')
+  return { id, email, name, plan, picture }
 }
 
 async function bootstrap(session: Session, shouldContinue: () => boolean = () => true): Promise<void> {
