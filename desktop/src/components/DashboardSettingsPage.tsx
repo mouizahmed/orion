@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, ExternalLink, Keyboard, LayoutGrid, Mail, MonitorCog, Plus, ScanText, SpellCheck, User, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, ExternalLink, Keyboard, LayoutGrid, Mail, MonitorCog, Pencil, Plus, ScanText, SpellCheck, Trash2, User, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +28,15 @@ import {
   type PendingCheckoutOperation,
 } from '@/lib/billing-checkout'
 import { toast } from 'sonner'
+import { DeleteExtractFieldDialog, ExtractFieldDialog } from '@/components/dialog/ExtractFieldDialog'
+import { useDashboardNotes } from '@/contexts/DashboardNotesContext'
+import {
+  useCreateExtractFieldMutation,
+  useDeleteExtractFieldMutation,
+  useExtractFieldsQuery,
+  useUpdateExtractFieldMutation,
+} from '@/hooks/useExtractFieldsQuery'
+import type { ExtractField, ExtractFieldInput } from '@/types/extract-field'
 
 
 export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'preferences' | 'shortcuts'
@@ -107,6 +116,13 @@ function groupCalendarsByConnection(calendars: ConnectedCalendar[]) {
     groups[key].push(calendar)
     return groups
   }, {})
+}
+
+function extractFieldScopeLabel(field: ExtractField) {
+  if (field.scope.type === 'allMeetings') return 'All meetings'
+  return field.scope.folders
+    .map((folder) => folder.available ? (folder.name ?? 'Folder') : 'Folder unavailable')
+    .join(', ')
 }
 
 const sectionMeta: Record<DashboardSettingsSection, { title: string; icon: typeof User }> = {
@@ -638,6 +654,11 @@ export default function DashboardSettingsPage({
   })
   const [vocabularyInput, setVocabularyInput] = useState('')
   const [vocabularyError, setVocabularyError] = useState<string | null>(null)
+  const [isExtractFieldDialogOpen, setIsExtractFieldDialogOpen] = useState(false)
+  const [editingExtractField, setEditingExtractField] = useState<ExtractField | null>(null)
+  const [deletingExtractField, setDeletingExtractField] = useState<ExtractField | null>(null)
+  const [deleteExtractFieldError, setDeleteExtractFieldError] = useState<string | null>(null)
+  const { folders, isLoading: isLoadingFolders, loadError: foldersError } = useDashboardNotes()
   const vocabularyQuery = useVocabularyQuery(user?.id)
   const updateVocabularyMutation = useUpdateVocabularyMutation(user?.id)
   const vocabularyTerms = vocabularyQuery.data?.terms ?? EMPTY_VOCABULARY_TERMS
@@ -646,6 +667,11 @@ export default function DashboardSettingsPage({
   const refetchVocabulary = vocabularyQuery.refetch
   const displayedVocabularyError = vocabularyError
     ?? (vocabularyQuery.error instanceof Error ? vocabularyQuery.error.message : null)
+  const extractFieldsQuery = useExtractFieldsQuery(user?.id)
+  const createExtractFieldMutation = useCreateExtractFieldMutation(user?.id)
+  const updateExtractFieldMutation = useUpdateExtractFieldMutation(user?.id)
+  const deleteExtractFieldMutation = useDeleteExtractFieldMutation(user?.id)
+  const extractFields = extractFieldsQuery.data ?? []
   const calendarSettingsQuery = useCalendarSettingsQuery(user?.id, selectedSection === 'calendar')
   const calendarVisibilityMutation = useCalendarVisibilityMutation(user?.id)
   const {
@@ -906,6 +932,31 @@ export default function DashboardSettingsPage({
 
   const calendarsByConnection = groupCalendarsByConnection(connectedCalendars)
   const title = sectionMeta[selectedSection].title
+
+  const closeExtractFieldDialog = () => {
+    setIsExtractFieldDialogOpen(false)
+    setEditingExtractField(null)
+  }
+
+  const submitExtractField = async (input: ExtractFieldInput) => {
+    if (editingExtractField) {
+      await updateExtractFieldMutation.mutateAsync({ id: editingExtractField.id, input })
+    } else {
+      await createExtractFieldMutation.mutateAsync(input)
+    }
+    closeExtractFieldDialog()
+  }
+
+  const confirmDeleteExtractField = async () => {
+    if (!deletingExtractField) return
+    setDeleteExtractFieldError(null)
+    try {
+      await deleteExtractFieldMutation.mutateAsync(deletingExtractField.id)
+      setDeletingExtractField(null)
+    } catch (error) {
+      setDeleteExtractFieldError(error instanceof Error ? error.message : 'Failed to delete extract field')
+    }
+  }
 
   return (
     <DashboardPanel className="flex h-full min-h-0 flex-col">
@@ -1366,22 +1417,82 @@ export default function DashboardSettingsPage({
         ) : null}
 
         {selectedSection === 'extracts' ? (
-          <div className="space-y-3">
-            <div className="px-2">
-              <div className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Fields</div>
-              <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+          <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+              <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Fields</div>
+              <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
+                {extractFields.length} {extractFields.length === 1 ? 'field' : 'fields'}
+              </span>
+            </div>
+            <div className="px-3 py-3">
+              <div className="text-xs text-neutral-500 dark:text-neutral-400">
                 Define fields to automatically extract insights from your meetings.
               </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-3 h-9 w-full justify-start px-3 text-xs font-medium"
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                onClick={() => {
+                  setEditingExtractField(null)
+                  setIsExtractFieldDialogOpen(true)
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add new field
+              </Button>
+              {extractFieldsQuery.isPending ? (
+                <div className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">Loading fields...</div>
+              ) : null}
+              {extractFieldsQuery.isError ? (
+                <div className="mt-3 flex items-center justify-between gap-3 text-xs text-red-600 dark:text-red-400">
+                  <span>{extractFieldsQuery.error instanceof Error ? extractFieldsQuery.error.message : 'Failed to load fields'}</span>
+                  <button type="button" className="font-medium hover:underline" onClick={() => void extractFieldsQuery.refetch()}>
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+              {!extractFieldsQuery.isPending && !extractFieldsQuery.isError && extractFields.length === 0 ? (
+                <div className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">No fields added yet.</div>
+              ) : null}
             </div>
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-12 w-full justify-start rounded-lg px-3 text-sm font-semibold"
-              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            >
-              <Plus className="h-4 w-4" />
-              Add new field
-            </Button>
+            {extractFields.map((field) => (
+              <div key={field.id} className="flex items-center gap-3 border-t border-neutral-200 px-3 py-2.5 dark:border-white/10">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">{field.name}</div>
+                  <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{field.prompt}</div>
+                  <div className="mt-1 truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+                    {field.insightCardinality === 'single' ? 'Single' : 'Multiple'} · {extractFieldScopeLabel(field)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Edit ${field.name}`}
+                    onClick={() => {
+                      setEditingExtractField(field)
+                      setIsExtractFieldDialogOpen(true)
+                    }}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Delete ${field.name}`}
+                    onClick={() => {
+                      setDeleteExtractFieldError(null)
+                      setDeletingExtractField(field)
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
         ) : null}
 
@@ -1563,6 +1674,27 @@ export default function DashboardSettingsPage({
             </div>
           </div>
         ) : null}
+
+        <ExtractFieldDialog
+          isOpen={isExtractFieldDialogOpen}
+          folders={folders}
+          foldersLoading={isLoadingFolders}
+          foldersError={foldersError}
+          initialField={editingExtractField}
+          submitting={createExtractFieldMutation.isPending || updateExtractFieldMutation.isPending}
+          onClose={closeExtractFieldDialog}
+          onSubmit={submitExtractField}
+        />
+        <DeleteExtractFieldDialog
+          field={deletingExtractField}
+          deleting={deleteExtractFieldMutation.isPending}
+          error={deleteExtractFieldError}
+          onClose={() => {
+            setDeletingExtractField(null)
+            setDeleteExtractFieldError(null)
+          }}
+          onConfirm={() => void confirmDeleteExtractField()}
+        />
       </DashboardPanelBody>
     </DashboardPanel>
   )

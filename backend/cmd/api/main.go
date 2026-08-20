@@ -126,6 +126,7 @@ func main() {
 	messageRepo := repository.NewMessageRepository(db)
 	accountUsageRepo := repository.NewAccountUsageRepository(db)
 	accountVocabularyRepo := repository.NewAccountVocabularyRepository(db)
+	extractFieldRepo := repository.NewExtractFieldRepository(db)
 	billingCustomerRepo := repository.NewBillingCustomerRepository(db)
 	subscriptionRepo := repository.NewSubscriptionRepository(db)
 	billingWebhookRepo := repository.NewBillingWebhookRepository(db)
@@ -210,6 +211,7 @@ func main() {
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient, resourceEventPublisher)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	vocabularyHandler := handlers.NewVocabularyHandler(accountVocabularyRepo, resourceEventPublisher)
+	extractFieldsHandler := handlers.NewExtractFieldsHandler(extractFieldRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
@@ -281,6 +283,12 @@ func main() {
 		// Vocabulary is account-owned and is never accepted through a stream handshake.
 		authenticated.GET("/vocabulary", vocabularyHandler.Get)
 		authenticated.PUT("/vocabulary", vocabularyHandler.Put)
+
+		// Extract fields are configuration only; meeting processing does not consume them yet.
+		authenticated.GET("/extract-fields", extractFieldsHandler.List)
+		authenticated.POST("/extract-fields", extractFieldsHandler.Create)
+		authenticated.PATCH("/extract-fields/:fieldID", extractFieldsHandler.Update)
+		authenticated.DELETE("/extract-fields/:fieldID", extractFieldsHandler.Delete)
 
 		// Billing routes return hosted Stripe URLs only. Provider callbacks never grant access.
 		authenticated.POST("/billing/checkout-sessions", billingHandler.CreateCheckoutSession)

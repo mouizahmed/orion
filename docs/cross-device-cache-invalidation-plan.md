@@ -450,7 +450,7 @@ Deliverable: remote changes revalidate all active devices without feature-specif
 
 ### Phase 5 — Extracts and future resources
 
-- Register and publish `extract_fields` alongside initial Extract settings CRUD.
+- `extract_fields` is registered and published by the initial Extract settings CRUD implementation.
 - Add the feature registration checklist to contributor documentation.
 
 ### Phase 6 — Cleanup and hardening

@@ -14,6 +14,8 @@ Google and Microsoft calendar authorization is separate from login. It uses the 
 
 Custom vocabulary is account-owned backend data exposed through authenticated `GET` and `PUT /api/vocabulary` endpoints. New AssemblyAI streams load it server-side and apply its terms to both audio channels; the desktop transcription handshake carries only authentication. See [`../docs/custom-vocabulary.md`](../docs/custom-vocabulary.md).
 
+Extract fields are account-owned settings exposed through authenticated CRUD at `/api/extract-fields`. A field targets either all meetings or one or more owned active folders. This layer stores configuration only; no transcription or meeting-processing code consumes it yet. See [`../docs/extract-settings-plan.md`](../docs/extract-settings-plan.md).
+
 ## Cross-device cache invalidation
 
 Committed cacheable-resource changes publish an account-scoped envelope to the internal Redis channel `orion:resource-events:v1`. Every API instance validates subscribed envelopes and forwards only the versioned `resource.changed` payload to that account's sockets through its local WebSocket hub. Do not send generic invalidations directly through the hub or include resource contents in an event.

@@ -46,6 +46,8 @@ drop table if exists public.note_versions cascade;
 drop table if exists public.messages cascade;
 drop table if exists public.conversations cascade;
 drop table if exists public.notes cascade;
+drop table if exists public.account_extract_field_folders cascade;
+drop table if exists public.account_extract_fields cascade;
 drop table if exists public.folders cascade;
 drop table if exists public.user_auth_identities cascade;
 drop table if exists public.account_usage_operations cascade;
@@ -382,6 +384,55 @@ create table public.folders (
   unique (id, user_id)
 );
 
+-- User-defined extraction settings. These rows are configuration only; no
+-- transcript processing reads them until the extraction feature is added.
+create table public.account_extract_fields (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  name text not null,
+  prompt text not null,
+  insight_cardinality text not null default 'multiple',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_extract_fields_name_valid check (
+    name = btrim(name) and name <> '' and length(name) <= 100
+  ),
+  constraint account_extract_fields_prompt_valid check (
+    prompt = btrim(prompt) and prompt <> '' and length(prompt) <= 4000
+  ),
+  constraint account_extract_fields_cardinality_valid check (
+    insight_cardinality in ('single', 'multiple')
+  ),
+  unique (id, account_id)
+);
+create unique index account_extract_fields_account_name_idx
+  on public.account_extract_fields (account_id, lower(name));
+create index account_extract_fields_account_created_idx
+  on public.account_extract_fields (account_id, created_at, id);
+
+-- No rows means all meetings. One or more rows means the field targets exactly
+-- those folders. account_id is repeated so both sides are ownership-enforced.
+create table public.account_extract_field_folders (
+  extract_field_id uuid not null,
+  account_id uuid not null,
+  folder_id uuid not null,
+  created_at timestamptz not null default now(),
+  primary key (extract_field_id, folder_id),
+  constraint account_extract_field_folders_field_owner_fk
+    foreign key (extract_field_id, account_id)
+    references public.account_extract_fields(id, account_id)
+    on delete cascade,
+  constraint account_extract_field_folders_folder_owner_fk
+    foreign key (folder_id, account_id)
+    references public.folders(id, user_id)
+);
+create index account_extract_field_folders_account_folder_idx
+  on public.account_extract_field_folders (account_id, folder_id);
+create index account_extract_field_folders_field_owner_idx
+  on public.account_extract_field_folders (extract_field_id, account_id);
+create index account_extract_field_folders_folder_owner_idx
+  on public.account_extract_field_folders (folder_id, account_id);
+
 create table public.integration_connections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -639,7 +690,8 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','accounts','account_vocabulary','account_plan_changes','account_usage_periods',
+    'users','accounts','account_vocabulary','account_extract_fields',
+    'account_extract_field_folders','account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
     'billing_webhook_events','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
@@ -942,6 +994,10 @@ revoke all on table public.accounts from orion_backend;
 grant select, insert, update on table public.accounts to orion_backend;
 revoke all on table public.account_vocabulary from orion_backend;
 grant select, insert, update on table public.account_vocabulary to orion_backend;
+revoke all on table public.account_extract_fields from orion_backend;
+grant select, insert, update, delete on table public.account_extract_fields to orion_backend;
+revoke all on table public.account_extract_field_folders from orion_backend;
+grant select, insert, delete on table public.account_extract_field_folders to orion_backend;
 revoke all on table public.account_plan_changes from orion_backend;
 grant insert on table public.account_plan_changes to orion_backend;
 revoke all on table public.account_usage_periods from orion_backend;
@@ -967,7 +1023,7 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','folders','integration_connections',
+    'users','folders','account_extract_fields','account_extract_field_folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_attendees','note_shares','conversations','messages'
