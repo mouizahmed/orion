@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --ignore-pattern dist --ignore-pattern dist-electron --report-unused-disable-directives --max-warnings 0",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -61,7 +62,8 @@
     "typescript": "^5.2.2",
     "vite": "^7.3.1",
     "vite-plugin-electron": "^0.28.6",
-    "vite-plugin-electron-renderer": "^0.14.5"
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "js-yaml": "4.3.1"

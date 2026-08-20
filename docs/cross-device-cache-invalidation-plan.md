@@ -4,7 +4,7 @@
 
 Phases 1–4 and the shared registration infrastructure are implemented. The `extract_fields` contract and query key are registered so the future Extract CRUD can publish without adding another WebSocket bridge; its publisher remains intentionally deferred until that CRUD exists. Authentication/session state and existing domain events were not migrated.
 
-Backend tests, vet, and build pass; desktop TypeScript, lint, renderer/main/preload production bundles, and NSIS packaging pass. On this Windows host Electron Builder's initial unpack-directory rename was denied by the filesystem, so packaging was verified from the successfully generated prepackaged directory instead.
+Automated coverage proves contract validation, malformed and oversized message rejection, publish-failure metrics, two-instance Redis-to-WebSocket fan-out, account isolation, ephemeral no-replay behavior, subscriber restart and Redis interruption recovery, every desktop resource mapping, dependency invalidation, event batching, reconnect prefix isolation, and logout cancellation/removal. Backend tests, vet, and build pass; desktop tests, TypeScript, lint, renderer/main/preload production bundles, and NSIS packaging pass. On this Windows host Electron Builder's initial unpack-directory rename was denied by the filesystem, so packaging was verified from the successfully generated prepackaged directory instead.
 
 ## Goal
 

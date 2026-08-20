@@ -18,6 +18,8 @@ Authenticated dashboard API data uses the shared TanStack Query client in `src/l
 
 Use query hooks for cacheable backend resources, background revalidation, prefetching, and mutation rollback. Keep authentication/current-user ownership in `AuthContext`, unsaved form state in React component state, and Electron-owned settings in their IPC contexts. The shared `ServerStateInvalidationBridge` validates `resource.changed` messages and maps them through `src/lib/resource-invalidation.ts`; feature components must not add their own generic invalidation subscriptions. Existing domain events such as `calendar.sync_status` continue to carry live UI metadata separately.
 
+Originating-client mutation behavior belongs in the resource query hook, not page components. Calendar connect, disconnect, OAuth completion, visibility optimism/rollback, and dependent invalidation are owned by `src/hooks/useCalendarSettingsQuery.ts`; the page invokes those mutations without manipulating query keys.
+
 Current query-managed resources are Vocabulary, calendar accounts/visibility, upcoming calendar events, and Billing status. Every query key remains account-prefixed, and reconnect invalidates that account prefix to recover changes missed while offline. See [`../docs/server-state-query-cache-plan.md`](../docs/server-state-query-cache-plan.md) and [`../docs/cross-device-cache-invalidation-plan.md`](../docs/cross-device-cache-invalidation-plan.md) for lifecycle and verification details.
 
 ## Development
@@ -26,4 +28,5 @@ Current query-managed resources are Vocabulary, calendar accounts/visibility, up
 npm install
 npm run dev
 npm run lint
+npm test
 ```

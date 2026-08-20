@@ -1,6 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, ExternalLink, KeyRound, Keyboard, LayoutGrid, Lock, Mail, MicOff, MonitorCog, Plus, ScanText, ShieldCheck, SpellCheck, User, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, Check, ClipboardList, CreditCard, ExternalLink, Keyboard, LayoutGrid, Mail, MonitorCog, Plus, ScanText, SpellCheck, User, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,22 +11,16 @@ import {
   DashboardPanelHeader,
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
-import {
-  authenticatedFetch,
-  invalidateSession,
-  SessionExpiredError,
-} from '@/lib/auth-session'
+import { authenticatedFetch } from '@/lib/auth-session'
 import { useAuth } from '@/contexts/AuthContext'
 import { useBilling } from '@/contexts/BillingContext'
 import { desktopApi, type IntegrationProvider, type RecordingSettings, type ShortcutAction, type ShortcutState } from '@/lib/desktop-api'
-import { refreshCalendarEvents } from '@/hooks/useCalendarEvents'
 import { publicAssetUrl } from '@/lib/public-asset'
 import { API_BASE_URL } from '@/lib/api-config'
 import { billingOffer, billingPlan, formatUSD } from '@/lib/billing-catalog'
 import { useUpdateVocabularyMutation, useVocabularyQuery } from '@/hooks/useVocabularyQuery'
-import { useCalendarSettingsQuery, useCalendarVisibilityMutation } from '@/hooks/useCalendarSettingsQuery'
+import { useCalendarConnectionMutations, useCalendarSettingsQuery, useCalendarVisibilityMutation } from '@/hooks/useCalendarSettingsQuery'
 import type { ConnectedCalendar, IntegrationConnection } from '@/types/calendar-settings'
-import { queryKeys } from '@/lib/query-keys'
 import {
   CHECKOUT_OPERATION_LIFETIME_MS,
   readPendingCheckoutOperation,
@@ -37,7 +30,7 @@ import {
 import { toast } from 'sonner'
 
 
-export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'security' | 'preferences' | 'shortcuts'
+export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'preferences' | 'shortcuts'
 
 type CalendarIntegrationProvider = Extract<IntegrationProvider, 'google' | 'microsoft'>
 
@@ -80,10 +73,6 @@ const calendarProviderOptions: Array<{
   { provider: 'google', label: 'Google Calendar', icon: publicAssetUrl('google-calendar-icon.svg') },
   { provider: 'microsoft', label: 'Outlook', icon: publicAssetUrl('microsoft-outlook-icon.svg') },
 ]
-
-function refreshCalendarViews(accountID: string | undefined) {
-  if (accountID) refreshCalendarEvents(accountID)
-}
 
 function accountLabel(connection: IntegrationConnection) {
   return connection.provider_email || connection.display_name || `${connection.provider} account`
@@ -129,7 +118,6 @@ const sectionMeta: Record<DashboardSettingsSection, { title: string; icon: typeo
   extracts: { title: 'Extracts', icon: ScanText },
   emailDraft: { title: 'Email Draft Templates', icon: Mail },
   summaryTemplates: { title: 'Summary Templates', icon: ClipboardList },
-  security: { title: 'Security', icon: ShieldCheck },
   preferences: { title: 'Preferences', icon: MonitorCog },
   shortcuts: { title: 'Shortcuts', icon: Keyboard },
 }
@@ -608,7 +596,7 @@ export function DashboardSettingsNav({
         const Icon = sectionMeta[section].icon
         return (
           <Fragment key={section}>
-            {section === 'calendar' || section === 'vocabulary' || section === 'security' ? (
+            {section === 'calendar' || section === 'vocabulary' || section === 'preferences' ? (
               <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
             ) : null}
             <SidebarRowButton
@@ -632,7 +620,6 @@ export default function DashboardSettingsPage({
   selectedSection: DashboardSettingsSection
 }) {
   const { user, logout, logoutAllDevices, updateProfileName, uploadProfileAvatar } = useAuth()
-  const queryClient = useQueryClient()
   const shortcutApi = desktopApi.shortcuts
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const vocabularyInputRef = useRef<HTMLInputElement | null>(null)
@@ -661,6 +648,10 @@ export default function DashboardSettingsPage({
     ?? (vocabularyQuery.error instanceof Error ? vocabularyQuery.error.message : null)
   const calendarSettingsQuery = useCalendarSettingsQuery(user?.id, selectedSection === 'calendar')
   const calendarVisibilityMutation = useCalendarVisibilityMutation(user?.id)
+  const {
+    connect: { mutateAsync: connectCalendar },
+    disconnect: { mutateAsync: disconnectCalendar },
+  } = useCalendarConnectionMutations(user?.id, (message) => toast.error(message))
   const calendarConnections = calendarSettingsQuery.data?.connections ?? []
   const connectedCalendars = calendarSettingsQuery.data?.calendars ?? []
   const isLoadingCalendars = calendarSettingsQuery.isPending
@@ -754,24 +745,7 @@ export default function DashboardSettingsPage({
   }, [uploadProfileAvatar])
 
   useEffect(() => {
-    return desktopApi.integrations.onConnectionCompleted((event) => {
-      if (event.provider && event.provider !== 'google' && event.provider !== 'microsoft') return
-      if (event.feature && event.feature !== 'calendar') return
-
-      if (!event.success) {
-        toast.error(event.error || 'Calendar connection failed')
-        return
-      }
-
-      refreshCalendarViews(user?.id)
-      if (user?.id) {
-        void queryClient.invalidateQueries({ queryKey: queryKeys.calendarSettings(user.id) })
-      }
-    })
-  }, [queryClient, user?.id])
-
-  useEffect(() => {
-    if (selectedSection !== 'security' || !desktopApi.recordingSettings.isAvailable()) return
+    if (selectedSection !== 'preferences' || !desktopApi.recordingSettings.isAvailable()) return
     let isSubscribed = true
     desktopApi.recordingSettings
       .get()
@@ -817,22 +791,13 @@ export default function DashboardSettingsPage({
 
     setCalendarAction(`connect:${provider}`)
     try {
-      const result = await desktopApi.integrations.connect(provider, 'calendar')
-      if (!result.success) {
-        if (result.authInvalid) {
-          await invalidateSession()
-          throw new SessionExpiredError()
-        }
-        throw new Error(result.error)
-      }
-      refreshCalendarViews(user.id)
-      void refetchCalendarSettings()
+      await connectCalendar(provider)
     } catch (connectError) {
       toast.error(connectError instanceof Error ? connectError.message : 'Failed to connect calendar')
     } finally {
       setCalendarAction(null)
     }
-  }, [refetchCalendarSettings, user])
+  }, [connectCalendar, user])
 
   const handleDisconnectCalendar = useCallback(
     async (connectionID: string) => {
@@ -843,23 +808,14 @@ export default function DashboardSettingsPage({
 
       setCalendarAction(`disconnect:${connectionID}`)
       try {
-        const result = await desktopApi.integrations.disconnect(connectionID)
-        if (!result.success) {
-          if (result.authInvalid) {
-            await invalidateSession()
-            throw new SessionExpiredError()
-          }
-          throw new Error(result.error)
-        }
-        refreshCalendarViews(user.id)
-        await refetchCalendarSettings()
+        await disconnectCalendar(connectionID)
       } catch (disconnectError) {
         toast.error(disconnectError instanceof Error ? disconnectError.message : 'Failed to disconnect calendar')
       } finally {
         setCalendarAction(null)
       }
     },
-    [refetchCalendarSettings, user],
+    [disconnectCalendar, user],
   )
 
   const handleCalendarVisibility = useCallback(
@@ -874,7 +830,6 @@ export default function DashboardSettingsPage({
 
       try {
         await calendarVisibilityMutation.mutateAsync({ calendar, visible })
-        refreshCalendarViews(user.id)
       } catch (visibilityError) {
         toast.error(visibilityError instanceof Error ? visibilityError.message : 'Failed to update calendar')
       } finally {
@@ -1486,115 +1441,6 @@ export default function DashboardSettingsPage({
           </div>
         ) : null}
 
-        {selectedSection === 'security' ? (
-          <div className="space-y-5">
-            <div className="grid gap-2 lg:grid-cols-3">
-              {[
-                {
-                  icon: Lock,
-                  title: 'No AI training with your data',
-                  body: 'We block model providers from using your data to train AI models.',
-                },
-                {
-                  icon: MicOff,
-                  title: 'Your audio data is in your control',
-                  body: 'Choose where to store audio recordings. You can opt out of server uploads.',
-                },
-                {
-                  icon: KeyRound,
-                  title: 'End-to-end encryption',
-                  body: 'AES-256 encryption protects your data to keep sensitive information secure.',
-                },
-              ].map((item) => {
-                const Icon = item.icon
-                return (
-                  <div
-                    key={item.title}
-                    className="rounded-lg border border-neutral-200 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.03]"
-                  >
-                    <Icon className="h-5 w-5 text-neutral-500 dark:text-neutral-400" />
-                    <div className="mt-5 text-xs font-semibold text-neutral-900 dark:text-neutral-100">{item.title}</div>
-                    <div className="mt-1 text-xs leading-4 text-neutral-500 dark:text-neutral-400">{item.body}</div>
-                  </div>
-                )
-              })}
-            </div>
-
-            <div>
-              <div className="px-2 pb-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">Audio recording</div>
-              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
-                <SettingRow
-                  label="Record audio"
-                  value="Enable audio recording for meetings"
-                  action={<ToggleSwitch enabled />}
-                />
-                <SettingRow
-                  label="Storage location"
-                  value="Where to store recorded audio"
-                  action={
-                    <Select
-                      value={recordingSettings.storageLocation}
-                      onValueChange={(value) => {
-                        void updateRecordingSettings({
-                          storageLocation: value === 'local' ? 'local' : 'server',
-                        })
-                      }}
-                    >
-                      <SelectTrigger
-                        className="w-40"
-                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="server">Orion server</SelectItem>
-                        <SelectItem value="local">Local only</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-                {recordingSettings.storageLocation === 'local' ? (
-                  <SettingRow
-                    label="Save recordings to"
-                    value={recordingSettings.localRecordingsPath || 'No folder selected'}
-                    action={
-                      <Button type="button" variant="outline" size="sm" onClick={() => void chooseLocalRecordingsPath()}>
-                        Choose folder
-                      </Button>
-                    }
-                  />
-                ) : null}
-              </div>
-            </div>
-
-            <div>
-              <div className="px-2 pb-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">Data retention</div>
-              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
-                <SettingRow
-                  label="Auto-delete meetings after"
-                  value="Automatically archive old meetings"
-                  action={
-                    <Select defaultValue="never">
-                      <SelectTrigger
-                        className="w-40"
-                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="never">Never</SelectItem>
-                        <SelectItem value="30">30 days</SelectItem>
-                        <SelectItem value="90">90 days</SelectItem>
-                        <SelectItem value="365">1 year</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  }
-                />
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         {selectedSection === 'preferences' ? (
           <div className="space-y-3">
             <div>
@@ -1646,6 +1492,72 @@ export default function DashboardSettingsPage({
                   label="Launch on Startup"
                   value="This will launch Orion automatically when your system starts."
                   action={<ToggleSwitch enabled />}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Audio recording</div>
+              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+                <SettingRow
+                  label="Storage location"
+                  value="Where to store recorded audio"
+                  action={
+                    <Select
+                      value={recordingSettings.storageLocation}
+                      onValueChange={(value) => {
+                        void updateRecordingSettings({
+                          storageLocation: value === 'local' ? 'local' : 'server',
+                        })
+                      }}
+                    >
+                      <SelectTrigger
+                        className="w-40"
+                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectItem value="server">Orion server</SelectItem>
+                        <SelectItem value="local">Local only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  }
+                />
+                {recordingSettings.storageLocation === 'local' ? (
+                  <SettingRow
+                    label="Save recordings to"
+                    value={recordingSettings.localRecordingsPath || 'No folder selected'}
+                    action={
+                      <Button type="button" variant="outline" size="sm" onClick={() => void chooseLocalRecordingsPath()}>
+                        Choose folder
+                      </Button>
+                    }
+                  />
+                ) : null}
+              </div>
+            </div>
+            <div>
+              <div className="px-2 pb-1 text-xs font-semibold text-neutral-400">Data retention</div>
+              <div className="overflow-hidden rounded-lg border border-neutral-200 bg-white/60 dark:border-white/10 dark:bg-white/[0.03]">
+                <SettingRow
+                  label="Auto-delete meetings after"
+                  value="Automatically archive old meetings"
+                  action={
+                    <Select defaultValue="never">
+                      <SelectTrigger
+                        className="w-40"
+                        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end">
+                        <SelectItem value="never">Never</SelectItem>
+                        <SelectItem value="30">30 days</SelectItem>
+                        <SelectItem value="90">90 days</SelectItem>
+                        <SelectItem value="365">1 year</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  }
                 />
               </div>
             </div>
