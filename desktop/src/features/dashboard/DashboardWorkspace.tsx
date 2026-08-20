@@ -1,0 +1,70 @@
+import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
+import { CalendarView } from '@/features/calendar/CalendarView'
+import HomeView from '@/features/home/HomeView'
+import NoteEditorView from '@/features/notes/NoteEditorView'
+import SettingsView from '@/features/settings/SettingsView'
+import type { DashboardSettingsSection } from '@/features/settings/settings-config'
+
+type DashboardWorkspaceProps = {
+  userId?: string
+  mode?: 'notes' | 'calendar' | 'settings'
+  selectedSettingsSection?: DashboardSettingsSection
+  onOpenCalendar?: (eventId?: string) => void
+  onOpenCalendarSettings?: () => void
+  onOpenNotes?: () => void
+  initialCalendarEventId?: string | null
+}
+
+function NotesLoadingView() {
+  return (
+    <div className="flex h-full min-h-0 gap-2">
+      <div className="flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none">
+        <div className="flex items-center gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+          <div className="h-4 w-48 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+          <div className="h-4 w-20 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
+        </div>
+        <div className="flex-1 space-y-3 p-5">
+          <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="mt-6 h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+          <div className="h-3 w-4/5 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function DashboardWorkspace({
+  userId,
+  mode = 'notes',
+  selectedSettingsSection = 'account',
+  onOpenCalendar,
+  onOpenCalendarSettings,
+  onOpenNotes,
+  initialCalendarEventId,
+}: DashboardWorkspaceProps) {
+  const { selectedId, isLoading } = useDashboardNotes()
+
+  if (mode === 'settings') {
+    return <div className="h-full"><SettingsView selectedSection={selectedSettingsSection} /></div>
+  }
+
+  if (mode === 'calendar') {
+    return (
+      <div className="h-full">
+        <CalendarView
+          onOpenCalendarSettings={onOpenCalendarSettings}
+          onOpenNotes={onOpenNotes}
+          initialSelectedEventId={initialCalendarEventId}
+        />
+      </div>
+    )
+  }
+
+  if (isLoading) return <NotesLoadingView />
+  if (selectedId) return <NoteEditorView userId={userId} />
+
+  return <div className="h-full"><HomeView onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} /></div>
+}

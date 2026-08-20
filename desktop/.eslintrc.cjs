@@ -12,4 +12,19 @@ module.exports = {
   rules: {
     'react-refresh/only-export-components': 'off',
   },
+  overrides: [
+    {
+      files: ['src/components/**/*.{ts,tsx}'],
+      rules: {
+        'no-restricted-imports': ['error', {
+          patterns: [
+            {
+              group: ['@/features/*', '@/features/**', '@/app/*', '@/app/**'],
+              message: 'Shared UI cannot depend on app or feature modules. Move feature-aware code to its owning feature.',
+            },
+          ],
+        }],
+      },
+    },
+  ],
 }

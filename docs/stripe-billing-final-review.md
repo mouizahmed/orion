@@ -57,7 +57,7 @@ No blocking repository defect remains.
 ### Resolved: ambiguous Checkout retries could create another session
 
 - **Location:** `backend/internal/billing/checkout.go:141` and
-  `desktop/src/components/DashboardSettingsPage.tsx:264`
+  `desktop/src/features/settings/sections/billing/BillingSettings.tsx`
 - **Verified failure:** Releasing the account reservation after an ambiguous
   Stripe response let a retry use a new operation identifier and create a second
   trial-bearing Checkout Session.
@@ -112,7 +112,7 @@ No blocking repository defect remains.
 
 ### Resolved: nonterminal failure states produced a misleading Checkout action
 
-- **Location:** `desktop/src/components/DashboardSettingsPage.tsx:438`
+- **Location:** `desktop/src/features/settings/sections/billing/BillingSettings.tsx`
 - **Verified failure:** `unpaid`, `paused`, `past_due`, or `incomplete` accounts
   could be shown a Start Trial action that the backend correctly rejected.
 - **Correction:** Electron now treats every nonterminal status as an existing
@@ -152,7 +152,7 @@ No blocking repository defect remains.
 
 - **Location:** `backend/internal/entitlements/catalog.json`,
   `backend/internal/entitlements/plans.go:66`,
-  `desktop/src/lib/billing-catalog.ts:1`, and
+  `desktop/src/features/settings/sections/billing/billing-catalog.ts`, and
   `web/components/landing/pricing.tsx:6`
 - **Verified failure:** Independent constants could disagree across quota
   authorization, Electron, and the website.
@@ -163,7 +163,7 @@ No blocking repository defect remains.
 
 ### Resolved: callback polling and stale billing UI
 
-- **Location:** `desktop/src/components/DashboardSettingsPage.tsx:335` and
+- **Location:** `desktop/src/features/settings/sections/billing/BillingContext.tsx` and
   `desktop/electron/protocol-handler.ts:115`
 - **Verified failure:** Portal/cancel callbacks could display the Checkout
   confirmation state and poll unnecessarily; returning focus could retain stale
@@ -183,7 +183,7 @@ No blocking repository defect remains.
 
 ### Resolved: billing card interval selector was attached to the wrong plan
 
-- **Location:** `desktop/src/components/DashboardSettingsPage.tsx:474`
+- **Location:** `desktop/src/features/settings/sections/billing/BillingSettings.tsx`
 - **Verified failure:** When Professional was current, the monthly/yearly
   selector appeared inside the Free card, and the Free card could display a
   Start Trial label.

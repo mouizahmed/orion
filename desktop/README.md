@@ -2,6 +2,19 @@
 
 Electron, React, and Vite client for Orion.
 
+## Source architecture
+
+The renderer uses feature-first ownership:
+
+- `src/app` contains entry roots, provider composition, and cross-feature realtime infrastructure.
+- `src/features/dashboard` contains the dashboard shell, sidebar, top bar, and the small active-view router.
+- `src/features/home`, `notes`, `calendar`, `settings`, `overlay`, `onboarding`, `auth`, and `chat` own their components, hooks, API clients, and domain types.
+- `src/features/settings/sections` gives every settings page an explicit feature boundary.
+- `src/components/ui` and `src/components/animate-ui` contain feature-agnostic reusable UI only.
+- `src/lib` is reserved for genuinely shared infrastructure such as query configuration, Electron IPC, public assets, and generic utilities.
+
+Feature-specific dialogs, hooks, clients, and types must stay with their owning feature. Do not recreate global `components`, `hooks`, or `types` dumping grounds. Cross-feature imports should target the owning feature's public module directly; generic UI must not import from a feature.
+
 ## Authentication
 
 The Electron main process owns the sole Supabase Auth client, PKCE flow, refresh token, encrypted session storage, and bounded pending-login transaction. This allows packaged cold-start deep links to finish without exposing verifier material. Renderer code consumes validated application-user snapshots and requests access tokens over sender-validated IPC. Do not add Supabase clients, refresh-token persistence, or direct provider OAuth handling to renderers.
@@ -16,9 +29,9 @@ The Vocabulary settings page persists provider-neutral terms through the authent
 
 Authenticated dashboard API data uses the shared TanStack Query client in `src/lib/query-client.ts`. Query keys must start with `['account', accountID]` through the factories in `src/lib/query-keys.ts`; the session boundary cancels and removes that prefix when the authenticated user changes or signs out.
 
-Use query hooks for cacheable backend resources, background revalidation, prefetching, and mutation rollback. Keep authentication/current-user ownership in `AuthContext`, unsaved form state in React component state, and Electron-owned settings in their IPC contexts. The shared `ServerStateInvalidationBridge` validates `resource.changed` messages and maps them through `src/lib/resource-invalidation.ts`; feature components must not add their own generic invalidation subscriptions. Existing domain events such as `calendar.sync_status` continue to carry live UI metadata separately.
+Use query hooks for cacheable backend resources, background revalidation, prefetching, and mutation rollback. Keep authentication/current-user ownership in `AuthContext`, unsaved form state in React component state, and Electron-owned settings in their IPC contexts. The shared `ServerStateInvalidationBridge` validates `resource.changed` messages and maps them through `src/app/realtime/resource-invalidation.ts`; feature components must not add their own generic invalidation subscriptions. Existing domain events such as `calendar.sync_status` continue to carry live UI metadata separately.
 
-Originating-client mutation behavior belongs in the resource query hook, not page components. Calendar connect, disconnect, OAuth completion, visibility optimism/rollback, and dependent invalidation are owned by `src/hooks/useCalendarSettingsQuery.ts`; the page invokes those mutations without manipulating query keys.
+Originating-client mutation behavior belongs in the resource query hook, not page components. Calendar connect, disconnect, OAuth completion, visibility optimism/rollback, and dependent invalidation are owned by `src/features/calendar/useCalendarSettingsQuery.ts`; the page invokes those mutations without manipulating query keys.
 
 Current query-managed resources are Vocabulary, Extract fields, calendar accounts/visibility, upcoming calendar events, and Billing status. Every query key remains account-prefixed, and reconnect invalidates that account prefix to recover changes missed while offline. See [`../docs/server-state-query-cache-plan.md`](../docs/server-state-query-cache-plan.md) and [`../docs/cross-device-cache-invalidation-plan.md`](../docs/cross-device-cache-invalidation-plan.md) for lifecycle and verification details.
 

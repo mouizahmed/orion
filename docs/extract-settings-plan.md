@@ -33,11 +33,11 @@ Until that later processing phase is implemented, saving an extract field change
 
 Do not introduce feature-specific caching, WebSocket subscriptions, or duplicate folder fetching.
 
-- `desktop/src/components/dialog/ExtractFieldDialog.tsx` contains the current create-dialog UI.
-- `desktop/src/components/DashboardSettingsPage.tsx` contains the Vocabulary-style Extracts card.
+- `desktop/src/features/settings/sections/extracts/ExtractFieldDialog.tsx` contains the current create-dialog UI.
+- `desktop/src/features/settings/sections/extracts/ExtractsSettings.tsx` contains the Vocabulary-style Extracts card.
 - `desktop/src/lib/query-keys.ts` already defines `queryKeys.extractFields(accountID)`.
-- `desktop/src/lib/resource-invalidation.ts` already maps `extract_fields` to that query key.
-- `desktop/src/types/ws-events.ts` already recognizes the `extract_fields` resource.
+- `desktop/src/app/realtime/resource-invalidation.ts` already maps `extract_fields` to that query key.
+- `desktop/src/app/realtime/types.ts` already recognizes the `extract_fields` resource.
 - `backend/internal/resourceevents/event.go` already defines `ResourceExtractFields`.
 - `ServerStateInvalidationBridge` already handles generic `resource.changed` events.
 - `DashboardNotesContext` already owns the dashboard's active folder list. The Extracts page should consume that list rather than call `listFolders()` again.
@@ -278,8 +278,8 @@ Do not publish on GET or on failed/rolled-back mutations. Redis or WebSocket del
 
 Add:
 
-- `desktop/src/types/extract-field.ts`
-- `desktop/src/lib/extract-fields-client.ts`
+- `desktop/src/features/settings/sections/extracts/types.ts`
+- `desktop/src/features/settings/sections/extracts/extract-fields-client.ts`
 
 Renderer types should use camelCase:
 
@@ -331,7 +331,7 @@ deleteExtractField(id): Promise<void>
 
 ### Shared query hooks
 
-Add `desktop/src/hooks/useExtractFieldsQuery.ts` using TanStack Query and the existing account-scoped key:
+Add `desktop/src/features/settings/sections/extracts/useExtractFieldsQuery.ts` using TanStack Query and the existing account-scoped key:
 
 ```ts
 useExtractFieldsQuery(accountID)

@@ -136,7 +136,7 @@ export const queryKeys = {
 
 Do not include access tokens, email addresses, prompts, or other sensitive values in query keys.
 
-Add `desktop/src/components/ServerStateSessionBoundary.tsx`:
+Add `desktop/src/app/providers/ServerStateSessionBoundary.tsx`:
 
 - Read the active user from `AuthContext`.
 - Track the previous authenticated user ID.
@@ -183,7 +183,7 @@ If Electron focus behavior is unreliable, configure TanStack's `focusManager` on
 
 #### Fetcher and hook
 
-Keep pure HTTP response parsing in `desktop/src/lib/vocabulary-client.ts`, but remove:
+Keep pure HTTP response parsing in `desktop/src/features/settings/sections/vocabulary/vocabulary-client.ts`, but remove:
 
 - `vocabularyCache`
 - `vocabularyRequests`
@@ -197,7 +197,7 @@ getVocabulary(): Promise<AccountVocabulary>
 putVocabulary(terms: string[]): Promise<AccountVocabulary>
 ```
 
-Add `desktop/src/hooks/useVocabularyQuery.ts`:
+Add `desktop/src/features/settings/sections/vocabulary/useVocabularyQuery.ts`:
 
 ```ts
 useVocabularyQuery(accountID: string | undefined)
@@ -236,8 +236,8 @@ Replace component-owned saving logic with `useUpdateVocabularyMutation` while pr
 
 Move the two direct requests out of `DashboardSettingsPage.tsx` into a dedicated client:
 
-- New: `desktop/src/lib/calendar-settings-client.ts`
-- New or shared types: `desktop/src/types/calendar-settings.ts`
+- New: `desktop/src/features/calendar/api/calendar-settings-client.ts`
+- New or shared types: `desktop/src/features/calendar/types.ts`
 
 The query function should fetch these concurrently and return one atomic snapshot:
 
@@ -257,7 +257,7 @@ If either request fails, reject the combined query. Do not turn a server/network
 
 #### Hook
 
-Add `desktop/src/hooks/useCalendarSettingsQuery.ts`:
+Add `desktop/src/features/calendar/useCalendarSettingsQuery.ts`:
 
 ```ts
 useCalendarSettingsQuery(accountID: string | undefined, enabled: boolean)
@@ -294,7 +294,7 @@ A visibility mutation should optimistically update the selected calendar row. On
 
 #### Migrate the shared snapshot
 
-Refactor `desktop/src/hooks/useCalendarEvents.ts` to use React Query and remove its generic cache machinery:
+Refactor `desktop/src/features/calendar/useCalendarEvents.ts` to use React Query and remove its generic cache machinery:
 
 - Module-level `snapshot`
 - `subscribers`
@@ -385,19 +385,19 @@ Do not migrate Account settings into React Query in this phase.
 |---|---|
 | `desktop/package.json` | Add `@tanstack/react-query` |
 | `desktop/package-lock.json` | Lock installed dependency |
-| `desktop/src/DashboardApp.tsx` | Mount the query provider and idle calendar prefetch |
+| `desktop/src/app/DashboardApp.tsx` | Mount the query provider and idle calendar prefetch |
 | `desktop/src/lib/query-client.ts` | New shared `QueryClient` configuration |
 | `desktop/src/lib/query-keys.ts` | New account-scoped query key factory |
-| `desktop/src/components/ServerStateSessionBoundary.tsx` | New user-change/logout cache cleanup boundary |
-| `desktop/src/lib/vocabulary-client.ts` | Remove bespoke cache; keep pure HTTP functions |
-| `desktop/src/hooks/useVocabularyQuery.ts` | New query and mutation hooks |
-| `desktop/src/lib/calendar-settings-client.ts` | New atomic settings fetcher |
-| `desktop/src/types/calendar-settings.ts` | Shared calendar settings types if needed |
-| `desktop/src/hooks/useCalendarSettingsQuery.ts` | New settings query and visibility mutation |
-| `desktop/src/hooks/useCalendarEvents.ts` | Replace shared snapshot cache with query-backed implementation |
-| `desktop/src/components/CalendarQueryEvents.tsx` | Optional shared WebSocket-to-query invalidation bridge |
-| `desktop/src/contexts/BillingContext.tsx` | Replace manual cache/deduplication with query client while retaining Stripe orchestration |
-| `desktop/src/components/DashboardSettingsPage.tsx` | Consume Vocabulary and Calendar settings hooks; remove direct fetch/loading state |
+| `desktop/src/app/providers/ServerStateSessionBoundary.tsx` | New user-change/logout cache cleanup boundary |
+| `desktop/src/features/settings/sections/vocabulary/vocabulary-client.ts` | Remove bespoke cache; keep pure HTTP functions |
+| `desktop/src/features/settings/sections/vocabulary/useVocabularyQuery.ts` | New query and mutation hooks |
+| `desktop/src/features/calendar/api/calendar-settings-client.ts` | New atomic settings fetcher |
+| `desktop/src/features/calendar/types.ts` | Shared calendar settings types if needed |
+| `desktop/src/features/calendar/useCalendarSettingsQuery.ts` | New settings query and visibility mutation |
+| `desktop/src/features/calendar/useCalendarEvents.ts` | Replace shared snapshot cache with query-backed implementation |
+| `desktop/src/features/calendar/CalendarQueryEvents.tsx` | Optional shared WebSocket-to-query invalidation bridge |
+| `desktop/src/features/settings/sections/billing/BillingContext.tsx` | Replace manual cache/deduplication with query client while retaining Stripe orchestration |
+| `desktop/src/features/settings/SettingsView.tsx` | Consume Vocabulary and Calendar settings hooks; remove direct fetch/loading state |
 
 Names may be adjusted to existing conventions, but query ownership should remain separated by domain rather than moving all requests into one large context.
 

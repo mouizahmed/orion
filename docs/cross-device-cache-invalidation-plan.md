@@ -48,7 +48,7 @@ An invalidation event means only “the cached representation may be stale.” R
 ### Desktop
 
 - `desktop/src/lib/ws-client.ts` maintains one authenticated reconnecting WebSocket and dispatches typed events.
-- `desktop/src/types/ws-events.ts` is the client event contract.
+- `desktop/src/app/realtime/types.ts` is the client event contract.
 - TanStack Query uses account-prefixed keys from `desktop/src/lib/query-keys.ts`.
 - `CalendarQueryEvents.tsx` currently contains Calendar-specific query invalidation behavior.
 
@@ -272,7 +272,7 @@ Do not route session revocation, suspension, deletion, or token lifecycle throug
 
 ### Event type
 
-Update `desktop/src/types/ws-events.ts`:
+Update `desktop/src/app/realtime/types.ts`:
 
 ```ts
 export type ResourceName =
@@ -300,7 +300,7 @@ Validate the runtime payload before invalidating anything. TypeScript types alon
 
 ### Query invalidation registry
 
-Add `desktop/src/lib/resource-invalidation.ts` with one exhaustive mapping from resource names to query keys:
+Add `desktop/src/app/realtime/resource-invalidation.ts` with one exhaustive mapping from resource names to query keys:
 
 ```ts
 type InvalidationContext = {
@@ -339,7 +339,7 @@ The mapping is the single place to express dependencies. Feature components must
 
 ### Shared bridge
 
-Add `desktop/src/components/ServerStateInvalidationBridge.tsx` under `QueryClientProvider` and inside the authenticated session boundary.
+Add `desktop/src/app/providers/ServerStateInvalidationBridge.tsx` under `QueryClientProvider` and inside the authenticated session boundary.
 
 Responsibilities:
 

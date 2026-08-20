@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App.tsx'
-import DashboardApp from './DashboardApp.tsx'
+import OverlayApp from './app/OverlayApp.tsx'
+import DashboardApp from './app/DashboardApp.tsx'
 import './index.css'
 import { desktopApi } from './lib/desktop-api'
 
@@ -29,7 +29,7 @@ const view = params.get('view')
 const RootComponent =
   view === 'dashboard'
       ? <DashboardApp />
-      : <App />
+      : <OverlayApp />
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
