@@ -14,6 +14,7 @@ export type ResourceName =
   | 'billing_status'
   | 'extract_fields'
   | 'email_draft_settings'
+  | 'summary_templates'
 
 export interface ResourceChangedEvent {
   version: 1

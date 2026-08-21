@@ -55,6 +55,8 @@ Each field contains:
   - **All meetings** is one mutually exclusive option.
   - Otherwise, the user selects one or more folder UUIDs.
 
+Each account may create at most **100 extract fields**. Creation locks the account row and checks the current count in the same transaction so concurrent requests cannot exceed the limit. Existing fields remain editable at the limit.
+
 The API must never use a sentinel string for **All meetings**. It uses an explicit scope object so an all-meetings scope cannot be confused with an accidentally empty folder selection.
 
 ### Folder lifecycle
@@ -259,6 +261,7 @@ Status behavior:
 - Invalid field values: `422 invalid_extract_field` or a more specific stable code.
 - Any missing, foreign, or inactive folder: `422 extract_field_folder_unavailable`; reject the whole mutation atomically.
 - Duplicate normalized name: `409 extract_field_name_conflict`.
+- Account already has 100 fields: `409 extract_field_limit_reached`.
 - Missing or foreign field ID: `404 extract_field_not_found` without revealing ownership.
 - Unauthenticated request: the existing auth middleware response.
 
@@ -374,7 +377,7 @@ The existing Radix `Select` primitive is single-value and must not be forced int
 
 ### Fields card
 
-Keep the current Vocabulary-style card and replace the hard-coded `0 fields` count with the query result length.
+Keep the current Vocabulary-style card and show the query result as `N / 100 fields`.
 
 States:
 

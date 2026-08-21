@@ -12,6 +12,7 @@ import { ShortcutsSettings } from '@/features/settings/sections/shortcuts/Shortc
 import { ConnectorsSettings } from '@/features/settings/sections/connectors/ConnectorsSettings'
 import { EmailDraftSettings } from '@/features/settings/sections/email-drafts/EmailDraftSettings'
 import { SummaryTemplatesSettings } from '@/features/settings/sections/summary-templates/SummaryTemplatesSettings'
+import { useSummaryTemplatesQuery } from '@/features/settings/sections/summary-templates/useSummaryTemplatesQuery'
 import { VocabularySettings } from '@/features/settings/sections/vocabulary/VocabularySettings'
 import { settingsSections, type DashboardSettingsSection } from '@/features/settings/settings-config'
 
@@ -24,7 +25,7 @@ function SettingsSection({ section, userID }: { section: DashboardSettingsSectio
     case 'vocabulary': return <VocabularySettings userID={userID} />
     case 'extracts': return <ExtractsSettings userID={userID} />
     case 'emailDraft': return <EmailDraftSettings userID={userID} />
-    case 'summaryTemplates': return <SummaryTemplatesSettings />
+    case 'summaryTemplates': return <SummaryTemplatesSettings userID={userID} />
     case 'preferences': return <PreferencesSettings />
     case 'shortcuts': return <ShortcutsSettings />
   }
@@ -37,6 +38,7 @@ export default function SettingsView({ selectedSection }: { selectedSection: Das
   useVocabularyQuery(user?.id)
   useExtractFieldsQuery(user?.id)
   useEmailDraftSettingsQuery(user?.id)
+  useSummaryTemplatesQuery(user?.id)
 
   return (
     <DashboardPanel className="flex h-full min-h-0 flex-col">

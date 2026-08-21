@@ -125,6 +125,8 @@ func renderExtractFieldRepositoryError(c *gin.Context, err error) {
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"code": "extract_field_folder_unavailable", "error": "A selected folder is unavailable."})
 	case errors.Is(err, repository.ErrExtractFieldNameConflict):
 		c.JSON(http.StatusConflict, gin.H{"code": "extract_field_name_conflict", "error": "An extract field with this name already exists."})
+	case errors.Is(err, repository.ErrExtractFieldLimitReached):
+		c.JSON(http.StatusConflict, gin.H{"code": "extract_field_limit_reached", "error": "You can create up to 100 extract fields."})
 	default:
 		log.Printf("extract fields: repository operation failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update extract fields."})

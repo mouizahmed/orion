@@ -48,6 +48,8 @@ drop table if exists public.conversations cascade;
 drop table if exists public.notes cascade;
 drop table if exists public.account_extract_field_folders cascade;
 drop table if exists public.account_extract_fields cascade;
+drop table if exists public.account_summary_template_folders cascade;
+drop table if exists public.account_summary_templates cascade;
 drop table if exists public.folders cascade;
 drop table if exists public.user_auth_identities cascade;
 drop table if exists public.account_usage_operations cascade;
@@ -448,6 +450,51 @@ create index account_extract_field_folders_field_owner_idx
 create index account_extract_field_folders_folder_owner_idx
   on public.account_extract_field_folders (folder_id, account_id);
 
+-- User-defined summary templates. These rows are configuration only; no
+-- meeting processing reads them until summary template execution is added.
+create table public.account_summary_templates (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  name text not null,
+  prompt text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_summary_templates_name_valid check (
+    name = btrim(name) and name <> '' and length(name) <= 100
+  ),
+  constraint account_summary_templates_prompt_valid check (
+    prompt = btrim(prompt) and prompt <> '' and length(prompt) <= 4000
+  ),
+  unique (id, account_id)
+);
+create unique index account_summary_templates_account_name_idx
+  on public.account_summary_templates (account_id, lower(name));
+create index account_summary_templates_account_created_idx
+  on public.account_summary_templates (account_id, created_at, id);
+
+-- A template may target many folders, but each folder may be assigned to at
+-- most one summary template. account_id enforces ownership across both FKs.
+create table public.account_summary_template_folders (
+  summary_template_id uuid not null,
+  account_id uuid not null,
+  folder_id uuid not null,
+  created_at timestamptz not null default now(),
+  primary key (summary_template_id, folder_id),
+  constraint account_summary_template_folders_template_owner_fk
+    foreign key (summary_template_id, account_id)
+    references public.account_summary_templates(id, account_id)
+    on delete cascade,
+  constraint account_summary_template_folders_folder_owner_fk
+    foreign key (folder_id, account_id)
+    references public.folders(id, user_id),
+  constraint account_summary_template_folders_one_template_per_folder
+    unique (account_id, folder_id)
+);
+create index account_summary_template_folders_template_owner_idx
+  on public.account_summary_template_folders (summary_template_id, account_id);
+create index account_summary_template_folders_folder_owner_idx
+  on public.account_summary_template_folders (folder_id, account_id);
+
 create table public.integration_connections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -706,7 +753,8 @@ declare table_name text;
 begin
   foreach table_name in array array[
     'users','accounts','account_vocabulary','account_email_draft_settings','account_extract_fields',
-    'account_extract_field_folders','account_plan_changes','account_usage_periods',
+    'account_extract_field_folders','account_summary_templates','account_summary_template_folders',
+    'account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
     'billing_webhook_events','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
@@ -1015,6 +1063,10 @@ revoke all on table public.account_extract_fields from orion_backend;
 grant select, insert, update, delete on table public.account_extract_fields to orion_backend;
 revoke all on table public.account_extract_field_folders from orion_backend;
 grant select, insert, delete on table public.account_extract_field_folders to orion_backend;
+revoke all on table public.account_summary_templates from orion_backend;
+grant select, insert, update, delete on table public.account_summary_templates to orion_backend;
+revoke all on table public.account_summary_template_folders from orion_backend;
+grant select, insert, delete on table public.account_summary_template_folders to orion_backend;
 revoke all on table public.account_plan_changes from orion_backend;
 grant insert on table public.account_plan_changes to orion_backend;
 revoke all on table public.account_usage_periods from orion_backend;
@@ -1040,7 +1092,8 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','folders','account_extract_fields','account_extract_field_folders','integration_connections',
+    'users','folders','account_extract_fields','account_extract_field_folders',
+    'account_summary_templates','account_summary_template_folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_attendees','note_shares','conversations','messages'

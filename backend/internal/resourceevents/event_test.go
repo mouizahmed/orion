@@ -52,3 +52,13 @@ func TestEmailDraftSettingsResourceIsValid(t *testing.T) {
 		t.Fatalf("unexpected resource: %s", change.Resource)
 	}
 }
+
+func TestSummaryTemplatesResourceIsValid(t *testing.T) {
+	change, err := NewChange(ResourceSummaryTemplates, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Resource != ResourceSummaryTemplates {
+		t.Fatalf("unexpected resource: %s", change.Resource)
+	}
+}

@@ -16,6 +16,8 @@ Custom vocabulary is account-owned backend data exposed through authenticated `G
 
 Extract fields are account-owned settings exposed through authenticated CRUD at `/api/extract-fields`. A field targets either all meetings or one or more owned active folders. This layer stores configuration only; no transcription or meeting-processing code consumes it yet. See [`../docs/extract-settings-plan.md`](../docs/extract-settings-plan.md).
 
+Summary templates are account-owned settings exposed through authenticated CRUD at `/api/summary-templates`. A template targets one or more owned active folders, and the database permits at most one template per folder. This layer stores configuration only; meeting processing does not consume it yet. See [`../docs/summary-template-settings-plan.md`](../docs/summary-template-settings-plan.md).
+
 ## Cross-device cache invalidation
 
 Committed cacheable-resource changes publish an account-scoped envelope to the internal Redis channel `orion:resource-events:v1`. Every API instance validates subscribed envelopes and forwards only the versioned `resource.changed` payload to that account's sockets through its local WebSocket hub. Do not send generic invalidations directly through the hub or include resource contents in an event.

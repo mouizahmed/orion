@@ -10,6 +10,7 @@ const resources = new Set<ResourceName>([
   'billing_status',
   'extract_fields',
   'email_draft_settings',
+  'summary_templates',
 ])
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -42,6 +43,8 @@ export function resourceQueryKeys(accountID: string, resource: ResourceName): re
       return [queryKeys.extractFields(accountID)]
     case 'email_draft_settings':
       return [queryKeys.emailDraftSettings(accountID)]
+    case 'summary_templates':
+      return [queryKeys.summaryTemplates(accountID)]
   }
 }
 

@@ -2,7 +2,7 @@
 
 ## Implementation status (2026-08-20)
 
-Phases 1–5 and the shared registration infrastructure are implemented. Extract CRUD publishes `extract_fields`, and the singleton Email Draft settings resource publishes `email_draft_settings`; both reuse the same account-scoped Redis/WebSocket bridge and renderer registry. Authentication/session state and existing domain events were not migrated.
+Phases 1–5 and the shared registration infrastructure are implemented. Extract CRUD publishes `extract_fields`, Summary Template CRUD publishes `summary_templates`, and the singleton Email Draft settings resource publishes `email_draft_settings`; all reuse the same account-scoped Redis/WebSocket bridge and renderer registry. Authentication/session state and existing domain events were not migrated.
 
 Automated coverage proves contract validation, malformed and oversized message rejection, publish-failure metrics, two-instance Redis-to-WebSocket fan-out, account isolation, ephemeral no-replay behavior, subscriber restart and Redis interruption recovery, every desktop resource mapping, dependency invalidation, event batching, reconnect prefix isolation, and logout cancellation/removal. Backend tests, vet, and build pass; desktop tests, TypeScript, lint, renderer/main/preload production bundles, and NSIS packaging pass. On this Windows host Electron Builder's initial unpack-directory rename was denied by the filesystem, so packaging was verified from the successfully generated prepackaged directory instead.
 
@@ -107,6 +107,7 @@ calendar_events
 billing_status
 extract_fields
 email_draft_settings
+summary_templates
 ```
 
 Add future values deliberately. Unknown values must be ignored by clients and rejected by backend publisher construction.
@@ -266,6 +267,10 @@ Publish `extract_fields` after successful create, update, or delete. No feature-
 
 Publish `email_draft_settings` after a successful settings patch. Reads do not publish. Prompt content never appears in the event; clients refetch it through the authenticated API.
 
+### Summary Templates
+
+Publish `summary_templates` after successful create, update, or delete. Template prompts and folder assignments never appear in the event; clients refetch the account-scoped collection through the authenticated API.
+
 ### Authentication and identity
 
 Do not route session revocation, suspension, deletion, or token lifecycle through `resource.changed`.
@@ -288,6 +293,7 @@ export type ResourceName =
   | 'billing_status'
   | 'extract_fields'
   | 'email_draft_settings'
+  | 'summary_templates'
 
 export type ResourceChangedEvent = {
   version: 1
@@ -340,10 +346,13 @@ const invalidators: Record<ResourceName, (
   email_draft_settings: async (client, { accountID }) => {
     await client.invalidateQueries({ queryKey: queryKeys.emailDraftSettings(accountID) })
   },
+  summary_templates: async (client, { accountID }) => {
+    await client.invalidateQueries({ queryKey: queryKeys.summaryTemplates(accountID) })
+  },
 }
 ```
 
-Both `queryKeys.extractFields` and `queryKeys.emailDraftSettings` are registered with active consuming features. Backend publication begins only after the corresponding database mutation succeeds.
+`queryKeys.extractFields`, `queryKeys.emailDraftSettings`, and `queryKeys.summaryTemplates` are registered with active consuming features. Backend publication begins only after the corresponding database mutation succeeds.
 
 The mapping is the single place to express dependencies. Feature components must not subscribe directly to `resource.changed`.
 
@@ -458,10 +467,11 @@ Deliverable: disconnecting an account or hiding a calendar on device A updates d
 
 Deliverable: remote changes revalidate all active devices without feature-specific subscriptions.
 
-### Phase 5 — Extracts, Email Draft, and future resources
+### Phase 5 — Extracts, Email Draft, Summary Templates, and future resources
 
 - `extract_fields` is registered and published by the initial Extract settings CRUD implementation.
 - `email_draft_settings` is registered and published by the initial Email Draft settings implementation.
+- `summary_templates` is registered and published by the initial Summary Template settings CRUD implementation.
 - Add the feature registration checklist to contributor documentation.
 
 ### Phase 6 — Cleanup and hardening

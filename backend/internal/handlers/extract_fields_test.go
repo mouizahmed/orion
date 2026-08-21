@@ -129,3 +129,13 @@ func TestExtractFieldCreatePublishesAfterSuccessAndListDoesNot(t *testing.T) {
 		t.Fatalf("list status=%d resources=%v", listRecorder.Code, publisher.resources)
 	}
 }
+
+func TestExtractFieldLimitResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	renderExtractFieldRepositoryError(context, repository.ErrExtractFieldLimitReached)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "extract_field_limit_reached") {
+		t.Fatalf("unexpected response %d: %s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -22,6 +22,7 @@ const (
 	ResourceBillingStatus      Resource = "billing_status"
 	ResourceExtractFields      Resource = "extract_fields"
 	ResourceEmailDraftSettings Resource = "email_draft_settings"
+	ResourceSummaryTemplates   Resource = "summary_templates"
 )
 
 func (r Resource) Valid() bool {
@@ -31,7 +32,8 @@ func (r Resource) Valid() bool {
 		ResourceCalendarEvents,
 		ResourceBillingStatus,
 		ResourceExtractFields,
-		ResourceEmailDraftSettings:
+		ResourceEmailDraftSettings,
+		ResourceSummaryTemplates:
 		return true
 	default:
 		return false

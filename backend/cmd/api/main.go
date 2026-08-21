@@ -128,6 +128,7 @@ func main() {
 	accountVocabularyRepo := repository.NewAccountVocabularyRepository(db)
 	emailDraftSettingsRepo := repository.NewEmailDraftSettingsRepository(db)
 	extractFieldRepo := repository.NewExtractFieldRepository(db)
+	summaryTemplateRepo := repository.NewSummaryTemplateRepository(db)
 	billingCustomerRepo := repository.NewBillingCustomerRepository(db)
 	subscriptionRepo := repository.NewSubscriptionRepository(db)
 	billingWebhookRepo := repository.NewBillingWebhookRepository(db)
@@ -214,6 +215,7 @@ func main() {
 	vocabularyHandler := handlers.NewVocabularyHandler(accountVocabularyRepo, resourceEventPublisher)
 	emailDraftSettingsHandler := handlers.NewEmailDraftSettingsHandler(emailDraftSettingsRepo, resourceEventPublisher)
 	extractFieldsHandler := handlers.NewExtractFieldsHandler(extractFieldRepo, resourceEventPublisher)
+	summaryTemplatesHandler := handlers.NewSummaryTemplatesHandler(summaryTemplateRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
@@ -295,6 +297,12 @@ func main() {
 		authenticated.POST("/extract-fields", extractFieldsHandler.Create)
 		authenticated.PATCH("/extract-fields/:fieldID", extractFieldsHandler.Update)
 		authenticated.DELETE("/extract-fields/:fieldID", extractFieldsHandler.Delete)
+
+		// Summary templates are configuration only; meeting processing does not consume them yet.
+		authenticated.GET("/summary-templates", summaryTemplatesHandler.List)
+		authenticated.POST("/summary-templates", summaryTemplatesHandler.Create)
+		authenticated.PATCH("/summary-templates/:templateID", summaryTemplatesHandler.Update)
+		authenticated.DELETE("/summary-templates/:templateID", summaryTemplatesHandler.Delete)
 
 		// Billing routes return hosted Stripe URLs only. Provider callbacks never grant access.
 		authenticated.POST("/billing/checkout-sessions", billingHandler.CreateCheckoutSession)

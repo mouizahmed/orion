@@ -10,7 +10,7 @@ import {
   useExtractFieldsQuery,
   useUpdateExtractFieldMutation,
 } from '@/features/settings/sections/extracts/useExtractFieldsQuery'
-import type { ExtractField, ExtractFieldInput } from '@/features/settings/sections/extracts/types'
+import { MAX_EXTRACT_FIELDS, type ExtractField, type ExtractFieldInput } from '@/features/settings/sections/extracts/types'
 
 function extractFieldScopeLabel(field: ExtractField) {
   if (field.scope.type === 'allMeetings') return 'All meetings'
@@ -62,7 +62,7 @@ export function ExtractsSettings({ userID }: { userID?: string }) {
         <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
           <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Fields</div>
           <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
-            {fields.length} {fields.length === 1 ? 'field' : 'fields'}
+            {fields.length} / {MAX_EXTRACT_FIELDS} fields
           </span>
         </div>
         <div className="px-3 py-3">
@@ -74,6 +74,7 @@ export function ExtractsSettings({ userID }: { userID?: string }) {
             variant="secondary"
             className="mt-3 h-9 w-full justify-start px-3 text-xs font-medium"
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            disabled={fields.length >= MAX_EXTRACT_FIELDS}
             onClick={() => {
               setEditingField(null)
               setIsDialogOpen(true)
@@ -82,6 +83,7 @@ export function ExtractsSettings({ userID }: { userID?: string }) {
             <Plus className="h-3.5 w-3.5" />
             Add new field
           </Button>
+          {fields.length >= MAX_EXTRACT_FIELDS ? <div className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">Maximum of {MAX_EXTRACT_FIELDS} fields reached.</div> : null}
           {fieldsQuery.isPending ? <div className="mt-3 text-xs text-neutral-500 dark:text-neutral-400">Loading fields...</div> : null}
           {fieldsQuery.isError ? (
             <div className="mt-3 flex items-center justify-between gap-3 text-xs text-red-600 dark:text-red-400">

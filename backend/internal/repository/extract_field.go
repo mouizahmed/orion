@@ -15,7 +15,10 @@ var (
 	ErrExtractFieldNotFound          = errors.New("extract field not found")
 	ErrExtractFieldFolderUnavailable = errors.New("extract field folder unavailable")
 	ErrExtractFieldNameConflict      = errors.New("extract field name conflict")
+	ErrExtractFieldLimitReached      = errors.New("extract field limit reached")
 )
+
+const MaxExtractFieldsPerAccount = 100
 
 type ExtractFieldInput struct {
 	Name               string
@@ -213,6 +216,21 @@ func (r *ExtractFieldRepository) Create(ctx context.Context, accountID string, i
 		return nil, fmt.Errorf("begin create extract field: %w", err)
 	}
 	defer tx.Rollback()
+	var accountMarker string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id FROM public.accounts WHERE id = $1 FOR UPDATE
+	`, accountID).Scan(&accountMarker); err != nil {
+		return nil, fmt.Errorf("lock account for extract field create: %w", err)
+	}
+	var fieldCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT count(*) FROM public.account_extract_fields WHERE account_id = $1
+	`, accountID).Scan(&fieldCount); err != nil {
+		return nil, fmt.Errorf("count extract fields: %w", err)
+	}
+	if fieldCount >= MaxExtractFieldsPerAccount {
+		return nil, ErrExtractFieldLimitReached
+	}
 	if err := lockExtractFolders(ctx, tx, accountID, input.FolderIDs); err != nil {
 		return nil, err
 	}

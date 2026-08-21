@@ -1,3 +1,5 @@
+export const MAX_EXTRACT_FIELDS = 100
+
 export type ExtractFieldFolder = {
   id: string
   name: string | null

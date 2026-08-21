@@ -6,4 +6,5 @@ export const queryKeys = {
   billingStatus: (accountID: string) => ['account', accountID, 'billing-status'] as const,
   extractFields: (accountID: string) => ['account', accountID, 'extract-fields'] as const,
   emailDraftSettings: (accountID: string) => ['account', accountID, 'email-draft-settings'] as const,
+  summaryTemplates: (accountID: string) => ['account', accountID, 'summary-templates'] as const,
 }

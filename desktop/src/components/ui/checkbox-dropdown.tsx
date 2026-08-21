@@ -9,6 +9,8 @@ export type CheckboxDropdownOption = {
   value: string
   label: string
   icon?: React.ReactNode
+  disabled?: boolean
+  description?: string
 }
 
 type DropdownPosition = {
@@ -134,6 +136,9 @@ export function CheckboxDropdown({
                 key={option.value}
                 role="option"
                 aria-selected={checked}
+                aria-disabled={option.disabled || undefined}
+                disabled={option.disabled}
+                layout={option.description ? 'multiline' : 'single'}
                 onClick={() => {
                   if (option.value === exclusiveValue) {
                     onValueChange([option.value])
@@ -147,7 +152,10 @@ export function CheckboxDropdown({
               >
                 <DropdownIconSlot>{checked ? <Check className="size-3.5" /> : null}</DropdownIconSlot>
                 {option.icon}
-                <span className="truncate">{option.label}</span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block truncate">{option.label}</span>
+                  {option.description ? <span className="block truncate text-[10px] text-neutral-400 dark:text-neutral-500">{option.description}</span> : null}
+                </span>
               </DropdownItem>
             )
           })}
