@@ -12,17 +12,19 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 
 export default function DashboardSidebar({
-  mode = 'notes',
+  mode = 'home',
   selectedSettingsSection = 'account',
   onOpenHome,
+  onOpenNotes,
   onOpenCalendar,
   onOpenSettings,
   onCloseSettings,
   onSelectSettingsSection,
 }: {
-  mode?: 'notes' | 'calendar' | 'settings'
+  mode?: 'home' | 'notes' | 'calendar' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenHome?: () => void
+  onOpenNotes?: () => void
   onOpenCalendar?: () => void
   onOpenSettings?: () => void
   onCloseSettings?: () => void
@@ -114,12 +116,13 @@ export default function DashboardSidebar({
     return async (name: string) => {
       const created = await createFolder(name)
       if (created) {
+        onOpenNotes?.()
         selectFolder(created.id)
         return true
       }
       return false
     }
-  }, [createFolder, selectFolder])
+  }, [createFolder, onOpenNotes, selectFolder])
 
   const openHome = () => {
     onCloseSettings?.()
@@ -135,7 +138,13 @@ export default function DashboardSidebar({
   }
 
   const openNotesPage = () => {
-    onOpenHome?.()
+    onOpenNotes?.()
+  }
+
+  const openNotesRoot = () => {
+    onOpenNotes?.()
+    selectFolder(null)
+    selectNote(null)
   }
 
   return (
@@ -153,7 +162,7 @@ export default function DashboardSidebar({
               icon={Home}
               label="Home"
               onClick={openHome}
-              isActive={mode === 'notes' && selectedId === null}
+              isActive={mode === 'home' && selectedId === null}
             />
             <NavButton
               icon={CalendarDays}
@@ -164,8 +173,8 @@ export default function DashboardSidebar({
             <NavButton
               icon={Notebook}
               label="My Notes"
-              onClick={() => {}}
-              isActive={false}
+              onClick={openNotesRoot}
+              isActive={mode === 'notes'}
             />
           </div>
         )}
@@ -209,6 +218,7 @@ export default function DashboardSidebar({
               }}
               onSelectNote={(noteId) => {
                 openNotesPage()
+                selectFolder(noteSummariesById[noteId]?.folderId ?? null)
                 selectNote(noteId)
               }}
               onRenameFolder={(id, name) => renameFolder(id, name)}

@@ -57,7 +57,7 @@ function DashboardContent() {
   const { user, isLoading } = useAuth()
   const { isOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
-  const [viewMode, setViewMode] = useState<'notes' | 'calendar' | 'settings'>('notes')
+  const [viewMode, setViewMode] = useState<'home' | 'notes' | 'calendar' | 'settings'>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
   const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
 
@@ -99,16 +99,20 @@ function DashboardContent() {
       <DashboardNoteSelector initialNoteId={initialNoteId} />
       <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
-          <DashboardTopBar onBackToOverlay={() => desktopApi.dashboard.close()} />
+          <DashboardTopBar
+            onBackToOverlay={() => desktopApi.dashboard.close()}
+            onOpenNotes={() => setViewMode('notes')}
+          />
 
           <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen ? 'gap-2' : ''}`}>
             <DashboardSidebar
               mode={viewMode}
               selectedSettingsSection={settingsSection}
-              onOpenHome={() => setViewMode('notes')}
+              onOpenHome={() => setViewMode('home')}
+              onOpenNotes={() => setViewMode('notes')}
               onOpenCalendar={handleOpenCalendar}
-              onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'notes' : 'settings'))}
-              onCloseSettings={() => setViewMode('notes')}
+              onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
+              onCloseSettings={() => setViewMode('home')}
               onSelectSettingsSection={setSettingsSection}
             />
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden select-none">

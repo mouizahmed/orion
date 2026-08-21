@@ -2,12 +2,13 @@ import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { CalendarView } from '@/features/calendar/CalendarView'
 import HomeView from '@/features/home/HomeView'
 import NoteEditorView from '@/features/notes/NoteEditorView'
+import NotesLibraryView from '@/features/notes/NotesLibraryView'
 import SettingsView from '@/features/settings/SettingsView'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
 
 type DashboardWorkspaceProps = {
   userId?: string
-  mode?: 'notes' | 'calendar' | 'settings'
+  mode?: 'home' | 'notes' | 'calendar' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
@@ -38,7 +39,7 @@ function NotesLoadingView() {
 
 export default function DashboardWorkspace({
   userId,
-  mode = 'notes',
+  mode = 'home',
   selectedSettingsSection = 'account',
   onOpenCalendar,
   onOpenCalendarSettings,
@@ -65,6 +66,7 @@ export default function DashboardWorkspace({
 
   if (isLoading) return <NotesLoadingView />
   if (selectedId) return <NoteEditorView userId={userId} />
+  if (mode === 'notes') return <NotesLibraryView />
 
   return <div className="h-full"><HomeView onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} /></div>
 }

@@ -18,8 +18,10 @@ import { API_BASE_URL } from '@/lib/api-config'
 
 export default function DashboardTopBar({
   onBackToOverlay,
+  onOpenNotes,
 }: {
   onBackToOverlay: () => void
+  onOpenNotes?: () => void
 }) {
   const isMacOS = desktopApi.platform.current() === 'darwin'
   const { user } = useAuth()
@@ -323,6 +325,8 @@ export default function DashboardTopBar({
                         type="button"
                         className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-white/10"
                         onClick={() => {
+                          onOpenNotes?.()
+                          selectNote(null)
                           selectFolder(folder.id)
                           setIsSearchOpen(false)
                         }}
@@ -356,6 +360,7 @@ export default function DashboardTopBar({
                         type="button"
                         className="flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs text-neutral-800 hover:bg-neutral-100 dark:text-neutral-100 dark:hover:bg-white/10"
                         onClick={() => {
+                          onOpenNotes?.()
                           selectNote(note.id)
                           selectFolder(note.folderId ?? null)
                           setIsSearchOpen(false)
