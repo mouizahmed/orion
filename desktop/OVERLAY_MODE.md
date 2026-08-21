@@ -230,6 +230,5 @@ Overlay Mode transforms Orion into an AI-powered assistant that provides context
 - **Multi-language Support**: Transcription in various languages
 - **Integration APIs**: Connect with Slack, Teams, Notion, etc.
 - **Custom AI Models**: Train on user-specific content
-- **Collaboration**: Real-time sharing of overlay insights
 - **Mobile Companion**: View insights on mobile device
 - **Meeting Preparation**: AI briefings before scheduled meetings

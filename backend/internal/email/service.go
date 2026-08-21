@@ -7,9 +7,8 @@ import (
 )
 
 type Config struct {
-	NoReply       string // e.g. "Orion <noreply@withorion.app>"
-	Notifications string // e.g. "Orion <notifications@withorion.app>"
-	Billing       string // e.g. "Orion <billing@withorion.app>"
+	NoReply string // e.g. "Orion <noreply@withorion.app>"
+	Billing string // e.g. "Orion <billing@withorion.app>"
 }
 
 type Service struct {

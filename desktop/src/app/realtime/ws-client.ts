@@ -1,5 +1,5 @@
 import { desktopApi } from '@/lib/desktop-api'
-import type { ClientEventMap, ServerEventMap } from '@/app/realtime/types'
+import type { ServerEventMap } from '@/app/realtime/types'
 import { apiWebSocketUrl } from '@/lib/api-config'
 
 const WS_URL = apiWebSocketUrl('ws')
@@ -62,11 +62,6 @@ class WebSocketClient {
     return () => {
       set!.delete(handler as AnyHandler)
     }
-  }
-
-  send<T extends keyof ClientEventMap>(type: T, data: ClientEventMap[T]): void {
-    if (this._status !== 'connected' || !this.ws) return
-    this.ws.send(JSON.stringify({ type, data }))
   }
 
   private openConnection(forceRefresh: boolean): void {

@@ -50,18 +50,6 @@ export type NoteAttendee = {
   createdAt: string
 }
 
-export type NoteShare = {
-  id: string
-  noteId: string
-  sharedBy: string
-  email: string
-  userId?: string
-  role: 'viewer' | 'editor'
-  status: 'pending' | 'active'
-  createdAt: string
-  updatedAt: string
-}
-
 export type NoteVersion = {
   id: string
   note_id: string

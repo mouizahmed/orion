@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary } from '@/features/notes/types'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary } from '@/features/notes/types'
 import type { FolderRecord } from '@/features/notes/folder-types'
 import { CreateNoteDialog } from '@/features/notes/dialogs/CreateNoteDialog'
 import { createFolder as createFolderApi, deleteFolder as deleteFolderApi, listFolders, renameFolder as renameFolderApi } from '@/features/notes/api/folders-client'
@@ -10,10 +10,6 @@ import {
   getNote,
   listNotesPage,
   updateNote,
-  listNoteShares,
-  createNoteShare,
-  updateNoteShare,
-  deleteNoteShare,
   addNoteAttendee,
   removeNoteAttendee,
 } from '@/features/notes/api/notes-client'
@@ -29,12 +25,6 @@ type FolderPage = {
   loaded: boolean
 }
 
-type SharesEntry = {
-  shares: NoteShare[]
-  loaded: boolean
-  loading: boolean
-}
-
 type Patch = Partial<Pick<NoteSummary, 'title' | 'folderId'>>
 
 type DashboardNotesContextType = {
@@ -46,7 +36,6 @@ type DashboardNotesContextType = {
   folders: FolderRecord[]
   selectedNote: NoteDetail | null
   selectedNoteLoading: boolean
-  noteSharesByNoteId: Record<string, SharesEntry>
   noteAttendeesByNoteId: Record<string, NoteAttendee[]>
   loadMoreForFolder: (folderId: string | null) => Promise<void>
   selectedFolderId: string | null
@@ -67,10 +56,6 @@ type DashboardNotesContextType = {
   evictNote: (noteId: string) => void
   optimisticPatch: (noteId: string, patch: Patch) => void
   replaceNote: (note: NoteRecord) => void
-  loadSharesForNote: (noteId: string) => Promise<void>
-  createShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
-  updateShare: (noteId: string, email: string, role: 'viewer' | 'editor') => Promise<NoteShare | null>
-  removeShare: (noteId: string, email: string) => Promise<boolean>
   addAttendee: (noteId: string, email: string) => Promise<NoteAttendee | null>
   removeAttendee: (noteId: string, email: string) => Promise<boolean>
 }
@@ -107,7 +92,6 @@ export function DashboardNotesProvider({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
-  const [noteSharesByNoteId, setNoteSharesByNoteId] = useState<Record<string, SharesEntry>>({})
   const [noteAttendeesByNoteId, setNoteAttendeesByNoteId] = useState<Record<string, NoteAttendee[]>>({})
   const createInFlightRef = useRef(false)
 
@@ -459,76 +443,6 @@ export function DashboardNotesProvider({
     window.dispatchEvent(new Event('dashboard-activity-refresh'))
   }, [])
 
-  // ── Shares ────────────────────────────────────────────────────────────────
-
-  const loadSharesForNote = useCallback(async (noteId: string) => {
-    setNoteSharesByNoteId((prev) => ({
-      ...prev,
-      [noteId]: { shares: prev[noteId]?.shares ?? [], loaded: false, loading: true },
-    }))
-    try {
-      const shares = await listNoteShares(noteId)
-      setNoteSharesByNoteId((prev) => ({
-        ...prev,
-        [noteId]: { shares, loaded: true, loading: false },
-      }))
-    } catch {
-      setNoteSharesByNoteId((prev) => ({
-        ...prev,
-        [noteId]: { shares: prev[noteId]?.shares ?? [], loaded: false, loading: false },
-      }))
-    }
-  }, [])
-
-  const createShare = useCallback(async (noteId: string, email: string, role: 'viewer' | 'editor') => {
-    try {
-      const share = await createNoteShare(noteId, email, role)
-      setNoteSharesByNoteId((prev) => {
-        const entry = prev[noteId]
-        if (!entry) return { ...prev, [noteId]: { shares: [share], loaded: true, loading: false } }
-        const existing = entry.shares.filter((s) => s.email !== email)
-        return { ...prev, [noteId]: { ...entry, shares: [...existing, share] } }
-      })
-      return share
-    } catch {
-      return null
-    }
-  }, [])
-
-  const updateShare = useCallback(async (noteId: string, email: string, role: 'viewer' | 'editor') => {
-    try {
-      const share = await updateNoteShare(noteId, email, role)
-      setNoteSharesByNoteId((prev) => {
-        const entry = prev[noteId]
-        if (!entry) return prev
-        return {
-          ...prev,
-          [noteId]: {
-            ...entry,
-            shares: entry.shares.map((s) => (s.email === email ? share : s)),
-          },
-        }
-      })
-      return share
-    } catch {
-      return null
-    }
-  }, [])
-
-  const removeShare = useCallback(async (noteId: string, email: string) => {
-    const ok = await deleteNoteShare(noteId, email)
-    if (!ok) return false
-    setNoteSharesByNoteId((prev) => {
-      const entry = prev[noteId]
-      if (!entry) return prev
-      return {
-        ...prev,
-        [noteId]: { ...entry, shares: entry.shares.filter((s) => s.email !== email) },
-      }
-    })
-    return true
-  }, [])
-
   // ── Attendees ─────────────────────────────────────────────────────────────
 
   const addAttendee = useCallback(async (noteId: string, email: string) => {
@@ -579,7 +493,6 @@ export function DashboardNotesProvider({
       folders,
       selectedNote,
       selectedNoteLoading,
-      noteSharesByNoteId,
       noteAttendeesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
@@ -600,10 +513,6 @@ export function DashboardNotesProvider({
       evictNote,
       optimisticPatch,
       replaceNote,
-      loadSharesForNote,
-      createShare,
-      updateShare,
-      removeShare,
       addAttendee,
       removeAttendee,
     }),
@@ -616,7 +525,6 @@ export function DashboardNotesProvider({
       folders,
       selectedNote,
       selectedNoteLoading,
-      noteSharesByNoteId,
       noteAttendeesByNoteId,
       loadMoreForFolder,
       selectedFolderId,
@@ -637,10 +545,6 @@ export function DashboardNotesProvider({
       evictNote,
       optimisticPatch,
       replaceNote,
-      loadSharesForNote,
-      createShare,
-      updateShare,
-      removeShare,
       addAttendee,
       removeAttendee,
     ],

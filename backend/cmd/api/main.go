@@ -116,7 +116,6 @@ func main() {
 	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
-	noteShareRepo := repository.NewNoteShareRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
 	noteAttachmentRepo := repository.NewNoteAttachmentRepository(db)
@@ -203,9 +202,8 @@ func main() {
 
 	// Initialize email service
 	emailSvc := email.NewService(os.Getenv("RESEND_API_KEY"), email.Config{
-		NoReply:       os.Getenv("EMAIL_NOREPLY"),
-		Notifications: os.Getenv("EMAIL_NOTIFICATIONS"),
-		Billing:       os.Getenv("EMAIL_BILLING"),
+		NoReply: os.Getenv("EMAIL_NOREPLY"),
+		Billing: os.Getenv("EMAIL_BILLING"),
 	})
 
 	// Initialize handlers
@@ -219,7 +217,6 @@ func main() {
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
-	noteSharesHandler := handlers.NewNoteSharesHandler(noteRepo, noteShareRepo, emailSvc)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
@@ -328,12 +325,6 @@ func main() {
 		authenticated.DELETE("/notes/:noteID/images/:imageID", notesHandler.DeleteImage)
 		authenticated.POST("/notes/:noteID/recording/start", notesHandler.StartRecording)
 		authenticated.POST("/notes/:noteID/recording/:sessionID/stop", notesHandler.StopRecording)
-
-		// Note share routes
-		authenticated.GET("/notes/:noteID/shares", noteSharesHandler.ListShares)
-		authenticated.POST("/notes/:noteID/shares", noteSharesHandler.CreateShare)
-		authenticated.PATCH("/notes/:noteID/shares/:email", noteSharesHandler.UpdateShare)
-		authenticated.DELETE("/notes/:noteID/shares/:email", noteSharesHandler.DeleteShare)
 
 		// Note attendee routes
 		authenticated.GET("/notes/:noteID/attendees", noteAttendeesHandler.ListAttendees)

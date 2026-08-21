@@ -75,15 +75,3 @@ type NoteAttendee struct {
 	AvatarURL string    `json:"avatar_url,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
-
-type NoteShare struct {
-	ID        string    `json:"id"`
-	NoteID    string    `json:"note_id"`
-	SharedBy  string    `json:"shared_by"`
-	Email     string    `json:"email"`
-	UserID    *string   `json:"user_id,omitempty"`
-	Role      string    `json:"role"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}

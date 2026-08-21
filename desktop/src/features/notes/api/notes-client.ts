@@ -1,4 +1,4 @@
-import type { NoteAttendee, NoteDetail, NoteRecord, NoteShare, NoteSummary, NoteVersion } from '@/features/notes/types'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary, NoteVersion } from '@/features/notes/types'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
@@ -49,18 +49,6 @@ type ApiNoteSummary = {
   calendar_event_id?: string | null
 }
 
-type ApiNoteShare = {
-  id: string
-  note_id: string
-  shared_by: string
-  email: string
-  user_id?: string | null
-  role: 'viewer' | 'editor'
-  status: 'pending' | 'active'
-  created_at: string
-  updated_at: string
-}
-
 function toNoteSummary(note: ApiNoteSummary | ApiNote): NoteSummary {
   return {
     id: note.id,
@@ -104,20 +92,6 @@ function toNoteDetail(note: ApiNote): NoteDetail {
         }
       : null,
     attendees: (note.attendees ?? []).map(toNoteAttendee),
-  }
-}
-
-function toNoteShare(s: ApiNoteShare): NoteShare {
-  return {
-    id: s.id,
-    noteId: s.note_id,
-    sharedBy: s.shared_by,
-    email: s.email,
-    userId: s.user_id ?? undefined,
-    role: s.role,
-    status: s.status,
-    createdAt: s.created_at,
-    updatedAt: s.updated_at,
   }
 }
 
@@ -331,68 +305,6 @@ export async function deleteNote(userId: string | undefined, noteId: string): Pr
   void userId
   const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}`, {
-    method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
-  })
-  return true
-}
-
-// ── Note shares ──────────────────────────────────────────────────────────────
-
-export async function listNoteShares(noteId: string): Promise<NoteShare[]> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ shares: ApiNoteShare[] }>(
-    `${API_BASE_URL}/notes/${noteId}/shares`,
-    { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } },
-  )
-  return (payload.shares ?? []).map(toNoteShare)
-}
-
-export async function createNoteShare(
-  noteId: string,
-  email: string,
-  role: 'viewer' | 'editor',
-): Promise<NoteShare> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ share: ApiNoteShare }>(
-    `${API_BASE_URL}/notes/${noteId}/shares`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ email, role }),
-    },
-  )
-  return toNoteShare(payload.share)
-}
-
-export async function updateNoteShare(
-  noteId: string,
-  email: string,
-  role: 'viewer' | 'editor',
-): Promise<NoteShare> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ share: ApiNoteShare }>(
-    `${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`,
-    {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ role }),
-    },
-  )
-  return toNoteShare(payload.share)
-}
-
-export async function deleteNoteShare(noteId: string, email: string): Promise<boolean> {
-  const accessToken = await getAccessToken()
-  await fetchJson(`${API_BASE_URL}/notes/${noteId}/shares/${encodeURIComponent(email)}`, {
     method: 'DELETE',
     headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
   })

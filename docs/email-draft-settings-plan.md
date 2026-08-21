@@ -234,7 +234,7 @@ Map it to `queryKeys.emailDraftSettings(accountID)`.
 
 A successful `PATCH` publishes `ResourceEmailDraftSettings` with no resource ID because this is a singleton account resource. Redis publication remains best effort: a Redis outage must not turn a committed database update into an HTTP failure. The initiating renderer still receives the canonical response and updates its cache directly.
 
-This reuses the current WebSocket connection and does not alter note collaboration, calendar synchronization, billing, Vocabulary, or Extract event behavior.
+This reuses the current WebSocket connection and does not alter owner-only note behavior, calendar synchronization, billing, Vocabulary, or Extract event behavior.
 
 ## Desktop data layer
 

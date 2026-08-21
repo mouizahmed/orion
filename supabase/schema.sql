@@ -32,7 +32,6 @@ as $$
     )
 $$;
 
-drop table if exists public.note_shares cascade;
 drop table if exists public.note_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
 drop table if exists public.calendar_events cascade;
@@ -676,20 +675,6 @@ create table public.note_attendees (
 );
 create unique index note_attendees_note_email_key on public.note_attendees (note_id, lower(btrim(email)));
 
-create table public.note_shares (
-  id uuid primary key default gen_random_uuid(),
-  note_id uuid not null,
-  shared_by uuid not null references public.users(id) on delete cascade,
-  email text not null,
-  user_id uuid references public.users(id) on delete set null,
-  role text not null check (role in ('viewer', 'editor')),
-  status text not null default 'pending' check (status in ('pending', 'accepted', 'revoked')),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  foreign key (note_id, shared_by) references public.notes(id, user_id) on delete cascade
-);
-create unique index note_shares_note_email_key on public.note_shares (note_id, lower(btrim(email)));
-
 create table public.conversations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -736,9 +721,6 @@ create index recording_sessions_user_idx on public.note_recording_sessions (user
 create index note_attachments_note_owner_idx on public.note_attachments (note_id, user_id);
 create index note_attachments_user_idx on public.note_attachments (user_id);
 create index note_attendees_user_idx on public.note_attendees (user_id);
-create index note_shares_note_owner_idx on public.note_shares (note_id, shared_by);
-create index note_shares_shared_by_idx on public.note_shares (shared_by);
-create index note_shares_user_idx on public.note_shares (user_id);
 create index conversations_user_idx on public.conversations (user_id);
 create index conversations_note_owner_idx on public.conversations (note_id, user_id);
 create index conversations_folder_owner_idx on public.conversations (folder_id, user_id);
@@ -759,7 +741,7 @@ begin
     'billing_webhook_events','folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
-    'note_attachments','note_attendees','note_shares','conversations','messages'
+    'note_attachments','note_attendees','conversations','messages'
   ] loop
     execute format('alter table public.%I enable row level security', table_name);
     execute format('alter table public.%I force row level security', table_name);
@@ -1096,7 +1078,7 @@ begin
     'account_summary_templates','account_summary_template_folders','integration_connections',
     'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
-    'note_attachments','note_attendees','note_shares','conversations','messages'
+    'note_attachments','note_attendees','conversations','messages'
   ] loop
     execute format(
       'create policy backend_only on public.%I for all to orion_backend using (true) with check (true)',

@@ -4,7 +4,6 @@ import { wsClient, type ConnectionStatus } from '@/app/realtime/ws-client'
 interface WebSocketContextType {
   status: ConnectionStatus
   subscribe: typeof wsClient.subscribe
-  send: typeof wsClient.send
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
@@ -35,7 +34,6 @@ export function WebSocketProvider({ children, authenticated, getAccessToken }: {
     () => ({
       status,
       subscribe: wsClient.subscribe.bind(wsClient),
-      send: wsClient.send.bind(wsClient),
     }),
     [status],
   )
