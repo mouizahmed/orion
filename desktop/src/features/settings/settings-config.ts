@@ -20,7 +20,7 @@ export const settingsSections: Record<DashboardSettingsSection, { title: string;
   connectors: { title: 'Connectors', icon: LayoutGrid },
   vocabulary: { title: 'Vocabulary', icon: SpellCheck },
   extracts: { title: 'Extracts', icon: ScanText },
-  emailDraft: { title: 'Email Draft Templates', icon: Mail },
+  emailDraft: { title: 'Email Draft', icon: Mail },
   summaryTemplates: { title: 'Summary Templates', icon: ClipboardList },
   preferences: { title: 'Preferences', icon: MonitorCog },
   shortcuts: { title: 'Shortcuts', icon: Keyboard },

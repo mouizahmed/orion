@@ -16,11 +16,12 @@ const (
 type Resource string
 
 const (
-	ResourceVocabulary       Resource = "vocabulary"
-	ResourceCalendarSettings Resource = "calendar_settings"
-	ResourceCalendarEvents   Resource = "calendar_events"
-	ResourceBillingStatus    Resource = "billing_status"
-	ResourceExtractFields    Resource = "extract_fields"
+	ResourceVocabulary         Resource = "vocabulary"
+	ResourceCalendarSettings   Resource = "calendar_settings"
+	ResourceCalendarEvents     Resource = "calendar_events"
+	ResourceBillingStatus      Resource = "billing_status"
+	ResourceExtractFields      Resource = "extract_fields"
+	ResourceEmailDraftSettings Resource = "email_draft_settings"
 )
 
 func (r Resource) Valid() bool {
@@ -29,7 +30,8 @@ func (r Resource) Valid() bool {
 		ResourceCalendarSettings,
 		ResourceCalendarEvents,
 		ResourceBillingStatus,
-		ResourceExtractFields:
+		ResourceExtractFields,
+		ResourceEmailDraftSettings:
 		return true
 	default:
 		return false

@@ -1,6 +1,7 @@
 import { DashboardPanel, DashboardPanelBody, DashboardPanelHeader, DashboardPanelTitle } from '@/components/ui/dashboard-panel'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useExtractFieldsQuery } from '@/features/settings/sections/extracts/useExtractFieldsQuery'
+import { useEmailDraftSettingsQuery } from '@/features/settings/sections/email-drafts/useEmailDraftSettingsQuery'
 import { useVocabularyQuery } from '@/features/settings/sections/vocabulary/useVocabularyQuery'
 import { AccountSettings } from '@/features/settings/sections/account/AccountSettings'
 import { BillingSettings } from '@/features/settings/sections/billing/BillingSettings'
@@ -22,7 +23,7 @@ function SettingsSection({ section, userID }: { section: DashboardSettingsSectio
     case 'connectors': return <ConnectorsSettings />
     case 'vocabulary': return <VocabularySettings userID={userID} />
     case 'extracts': return <ExtractsSettings userID={userID} />
-    case 'emailDraft': return <EmailDraftSettings />
+    case 'emailDraft': return <EmailDraftSettings userID={userID} />
     case 'summaryTemplates': return <SummaryTemplatesSettings />
     case 'preferences': return <PreferencesSettings />
     case 'shortcuts': return <ShortcutsSettings />
@@ -35,6 +36,7 @@ export default function SettingsView({ selectedSection }: { selectedSection: Das
   // Preserve settings-open cache warming while the visible section owns its rendering and mutations.
   useVocabularyQuery(user?.id)
   useExtractFieldsQuery(user?.id)
+  useEmailDraftSettingsQuery(user?.id)
 
   return (
     <DashboardPanel className="flex h-full min-h-0 flex-col">

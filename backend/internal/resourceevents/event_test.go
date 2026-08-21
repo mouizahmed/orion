@@ -42,3 +42,13 @@ func TestEnvelopeRejectsInvalidAccount(t *testing.T) {
 		t.Fatal("invalid account accepted")
 	}
 }
+
+func TestEmailDraftSettingsResourceIsValid(t *testing.T) {
+	change, err := NewChange(ResourceEmailDraftSettings, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.Resource != ResourceEmailDraftSettings {
+		t.Fatalf("unexpected resource: %s", change.Resource)
+	}
+}

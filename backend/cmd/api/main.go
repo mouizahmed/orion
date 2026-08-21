@@ -126,6 +126,7 @@ func main() {
 	messageRepo := repository.NewMessageRepository(db)
 	accountUsageRepo := repository.NewAccountUsageRepository(db)
 	accountVocabularyRepo := repository.NewAccountVocabularyRepository(db)
+	emailDraftSettingsRepo := repository.NewEmailDraftSettingsRepository(db)
 	extractFieldRepo := repository.NewExtractFieldRepository(db)
 	billingCustomerRepo := repository.NewBillingCustomerRepository(db)
 	subscriptionRepo := repository.NewSubscriptionRepository(db)
@@ -211,6 +212,7 @@ func main() {
 	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient, resourceEventPublisher)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	vocabularyHandler := handlers.NewVocabularyHandler(accountVocabularyRepo, resourceEventPublisher)
+	emailDraftSettingsHandler := handlers.NewEmailDraftSettingsHandler(emailDraftSettingsRepo, resourceEventPublisher)
 	extractFieldsHandler := handlers.NewExtractFieldsHandler(extractFieldRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo)
@@ -283,6 +285,10 @@ func main() {
 		// Vocabulary is account-owned and is never accepted through a stream handshake.
 		authenticated.GET("/vocabulary", vocabularyHandler.Get)
 		authenticated.PUT("/vocabulary", vocabularyHandler.Put)
+
+		// Email Draft is configuration only; generation and provider delivery are deferred.
+		authenticated.GET("/email-draft-settings", emailDraftSettingsHandler.Get)
+		authenticated.PATCH("/email-draft-settings", emailDraftSettingsHandler.Patch)
 
 		// Extract fields are configuration only; meeting processing does not consume them yet.
 		authenticated.GET("/extract-fields", extractFieldsHandler.List)

@@ -56,6 +56,7 @@ drop table if exists public.account_plan_changes cascade;
 drop table if exists public.billing_webhook_events cascade;
 drop table if exists public.subscriptions cascade;
 drop table if exists public.billing_customers cascade;
+drop table if exists public.account_email_draft_settings cascade;
 drop table if exists public.account_vocabulary cascade;
 drop table if exists public.accounts cascade;
 drop table if exists public.users cascade;
@@ -106,6 +107,20 @@ create table public.account_vocabulary (
   updated_at timestamptz not null default now(),
   constraint account_vocabulary_terms_valid check (
     orion_internal.vocabulary_terms_valid(terms)
+  )
+);
+
+-- Account-owned instructions for future email-draft generation. Provider
+-- delivery settings belong to the later Gmail/Outlook connector phase.
+create table public.account_email_draft_settings (
+  account_id uuid primary key references public.accounts(id) on delete cascade,
+  enabled boolean not null default true,
+  include_sharing_link boolean not null default true,
+  draft_prompt text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_email_draft_settings_prompt_valid check (
+    char_length(draft_prompt) <= 1000
   )
 );
 
@@ -690,7 +705,7 @@ do $$
 declare table_name text;
 begin
   foreach table_name in array array[
-    'users','accounts','account_vocabulary','account_extract_fields',
+    'users','accounts','account_vocabulary','account_email_draft_settings','account_extract_fields',
     'account_extract_field_folders','account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
     'billing_webhook_events','folders','integration_connections',
@@ -994,6 +1009,8 @@ revoke all on table public.accounts from orion_backend;
 grant select, insert, update on table public.accounts to orion_backend;
 revoke all on table public.account_vocabulary from orion_backend;
 grant select, insert, update on table public.account_vocabulary to orion_backend;
+revoke all on table public.account_email_draft_settings from orion_backend;
+grant select, insert, update on table public.account_email_draft_settings to orion_backend;
 revoke all on table public.account_extract_fields from orion_backend;
 grant select, insert, update, delete on table public.account_extract_fields to orion_backend;
 revoke all on table public.account_extract_field_folders from orion_backend;
@@ -1047,6 +1064,13 @@ create policy backend_select on public.account_vocabulary
 create policy backend_insert on public.account_vocabulary
   for insert to orion_backend with check (true);
 create policy backend_update on public.account_vocabulary
+  for update to orion_backend using (true) with check (true);
+
+create policy backend_select on public.account_email_draft_settings
+  for select to orion_backend using (true);
+create policy backend_insert on public.account_email_draft_settings
+  for insert to orion_backend with check (true);
+create policy backend_update on public.account_email_draft_settings
   for update to orion_backend using (true) with check (true);
 
 create policy backend_insert on public.account_plan_changes

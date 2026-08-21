@@ -2,7 +2,7 @@
 
 ## Implementation status (2026-08-20)
 
-Phases 1–4 and the shared registration infrastructure are implemented. The `extract_fields` contract and query key are registered so the future Extract CRUD can publish without adding another WebSocket bridge; its publisher remains intentionally deferred until that CRUD exists. Authentication/session state and existing domain events were not migrated.
+Phases 1–5 and the shared registration infrastructure are implemented. Extract CRUD publishes `extract_fields`, and the singleton Email Draft settings resource publishes `email_draft_settings`; both reuse the same account-scoped Redis/WebSocket bridge and renderer registry. Authentication/session state and existing domain events were not migrated.
 
 Automated coverage proves contract validation, malformed and oversized message rejection, publish-failure metrics, two-instance Redis-to-WebSocket fan-out, account isolation, ephemeral no-replay behavior, subscriber restart and Redis interruption recovery, every desktop resource mapping, dependency invalidation, event batching, reconnect prefix isolation, and logout cancellation/removal. Backend tests, vet, and build pass; desktop tests, TypeScript, lint, renderer/main/preload production bundles, and NSIS packaging pass. On this Windows host Electron Builder's initial unpack-directory rename was denied by the filesystem, so packaging was verified from the successfully generated prepackaged directory instead.
 
@@ -30,7 +30,7 @@ Use three consistency classes:
 | Class | Behavior | Examples |
 |---|---|---|
 | Immediate invalidation | Publish after every committed change | Calendar connections/visibility, billing status, access/sharing state |
-| Eventual refresh | Publish when convenient; stale-time/focus refresh is sufficient fallback | Vocabulary, Extract fields, templates, preferences |
+| Eventual refresh | Publish when convenient; stale-time/focus refresh is sufficient fallback | Vocabulary, Extract fields, Email Draft settings, templates, preferences |
 | Long-lived/static | No push event; invalidate only on known local changes or deployment | Plan catalog, static reference data |
 
 An invalidation event means only “the cached representation may be stale.” Receiving clients refetch through the authenticated API. Events never contain the replacement state.
@@ -106,6 +106,7 @@ calendar_settings
 calendar_events
 billing_status
 extract_fields
+email_draft_settings
 ```
 
 Add future values deliberately. Unknown values must be ignored by clients and rejected by backend publisher construction.
@@ -136,6 +137,7 @@ const (
     ResourceCalendarEvents   Resource = "calendar_events"
     ResourceBillingStatus    Resource = "billing_status"
     ResourceExtractFields    Resource = "extract_fields"
+    ResourceEmailDraftSettings Resource = "email_draft_settings"
 )
 
 type Change struct {
@@ -258,7 +260,11 @@ Keep the current Stripe confirmation polling as a fallback for the initiating cl
 
 ### Extract fields
 
-When Extract settings CRUD is implemented, publish `extract_fields` after successful create, update, or delete. No new WebSocket topic or bridge should be needed.
+Publish `extract_fields` after successful create, update, or delete. No feature-specific WebSocket topic or bridge is used.
+
+### Email Draft settings
+
+Publish `email_draft_settings` after a successful settings patch. Reads do not publish. Prompt content never appears in the event; clients refetch it through the authenticated API.
 
 ### Authentication and identity
 
@@ -281,6 +287,7 @@ export type ResourceName =
   | 'calendar_events'
   | 'billing_status'
   | 'extract_fields'
+  | 'email_draft_settings'
 
 export type ResourceChangedEvent = {
   version: 1
@@ -330,10 +337,13 @@ const invalidators: Record<ResourceName, (
   extract_fields: async (client, { accountID }) => {
     await client.invalidateQueries({ queryKey: queryKeys.extractFields(accountID) })
   },
+  email_draft_settings: async (client, { accountID }) => {
+    await client.invalidateQueries({ queryKey: queryKeys.emailDraftSettings(accountID) })
+  },
 }
 ```
 
-Add `queryKeys.extractFields` when the Extract settings query is introduced. Until then, the registry can omit that resource or map it only after the query key exists; backend publication should begin with the consuming feature.
+Both `queryKeys.extractFields` and `queryKeys.emailDraftSettings` are registered with active consuming features. Backend publication begins only after the corresponding database mutation succeeds.
 
 The mapping is the single place to express dependencies. Feature components must not subscribe directly to `resource.changed`.
 
@@ -448,9 +458,10 @@ Deliverable: disconnecting an account or hiding a calendar on device A updates d
 
 Deliverable: remote changes revalidate all active devices without feature-specific subscriptions.
 
-### Phase 5 — Extracts and future resources
+### Phase 5 — Extracts, Email Draft, and future resources
 
 - `extract_fields` is registered and published by the initial Extract settings CRUD implementation.
+- `email_draft_settings` is registered and published by the initial Email Draft settings implementation.
 - Add the feature registration checklist to contributor documentation.
 
 ### Phase 6 — Cleanup and hardening

@@ -44,6 +44,7 @@ describe('resource invalidation registry', () => {
     ['calendar_events', ['calendar-events']],
     ['billing_status', ['billing-status']],
     ['extract_fields', ['extract-fields']],
+    ['email_draft_settings', ['email-draft-settings']],
   ] as const)('maps %s only to its registered account query families', async (resource, families) => {
     const client = new QueryClient()
     const accountID = 'account-a'
@@ -53,6 +54,7 @@ describe('resource invalidation registry', () => {
       queryKeys.calendarEvents(accountID),
       queryKeys.billingStatus(accountID),
       queryKeys.extractFields(accountID),
+      queryKeys.emailDraftSettings(accountID),
     ]
     for (const key of keys) client.setQueryData(key, {})
     await invalidateResource(client, accountID, resource)

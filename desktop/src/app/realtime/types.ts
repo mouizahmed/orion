@@ -13,6 +13,7 @@ export type ResourceName =
   | 'calendar_events'
   | 'billing_status'
   | 'extract_fields'
+  | 'email_draft_settings'
 
 export interface ResourceChangedEvent {
   version: 1

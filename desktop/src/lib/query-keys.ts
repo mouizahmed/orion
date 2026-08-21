@@ -5,4 +5,5 @@ export const queryKeys = {
   calendarEvents: (accountID: string) => ['account', accountID, 'calendar-events'] as const,
   billingStatus: (accountID: string) => ['account', accountID, 'billing-status'] as const,
   extractFields: (accountID: string) => ['account', accountID, 'extract-fields'] as const,
+  emailDraftSettings: (accountID: string) => ['account', accountID, 'email-draft-settings'] as const,
 }
