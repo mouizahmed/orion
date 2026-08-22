@@ -9,6 +9,7 @@ export type NoteSummary = {
 
 export type NoteRecord = NoteSummary & {
   noteMarkdown: string
+  revision: number
 }
 
 export type CalendarAttendee = {

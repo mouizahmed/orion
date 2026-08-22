@@ -7,10 +7,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 )
 
 type FoldersHandler struct {
 	folderRepo *repository.FolderRepository
+	events     resourceevents.Publisher
 }
 
 type CreateFolderRequest struct {
@@ -21,8 +23,8 @@ type RenameFolderRequest struct {
 	Name string `json:"name"`
 }
 
-func NewFoldersHandler(folderRepo *repository.FolderRepository) *FoldersHandler {
-	return &FoldersHandler{folderRepo: folderRepo}
+func NewFoldersHandler(folderRepo *repository.FolderRepository, events resourceevents.Publisher) *FoldersHandler {
+	return &FoldersHandler{folderRepo: folderRepo, events: events}
 }
 
 func (h *FoldersHandler) ListFolders(c *gin.Context) {
@@ -67,6 +69,7 @@ func (h *FoldersHandler) CreateFolder(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create folder"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceFolders, &created.ID)
 
 	c.JSON(http.StatusOK, gin.H{"folder": created})
 }
@@ -101,6 +104,7 @@ func (h *FoldersHandler) RenameFolder(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceFolders, &folderID)
 
 	c.JSON(http.StatusOK, gin.H{"folder": updated})
 }
@@ -128,6 +132,7 @@ func (h *FoldersHandler) DeleteFolder(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "folder not found"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceFolders, &folderID)
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

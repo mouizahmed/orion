@@ -31,9 +31,10 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
   return (await response.json()) as T
 }
 
-export async function listFolders(userId?: string): Promise<FolderRecord[]> {
+export async function listFolders(userId?: string, signal?: AbortSignal): Promise<FolderRecord[]> {
   void userId
   const payload = await fetchJson<{ folders: ApiFolder[] }>(`${API_BASE_URL}/folders`, {
+    signal,
     headers: {
       Accept: 'application/json',
     },

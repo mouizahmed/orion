@@ -1,15 +1,22 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  createConversation as apiCreateConversation,
-  deleteConversation as apiDeleteConversation,
-  getMessages as apiGetMessages,
-  listConversations as apiListConversations,
-  renameConversation as apiRenameConversation,
   sendMessage as apiSendMessage,
   type ChatMessage,
   type Conversation,
 } from '@/features/chat/chat-client'
 import { useAuth } from '@/features/auth/AuthContext'
+import { useQueryClient } from '@tanstack/react-query'
+import {
+  useConversationsQuery,
+  useCreateConversationMutation,
+  useDeleteConversationMutation,
+  useMessagesQuery,
+  useRenameConversationMutation,
+  type ConversationScope,
+} from '@/features/chat/useChatQueries'
+import { queryKeys } from '@/lib/query-keys'
+import { patchNoteEverywhere } from '@/features/notes/queries/note-cache-transforms'
+import { isActiveServerStateAccount } from '@/lib/query-client'
 
 type ToolUsage = {
   tool_name: string
@@ -40,107 +47,76 @@ type ChatContextType = {
 }
 
 const ChatContext = createContext<ChatContextType | null>(null)
-const LS_ACTIVE_CONV = 'chat:activeConversationId'
-
 export function ChatProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
+  const accountID = user?.id ?? ''
+  const queryClient = useQueryClient()
   const [isOpen, setIsOpen] = useState(false)
-  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [scope, setScope] = useState<ConversationScope>({ noteID: null, folderID: null })
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingText, setStreamingText] = useState('')
   const [thinkingText, setThinkingText] = useState('')
   const [lastError, setLastError] = useState<string | null>(null)
-  const [completedThinking, setCompletedThinking] = useState<Record<string, string>>({})
-  const [thinkingDuration, setThinkingDuration] = useState<Record<string, number>>({})
-  const [toolUsage, setToolUsage] = useState<Record<string, ToolUsage[]>>({})
   const [currentTools, setCurrentTools] = useState<ToolUsage[]>([])
   const abortRef = useRef<AbortController | null>(null)
-  const skipMessageLoadRef = useRef(false)
+  const conversationsQuery = useConversationsQuery(user?.id, scope)
+  const messagesQuery = useMessagesQuery(user?.id, activeConversationId)
+  const conversations = useMemo(() => conversationsQuery.data ?? [], [conversationsQuery.data])
+  const messages = useMemo(() => messagesQuery.data ?? [], [messagesQuery.data])
+  const createConversationMutation = useCreateConversationMutation(accountID, scope)
+  const deleteConversationMutation = useDeleteConversationMutation(accountID)
+  const renameConversationMutation = useRenameConversationMutation(accountID)
+  const completedThinking = useMemo(() => Object.fromEntries(
+    messages.filter((message) => message.role === 'assistant' && message.thinking)
+      .map((message) => [message.id, message.thinking as string]),
+  ), [messages])
+  const thinkingDuration = useMemo(() => Object.fromEntries(
+    messages.filter((message) => message.role === 'assistant' && message.thinkingDuration)
+      .map((message) => [message.id, message.thinkingDuration as number]),
+  ), [messages])
+  const toolUsage = useMemo(() => Object.fromEntries(
+    messages.filter((message) => message.role === 'assistant' && message.toolCalls?.length)
+      .map((message) => [message.id, message.toolCalls as ToolUsage[]]),
+  ), [messages])
   const toggleOpen = useCallback(() => setIsOpen((v) => !v), [])
 
   const loadConversations = useCallback(async (noteId?: string | null, folderId?: string | null) => {
-    const convs = await apiListConversations(noteId ?? undefined, folderId ?? undefined)
-    setConversations(convs)
-    setActiveConversationId(prev =>
-      prev && convs.some(c => c.id === prev) ? prev : (convs[0]?.id ?? null)
-    )
+    setScope({ noteID: noteId ?? null, folderID: folderId ?? null })
   }, [])
 
-  // Load conversations on auth
   useEffect(() => {
-    if (!user) return
-    void loadConversations()
-  }, [user, loadConversations])
-
-  // Load messages when active conversation changes
-  useEffect(() => {
-    if (!activeConversationId) {
-      setMessages([])
-      return
-    }
-    // Skip loading when we just created this conversation (messages are managed by sendMessage)
-    if (skipMessageLoadRef.current) {
-      skipMessageLoadRef.current = false
-      return
-    }
-    void apiGetMessages(activeConversationId)
-      .then((msgs) => {
-        setMessages(msgs)
-        // Restore thinking and tool usage from persisted messages
-        const thinking: Record<string, string> = {}
-        const duration: Record<string, number> = {}
-        const tools: Record<string, ToolUsage[]> = {}
-        for (const msg of msgs) {
-          if (msg.role === 'assistant') {
-            if (msg.thinking) thinking[msg.id] = msg.thinking
-            if (msg.thinkingDuration) duration[msg.id] = msg.thinkingDuration
-            if (msg.toolCalls && msg.toolCalls.length > 0) tools[msg.id] = msg.toolCalls
-          }
-        }
-        setCompletedThinking(thinking)
-        setThinkingDuration(duration)
-        setToolUsage(tools)
-      })
-      .catch(() => setMessages([]))
-  }, [activeConversationId])
+    setActiveConversationId((current) => current && conversations.some((item) => item.id === current)
+      ? current
+      : conversations[0]?.id ?? null)
+  }, [conversations])
 
   const selectConversation = useCallback((id: string | null) => {
     setActiveConversationId(id)
-    if (id) localStorage.setItem(LS_ACTIVE_CONV, id)
-    else localStorage.removeItem(LS_ACTIVE_CONV)
     setStreamingText('')
     setThinkingText('')
     setLastError(null)
-    setCompletedThinking({})
     setCurrentTools([])
   }, [])
 
   const createConversation = useCallback(async () => {
-    const conv = await apiCreateConversation()
-    setConversations((prev) => [conv, ...prev])
+    const conv = await createConversationMutation.mutateAsync(undefined)
     setActiveConversationId(conv.id)
-    setMessages([])
-  }, [])
+  }, [createConversationMutation])
 
   const deleteConversation = useCallback(
     async (id: string) => {
-      await apiDeleteConversation(id)
-      setConversations((prev) => prev.filter((c) => c.id !== id))
+      await deleteConversationMutation.mutateAsync(id)
       if (activeConversationId === id) {
         setActiveConversationId(null)
-        setMessages([])
-        localStorage.removeItem(LS_ACTIVE_CONV)
       }
     },
-    [activeConversationId],
+    [activeConversationId, deleteConversationMutation],
   )
 
   const renameConversation = useCallback(async (id: string, title: string) => {
-    const updated = await apiRenameConversation(id, title)
-    setConversations((prev) => prev.map((c) => (c.id === id ? updated : c)))
-  }, [])
+    await renameConversationMutation.mutateAsync({ conversationID: id, title })
+  }, [renameConversationMutation])
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort()
@@ -155,18 +131,16 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       let convId = activeConversationId
       let wasCreated = false
       if (!convId) {
-        const conv = await apiCreateConversation(
-          undefined,
-          noteId ?? undefined,
-          folderId ?? undefined,
-        )
-        setConversations((prev) => [conv, ...prev])
-        skipMessageLoadRef.current = true
+        const conv = await createConversationMutation.mutateAsync({ noteID: noteId, folderID: folderId })
         setActiveConversationId(conv.id)
-        localStorage.setItem(LS_ACTIVE_CONV, conv.id)
-        setMessages([])
         convId = conv.id
         wasCreated = true
+      }
+      const conversationID = convId
+      const messageKey = queryKeys.messages(accountID, conversationID)
+      const setCachedMessages = (updater: (current: ChatMessage[]) => ChatMessage[]) => {
+        if (!isActiveServerStateAccount(accountID)) return
+        queryClient.setQueryData<ChatMessage[]>(messageKey, (current = []) => updater(current))
       }
 
       const abortController = new AbortController()
@@ -181,13 +155,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // Optimistically add user message
       const tempUserMsg: ChatMessage = {
         id: `temp-${Date.now()}`,
-        conversationId: convId,
+        conversationId: conversationID,
         role: 'user',
         content,
         tokenCount: 0,
         createdAt: Date.now(),
       }
-      setMessages((prev) => [...prev, tempUserMsg])
+      setCachedMessages((current) => [...current, tempUserMsg])
 
       let fullText = ''
       let fullThinking = ''
@@ -197,7 +171,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
       try {
 
-        for await (const event of apiSendMessage(convId, content, abortController.signal)) {
+        for await (const event of apiSendMessage(conversationID, content, abortController.signal)) {
           switch (event.type) {
             case 'text_delta':
               fullText += event.text
@@ -228,7 +202,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               setIsStreaming(false)
 
               // Replace temp user message with real one, add assistant message
-              setMessages((prev) => {
+              setCachedMessages((prev) => {
                 const filtered = prev.filter((m) => m.id !== tempUserMsg.id)
                 const newMessages = [...filtered]
                 if (event.user_message) {
@@ -236,43 +210,44 @@ export function ChatProvider({ children }: { children: ReactNode }) {
                 } else {
                   newMessages.push(tempUserMsg)
                 }
-                const assistantMsg = event.message || (fullText ? {
+                const baseAssistantMsg = event.message || (fullText ? {
                   id: `assistant-${Date.now()}`,
-                  conversationId: convId,
+                  conversationId: conversationID,
                   role: 'assistant' as const,
                   content: fullText,
                   tokenCount: 0,
                   createdAt: Date.now(),
                 } : null)
 
-                if (assistantMsg) {
+                if (baseAssistantMsg) {
+                  const assistantMsg: ChatMessage = {
+                    ...baseAssistantMsg,
+                    thinking: baseAssistantMsg.thinking ?? (fullThinking || undefined),
+                    thinkingDuration: baseAssistantMsg.thinkingDuration ?? (thinkingStartTime
+                      ? Math.round((Date.now() - thinkingStartTime) / 1000)
+                      : undefined),
+                    toolCalls: baseAssistantMsg.toolCalls ?? (localTools.length ? localTools : undefined),
+                  }
                   newMessages.push(assistantMsg)
-                  // Save thinking text associated with this message
-                  if (fullThinking) {
-                    setCompletedThinking(prev => ({ ...prev, [assistantMsg.id]: fullThinking }))
-                    // Calculate thinking duration in seconds
-                    if (thinkingStartTime) {
-                      const duration = Math.round((Date.now() - thinkingStartTime) / 1000)
-                      setThinkingDuration(prev => ({ ...prev, [assistantMsg.id]: duration }))
-                    }
-                  }
-                  // Save tool usage associated with this message (uses local variable, not stale state)
-                  if (localTools.length > 0) {
-                    setToolUsage(prev => ({ ...prev, [assistantMsg.id]: localTools }))
-                  }
                 }
                 return newMessages
               })
               break
             }
             case 'note_updated':
-              window.dispatchEvent(new CustomEvent('note-updated-by-ai', {
-                detail: { noteId: event.note_id, content: event.content },
-              }))
+              if (!isActiveServerStateAccount(accountID)) break
+              patchNoteEverywhere(queryClient, accountID, event.note_id, { updatedAt: Date.now() })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.note(accountID, event.note_id) })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.notes(accountID) })
+              void queryClient.invalidateQueries({ queryKey: queryKeys.activity(accountID) })
               break
             case 'title':
-              setConversations((prev) =>
-                prev.map((c) => c.id === convId ? { ...c, title: event.title } : c)
+              if (!isActiveServerStateAccount(accountID)) break
+              queryClient.setQueriesData<Conversation[]>(
+                { queryKey: queryKeys.conversations(accountID) },
+                (current) => current?.map((conversation) => conversation.id === conversationID
+                  ? { ...conversation, title: event.title }
+                  : conversation),
               )
               break
             case 'error':
@@ -286,14 +261,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           // Stopped by user — keep whatever content was streamed so far
           if (fullText) {
-            setMessages((prev) => {
+            setCachedMessages((prev) => {
               const filtered = prev.filter((m) => m.id !== tempUserMsg.id)
               return [
                 ...filtered,
                 tempUserMsg,
                 {
                   id: `assistant-${Date.now()}`,
-                  conversationId: convId!,
+                  conversationId: conversationID,
                   role: 'assistant' as const,
                   content: fullText,
                   tokenCount: 0,
@@ -307,11 +282,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           console.error('Failed to send message:', error)
           setLastError(errorMsg)
           // Remove optimistic message on failure
-          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id))
+          setCachedMessages((prev) => prev.filter((message) => message.id !== tempUserMsg.id))
           // If we just created this conversation and message failed, delete it
           if (wasCreated) {
-            await apiDeleteConversation(convId).catch(() => {})
-            setConversations((prev) => prev.filter((c) => c.id !== convId))
+            await deleteConversationMutation.mutateAsync(conversationID).catch(() => {})
             setActiveConversationId(null)
           }
         }
@@ -320,9 +294,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setIsStreaming(false)
         setStreamingText('')
         setThinkingText('')
+        if (isActiveServerStateAccount(accountID)) {
+          void queryClient.invalidateQueries({ queryKey: messageKey })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.conversations(accountID) })
+        }
       }
     },
-    [activeConversationId, isStreaming],
+    [accountID, activeConversationId, createConversationMutation, deleteConversationMutation, isStreaming, queryClient],
   )
 
   return (

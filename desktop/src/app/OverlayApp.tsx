@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 
-import { DesktopAuthRoot, useAuth } from '@/features/auth/AuthContext'
+import { useAuth } from '@/features/auth/AuthContext'
+import { OverlayProviders } from '@/app/providers/OverlayProviders'
 import CompactOverlayBar from '@/features/overlay/CompactOverlayBar'
 import CompactMeetingPanel, { type CompactMeetingPanelHandle } from '@/features/overlay/CompactMeetingPanel'
 import TranscriptPanel from '@/features/overlay/TranscriptPanel'
@@ -10,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import '@/App.css'
-import { createNote } from '@/features/notes/api/notes-client'
+import { useCreateNoteMutation } from '@/features/notes/queries/useNoteMutations'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 import { useTranscription } from '@/features/overlay/useTranscription'
@@ -36,6 +37,7 @@ const LAYOUT_WIDTH: Record<'welcome' | 'compact' | 'compactMeeting' | 'expandedM
 
 function AppContent() {
   const { user, isLoading } = useAuth()
+  const { mutateAsync: createNoteAsync } = useCreateNoteMutation(user?.id ?? '')
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [meetingPanel, setMeetingPanel] = useState<MeetingPanel | null>(null)
@@ -375,7 +377,7 @@ function AppContent() {
       }
 
       try {
-        const created = await createNote(user?.id, { title, folderId: null })
+        const created = await createNoteAsync({ title, folderId: null })
         setMeetingNoteId(created.id)
         setMeetingActive(true)
         setMeetingPaused(false)
@@ -593,9 +595,9 @@ function AppContent() {
 
 function OverlayApp() {
   return (
-    <DesktopAuthRoot>
+    <OverlayProviders>
       <AppContent />
-    </DesktopAuthRoot>
+    </OverlayProviders>
   )
 }
 

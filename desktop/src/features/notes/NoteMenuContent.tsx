@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { SidebarMenuItemButton } from '@/components/ui/sidebar-button'
+import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
 import type { FolderRecord } from '@/features/notes/folder-types'
 
 export function NoteMenuContent({
@@ -53,18 +54,11 @@ export function NoteMenuContent({
         Back
       </SidebarMenuItemButton>
       <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
-      <SidebarMenuItemButton active={!noteFolderId} onClick={() => { onMove(noteId, null); close() }}>
-        No folder
-      </SidebarMenuItemButton>
-      {folders.map((f) => (
-        <SidebarMenuItemButton
-          key={f.id}
-          active={noteFolderId === f.id}
-          onClick={() => { onMove(noteId, f.id); close() }}
-        >
-          {f.name}
-        </SidebarMenuItemButton>
-      ))}
+      <FolderOptionsList
+        folders={folders}
+        selectedFolderId={noteFolderId}
+        onSelect={(folderId) => { onMove(noteId, folderId); close() }}
+      />
     </>
   )
 }

@@ -21,22 +21,19 @@ function useDashboardNoteIdFromUrl() {
 }
 
 function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null }) {
-  const { noteSummariesById, selectNote } = useDashboardNotes()
+  const { selectNote } = useDashboardNotes()
   const initialAppliedRef = useRef(false)
 
   useEffect(() => {
     if (initialAppliedRef.current) return
     if (!initialNoteId) return
-    const exists = initialNoteId in noteSummariesById
-    if (exists) {
-      selectNote(initialNoteId)
-      initialAppliedRef.current = true
-      // Clear noteId from URL so a page refresh starts at home
-      const url = new URL(window.location.href)
-      url.searchParams.delete('noteId')
-      window.history.replaceState(null, '', url.toString())
-    }
-  }, [initialNoteId, noteSummariesById, selectNote])
+    selectNote(initialNoteId)
+    initialAppliedRef.current = true
+    // Clear noteId from URL so a page refresh starts at home
+    const url = new URL(window.location.href)
+    url.searchParams.delete('noteId')
+    window.history.replaceState(null, '', url.toString())
+  }, [initialNoteId, selectNote])
 
   useEffect(() => {
     const unsubscribe = desktopApi.dashboard.onSelectNote((payload) => {

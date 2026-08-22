@@ -5,7 +5,6 @@ import {
   getCalendarEvents,
   type CalendarEventsSnapshot,
 } from '@/features/calendar/api/calendar-events-client'
-import { dashboardQueryClient } from '@/lib/query-client'
 import { queryKeys } from '@/lib/query-keys'
 
 export type { CalendarAttendee, CalendarEvent } from '@/features/calendar/api/calendar-events-client'
@@ -20,24 +19,6 @@ export function calendarEventsQueryOptions(accountID: string) {
     staleTime: CALENDAR_EVENTS_STALE_TIME_MS,
     gcTime: 30 * 60_000,
   }
-}
-
-export function triggerCalendarSync(accountID: string) {
-  dashboardQueryClient.setQueryData<CalendarEventsSnapshot>(
-    queryKeys.calendarEvents(accountID),
-    (current) => current ? { ...current, syncing: true } : current,
-  )
-}
-
-export function resetCalendarSync(accountID: string) {
-  dashboardQueryClient.setQueryData<CalendarEventsSnapshot>(
-    queryKeys.calendarEvents(accountID),
-    (current) => current ? { ...current, syncing: false } : current,
-  )
-}
-
-export function refreshCalendarEvents(accountID: string) {
-  void dashboardQueryClient.invalidateQueries({ queryKey: queryKeys.calendarEvents(accountID) })
 }
 
 export function useCalendarEvents() {

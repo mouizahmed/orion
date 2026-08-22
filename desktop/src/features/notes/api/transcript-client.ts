@@ -46,8 +46,10 @@ export async function saveTranscriptSegments(
 
 export async function getTranscriptSegments(
   noteId: string,
+  signal?: AbortSignal,
 ): Promise<{ segments: TranscriptSegment[] }> {
   return fetchJson(`${API_BASE_URL}/notes/${noteId}/transcript/segments`, {
+    signal,
     headers: {
       Accept: 'application/json',
     },

@@ -32,7 +32,7 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		INSERT INTO notes (user_id, folder_id, title, note_markdown, calendar_event_id)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		          calendar_event_id::text
+		          calendar_event_id::text, revision
 	`
 
 	folderID := toNullString(note.FolderID)
@@ -58,6 +58,7 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		&created.UpdatedAt,
 		&deleted,
 		&calEvID,
+		&created.Revision,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create note: %w", err)
@@ -131,7 +132,7 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 	query := `
 		SELECT
 			n.id, n.folder_id, n.title, n.note_markdown, n.created_at, n.updated_at,
-			n.calendar_event_id::text,
+			n.calendar_event_id::text, n.revision,
 			e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
 			e.title, e.start_at, e.end_at, e.all_day,
 			COALESCE(e.color, s.color, ''), COALESCE(e.calendar_name, s.name, ''),
@@ -159,7 +160,7 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 
 	err := r.db.QueryRow(query, noteID, userID).Scan(
 		&detail.ID, &folder, &detail.Title, &detail.NoteMarkdown, &detail.CreatedAt, &detail.UpdatedAt,
-		&calEvID,
+		&calEvID, &detail.Revision,
 		&evID, &evProvider, &evConnID, &evCalID, &evProvEventID,
 		&evTitle, &evStart, &evEnd, &evAllDay,
 		&evColor, &evCalName, &evMeetingLink, &evEventLink, &evLocation, &evOrganizer,
@@ -222,7 +223,7 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 
 	sqlQuery := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       calendar_event_id::text
+		       calendar_event_id::text, revision
 		FROM notes
 		WHERE user_id = $1 AND deleted_at IS NULL
 	`
@@ -268,6 +269,7 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 			&note.UpdatedAt,
 			&deleted,
 			&calEvID,
+			&note.Revision,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan activity note: %w", err)
 		}
@@ -287,7 +289,7 @@ func (r *NoteRepository) ListActivityNotesByUser(userID string, query NoteActivi
 func (r *NoteRepository) GetNoteByID(userID, noteID string) (*models.Note, error) {
 	query := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       calendar_event_id::text
+		       calendar_event_id::text, revision
 		FROM notes
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 		LIMIT 1
@@ -306,6 +308,7 @@ func (r *NoteRepository) GetNoteByID(userID, noteID string) (*models.Note, error
 		&note.UpdatedAt,
 		&deleted,
 		&calEvID,
+		&note.Revision,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -342,16 +345,22 @@ func (r *NoteRepository) CountNotesByUser(userID string, folderID *string) (int,
 }
 
 func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
+	return r.UpdateNoteWithRevision(note, nil)
+}
+
+func (r *NoteRepository) UpdateNoteWithRevision(note *models.Note, expectedRevision *int64) (*models.Note, error) {
 	query := `
 		UPDATE notes
 		SET folder_id = $3,
 			title = $4,
 			note_markdown = $5,
 			calendar_event_id = $6,
-			updated_at = NOW()
+			updated_at = NOW(),
+			revision = revision + 1
 		WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+		  AND ($7::bigint IS NULL OR revision = $7)
 		RETURNING id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		          calendar_event_id::text
+		          calendar_event_id::text, revision
 	`
 
 	folderID := toNullString(note.FolderID)
@@ -368,6 +377,7 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 		note.Title,
 		note.NoteMarkdown,
 		calendarEventID,
+		expectedRevision,
 	).Scan(
 		&updated.ID,
 		&updated.UserID,
@@ -378,6 +388,7 @@ func (r *NoteRepository) UpdateNote(note *models.Note) (*models.Note, error) {
 		&updated.UpdatedAt,
 		&deleted,
 		&calEvID,
+		&updated.Revision,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -430,7 +441,7 @@ func (r *NoteRepository) SearchNotes(userID, query string, folderID *string, lim
 	pattern := "%" + search + "%"
 	sqlQuery := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       calendar_event_id::text
+		       calendar_event_id::text, revision
 		FROM notes
 		WHERE user_id = $1
 			AND deleted_at IS NULL
@@ -477,6 +488,7 @@ func (r *NoteRepository) SearchNotes(userID, query string, folderID *string, lim
 			&note.UpdatedAt,
 			&deleted,
 			&calEvID,
+			&note.Revision,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note search row: %w", err)
 		}
@@ -538,7 +550,7 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 
 	query := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       calendar_event_id::text
+		       calendar_event_id::text, revision
 		FROM notes
 		WHERE user_id = $1 AND deleted_at IS NULL
 		AND created_at >= $2 AND created_at < $3
@@ -567,6 +579,7 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 			&note.UpdatedAt,
 			&deleted,
 			&calEvID,
+			&note.Revision,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}
@@ -582,7 +595,7 @@ func (r *NoteRepository) ListNotesByDateRange(userID string, startDate, endDate 
 func (r *NoteRepository) ListNotesByEvent(userID, calendarEventID string, limit int, cursorCreatedAt *time.Time, cursorID *string) ([]models.Note, error) {
 	q := `
 		SELECT id, user_id, folder_id, title, note_markdown, created_at, updated_at, deleted_at,
-		       calendar_event_id::text
+		       calendar_event_id::text, revision
 		FROM notes
 		WHERE user_id = $1
 		  AND calendar_event_id = $2
@@ -619,6 +632,7 @@ func (r *NoteRepository) ListNotesByEvent(userID, calendarEventID string, limit 
 			&note.UpdatedAt,
 			&deleted,
 			&calEvID,
+			&note.Revision,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan note: %w", err)
 		}

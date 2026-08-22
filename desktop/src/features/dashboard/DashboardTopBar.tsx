@@ -1,20 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AudioLines, Folder, Plus, RefreshCw, Search, Upload } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { authenticatedFetch } from '@/features/auth/auth-session'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { useWindowState } from '@/features/dashboard/useWindowState'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
-import { searchAll } from '@/features/notes/api/search-client'
 import { desktopApi } from '@/lib/desktop-api'
-import { triggerCalendarSync, resetCalendarSync } from '@/features/calendar/useCalendarEvents'
 import { useAuth } from '@/features/auth/AuthContext'
 import { DropdownItem, DropdownIconSlot, DropdownPopover } from '@/components/ui/dropdown-list'
 import { publicAssetUrl } from '@/lib/public-asset'
-import { API_BASE_URL } from '@/lib/api-config'
-
+import { useDebouncedValue } from '@/lib/use-debounced-value'
+import { useDashboardSearchQuery } from '@/features/notes/queries/useDashboardSearchQuery'
+import { useRecentNotesQuery } from '@/features/notes/queries/useNotesQueries'
+import { useCalendarSyncMutation } from '@/features/calendar/useCalendarSyncMutation'
 
 export default function DashboardTopBar({
   onBackToOverlay,
@@ -26,106 +26,25 @@ export default function DashboardTopBar({
   const isMacOS = desktopApi.platform.current() === 'darwin'
   const { user } = useAuth()
   const { isMaximized } = useWindowState()
-  const {
-    folders,
-    isLoading,
-    notes,
-    refresh,
-    selectFolder,
-    selectNote,
-  } = useDashboardNotes()
+  const { folders, refresh, selectFolder, selectNote } = useDashboardNotes()
+  const recentNotesQuery = useRecentNotesQuery(user?.id)
+  const recentNotes = useMemo(
+    () => recentNotesQuery.data?.pages.flatMap((page) => page.notes) ?? [],
+    [recentNotesQuery.data],
+  )
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isRecordOpen, setIsRecordOpen] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const searchContainerRef = useRef<HTMLDivElement | null>(null)
   const recordContainerRef = useRef<HTMLDivElement | null>(null)
-  const calendarRefreshInFlightRef = useRef(false)
+  const calendarSyncMutation = useCalendarSyncMutation(user?.id)
 
-  const query = searchQuery.trim().toLowerCase()
-  const defaultFolders = useMemo(
-    () =>
-      folders
-        .slice(0, 6),
-    [folders],
-  )
-  const defaultMeetings = useMemo(
-    () =>
-      notes
-        .slice(0, 8),
-    [notes],
-  )
-  const [searchResults, setSearchResults] = useState<{ folders: typeof folders; notes: typeof notes }>({
-    folders: [],
-    notes: [],
-  })
-  const [isSearching, setIsSearching] = useState(false)
-  const [isLoadingMoreFolders, setIsLoadingMoreFolders] = useState(false)
-  const [isLoadingMoreMeetings, setIsLoadingMoreMeetings] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
-  const [searchPagination, setSearchPagination] = useState({
-    notes: { nextOffset: 0, hasMore: false },
-    folders: { nextOffset: 0, hasMore: false },
-  })
-
-  useEffect(() => {
-    let cancelled = false
-    const trimmed = searchQuery.trim()
-
-    if (!trimmed) {
-      setSearchResults({ folders: [], notes: [] })
-      setIsSearching(false)
-      setIsLoadingMoreFolders(false)
-      setIsLoadingMoreMeetings(false)
-      setSearchError(null)
-      setSearchPagination({
-        notes: { nextOffset: 0, hasMore: false },
-        folders: { nextOffset: 0, hasMore: false },
-      })
-      return
-    }
-
-    setIsSearching(true)
-    setSearchError(null)
-
-    const timer = window.setTimeout(async () => {
-      try {
-        const result = await searchAll({ query: trimmed, limit: 12, noteOffset: 0, folderOffset: 0 })
-        if (cancelled) return
-        setSearchResults({
-          folders: result.folders,
-          notes: result.notes,
-        })
-        setSearchPagination({
-          notes: {
-            nextOffset: result.pagination.notes.nextOffset,
-            hasMore: result.pagination.notes.hasMore,
-          },
-          folders: {
-            nextOffset: result.pagination.folders.nextOffset,
-            hasMore: result.pagination.folders.hasMore,
-          },
-        })
-      } catch (error) {
-        if (cancelled) return
-        setSearchResults({ folders: [], notes: [] })
-        setSearchError(error instanceof Error ? error.message : 'Search failed')
-        setSearchPagination({
-          notes: { nextOffset: 0, hasMore: false },
-          folders: { nextOffset: 0, hasMore: false },
-        })
-      } finally {
-        if (!cancelled) {
-          setIsSearching(false)
-        }
-      }
-    }, 200)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-    }
-  }, [searchQuery])
-
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 200)
+  const search = useDashboardSearchQuery(user?.id, debouncedSearchQuery)
+  const query = search.query
+  const defaultFolders = useMemo(() => folders.slice(0, 6), [folders])
+  const defaultMeetings = useMemo(() => recentNotes.slice(0, 8), [recentNotes])
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
@@ -151,107 +70,23 @@ export default function DashboardTopBar({
   }, [])
 
   const showRemote = query.length > 0
-  const filteredFolders = showRemote ? searchResults.folders : defaultFolders
-  const filteredMeetings = showRemote ? searchResults.notes : defaultMeetings
-
-  const loadMoreFolders = async () => {
-    const trimmed = searchQuery.trim()
-    if (!trimmed || !searchPagination.folders.hasMore || isLoadingMoreFolders) return
-    setIsLoadingMoreFolders(true)
-    setSearchError(null)
-    try {
-      const result = await searchAll({
-        query: trimmed,
-        limit: 12,
-        noteOffset: searchPagination.notes.nextOffset,
-        folderOffset: searchPagination.folders.nextOffset,
-        noteLimit: 0,
-        folderLimit: 12,
-      })
-      setSearchResults((prev) => {
-        const existing = new Set(prev.folders.map((folder) => folder.id))
-        const mergedFolders = [...prev.folders]
-        for (const folder of result.folders) {
-          if (!existing.has(folder.id)) {
-            mergedFolders.push(folder)
-            existing.add(folder.id)
-          }
-        }
-        return { ...prev, folders: mergedFolders }
-      })
-      setSearchPagination((prev) => ({
-        notes: prev.notes,
-        folders: {
-          nextOffset: result.pagination.folders.nextOffset,
-          hasMore: result.pagination.folders.hasMore,
-        },
-      }))
-    } catch (error) {
-      setSearchError(error instanceof Error ? error.message : 'Search failed')
-    } finally {
-      setIsLoadingMoreFolders(false)
-    }
-  }
-
-  const loadMoreMeetings = async () => {
-    const trimmed = searchQuery.trim()
-    if (!trimmed || !searchPagination.notes.hasMore || isLoadingMoreMeetings) return
-    setIsLoadingMoreMeetings(true)
-    setSearchError(null)
-    try {
-      const result = await searchAll({
-        query: trimmed,
-        limit: 12,
-        noteOffset: searchPagination.notes.nextOffset,
-        folderOffset: searchPagination.folders.nextOffset,
-        noteLimit: 12,
-        folderLimit: 0,
-      })
-      setSearchResults((prev) => {
-        const existing = new Set(prev.notes.map((note) => note.id))
-        const mergedNotes = [...prev.notes]
-        for (const note of result.notes) {
-          if (!existing.has(note.id)) {
-            mergedNotes.push(note)
-            existing.add(note.id)
-          }
-        }
-        return { ...prev, notes: mergedNotes }
-      })
-      setSearchPagination((prev) => ({
-        notes: {
-          nextOffset: result.pagination.notes.nextOffset,
-          hasMore: result.pagination.notes.hasMore,
-        },
-        folders: prev.folders,
-      }))
-    } catch (error) {
-      setSearchError(error instanceof Error ? error.message : 'Search failed')
-    } finally {
-      setIsLoadingMoreMeetings(false)
-    }
-  }
+  const filteredFolders = showRemote
+    ? (search.folders.data?.pages.flatMap((page) => page.folders) ?? [])
+    : defaultFolders
+  const filteredMeetings = showRemote ? (search.notes.data?.pages.flatMap((page) => page.notes) ?? []) : defaultMeetings
+  const isSearching = search.folders.isLoading || search.notes.isLoading
+  const searchError = search.folders.error ?? search.notes.error
 
   const handleRefresh = async () => {
-    void refresh()
-    window.dispatchEvent(new Event('dashboard-activity-refresh'))
-    if (calendarRefreshInFlightRef.current) return
-
-    calendarRefreshInFlightRef.current = true
-
+    if (isRefreshing || calendarSyncMutation.isPending) return
+    setIsRefreshing(true)
     try {
-      if (user) triggerCalendarSync(user.id)
-      const response = await authenticatedFetch(`${API_BASE_URL}/calendar/sync?wait=true`, {
-        method: 'POST',
-        headers: { Accept: 'application/json' },
-      })
-      if (!response.ok) {
-        throw new Error(`Calendar sync failed: ${response.status}`)
-      }
-    } catch {
-      if (user) resetCalendarSync(user.id)
+      await refresh()
+      await calendarSyncMutation.mutateAsync()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to refresh dashboard')
     } finally {
-      calendarRefreshInFlightRef.current = false
+      setIsRefreshing(false)
     }
   }
 
@@ -310,11 +145,11 @@ export default function DashboardTopBar({
               </div>
 
               <div className="sidebar-scrollbar max-h-[340px] overflow-y-auto p-2">
-                {isSearching ? (
-                  <div className="px-2 py-2 text-xs text-neutral-500">Searching...</div>
-                ) : null}
+                {isSearching ? <div className="px-2 py-2 text-xs text-neutral-500">Searching...</div> : null}
                 {searchError ? (
-                  <div className="px-2 py-2 text-xs text-red-400">{searchError}</div>
+                  <div className="px-2 py-2 text-xs text-red-400">
+                    {searchError instanceof Error ? searchError.message : 'Search failed'}
+                  </div>
                 ) : null}
                 <div className="mb-1 px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Folders</div>
                 {filteredFolders.length > 0 ? (
@@ -335,15 +170,15 @@ export default function DashboardTopBar({
                         <span className="truncate">{folder.name}</span>
                       </button>
                     ))}
-                    {showRemote && searchPagination.folders.hasMore ? (
+                    {showRemote && search.folders.hasNextPage ? (
                       <button
                         type="button"
                         className="h-8 w-full rounded-full px-2 text-left text-xs text-[#7c3aed] hover:bg-neutral-100 dark:text-[#9f73f2] dark:hover:bg-white/10"
                         onClick={() => {
-                          void loadMoreFolders()
+                          void search.folders.fetchNextPage()
                         }}
                       >
-                        {isLoadingMoreFolders ? 'Loading more...' : 'Load more folders'}
+                        {search.folders.isFetchingNextPage ? 'Loading more...' : 'Load more folders'}
                       </button>
                     ) : null}
                   </div>
@@ -351,7 +186,9 @@ export default function DashboardTopBar({
                   <div className="px-2 py-2 text-xs text-neutral-500">No folders</div>
                 )}
 
-                <div className="mb-1 mt-3 px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">Meetings</div>
+                <div className="mb-1 mt-3 px-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
+                  Meetings
+                </div>
                 {filteredMeetings.length > 0 ? (
                   <div className="space-y-1">
                     {filteredMeetings.map((note) => (
@@ -370,15 +207,15 @@ export default function DashboardTopBar({
                         <span className="truncate">{note.title || 'Untitled meeting'}</span>
                       </button>
                     ))}
-                    {showRemote && searchPagination.notes.hasMore ? (
+                    {showRemote && search.notes.hasNextPage ? (
                       <button
                         type="button"
                         className="h-8 w-full rounded-full px-2 text-left text-xs text-[#7c3aed] hover:bg-neutral-100 dark:text-[#9f73f2] dark:hover:bg-white/10"
                         onClick={() => {
-                          void loadMoreMeetings()
+                          void search.notes.fetchNextPage()
                         }}
                       >
-                        {isLoadingMoreMeetings ? 'Loading more...' : 'Load more meetings'}
+                        {search.notes.isFetchingNextPage ? 'Loading more...' : 'Load more meetings'}
                       </button>
                     ) : null}
                   </div>
@@ -400,14 +237,22 @@ export default function DashboardTopBar({
           onClick={() => {
             void handleRefresh()
           }}
-          disabled={isLoading}
+          disabled={isRefreshing || calendarSyncMutation.isPending}
+          aria-busy={isRefreshing || calendarSyncMutation.isPending}
           aria-label="Refresh dashboard"
           title="Refresh dashboard"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : undefined} />
+          <RefreshCw
+            size={14}
+            className={isRefreshing || calendarSyncMutation.isPending ? 'animate-spin' : undefined}
+          />
         </Button>
-        <div ref={recordContainerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <div
+          ref={recordContainerRef}
+          className="relative"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
           <Button
             type="button"
             variant="default"
@@ -420,12 +265,22 @@ export default function DashboardTopBar({
           </Button>
           {isRecordOpen ? (
             <DropdownPopover align="end" width="sm" className="w-fit min-w-0">
-              <DropdownItem className="whitespace-nowrap" onClick={() => { setIsRecordOpen(false); onBackToOverlay() }}>
-                <DropdownIconSlot><AudioLines size={13} /></DropdownIconSlot>
+              <DropdownItem
+                className="whitespace-nowrap"
+                onClick={() => {
+                  setIsRecordOpen(false)
+                  onBackToOverlay()
+                }}
+              >
+                <DropdownIconSlot>
+                  <AudioLines size={13} />
+                </DropdownIconSlot>
                 Start new meeting
               </DropdownItem>
               <DropdownItem className="whitespace-nowrap" disabled>
-                <DropdownIconSlot><Upload size={13} /></DropdownIconSlot>
+                <DropdownIconSlot>
+                  <Upload size={13} />
+                </DropdownIconSlot>
                 Upload an audio file
               </DropdownItem>
             </DropdownPopover>

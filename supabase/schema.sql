@@ -607,10 +607,12 @@ create table public.notes (
   note_markdown text not null default '',
   transcript_text text not null default '',
   overview_json text not null default '',
+  revision bigint not null default 1,
   calendar_event_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   deleted_at timestamptz,
+  constraint notes_revision_positive check (revision > 0),
   unique (id, user_id),
   foreign key (folder_id, user_id) references public.folders(id, user_id),
   foreign key (calendar_event_id, user_id) references public.calendar_events(id, user_id)

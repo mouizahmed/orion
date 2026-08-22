@@ -11,14 +11,14 @@ import {
 } from '@/components/ui/dashboard-panel'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { useCalendarEvents, type CalendarAttendee, type CalendarEvent } from '@/features/calendar/useCalendarEvents'
-import { listNotesByEvent } from '@/features/notes/api/notes-client'
 import { publicAssetUrl } from '@/lib/public-asset'
-import type { NoteRecord } from '@/features/notes/types'
 import { NoteRow } from '@/features/notes/NoteRow'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { CalendarEventRow } from '@/features/calendar/CalendarEventRow'
 import { cn } from '@/lib/utils'
 import { dateKey, formatTime } from '@/features/calendar/calendar-utils'
+import { useAuth } from '@/features/auth/AuthContext'
+import { useNotesByEventQuery } from '@/features/notes/queries/useNotesQueries'
 
 function startOfDay(date: Date) {
   const next = new Date(date)
@@ -143,53 +143,17 @@ function EventDetail({
   onSelectNote?: (id: string) => void
 }) {
   const { selectNote } = useDashboardNotes()
-  const [linkedNotes, setLinkedNotes] = useState<NoteRecord[]>([])
-  const [linkedNotesLoading, setLinkedNotesLoading] = useState(false)
-  const [linkedNotesLoadingMore, setLinkedNotesLoadingMore] = useState(false)
-  const [linkedNotesHasMore, setLinkedNotesHasMore] = useState(false)
-  const [linkedNotesCursor, setLinkedNotesCursor] = useState<string | undefined>(undefined)
+  const { user } = useAuth()
+  const linkedNotesQuery = useNotesByEventQuery(user?.id, event.id)
+  const linkedNotes = useMemo(
+    () => linkedNotesQuery.data?.pages.flatMap((page) => page.notes) ?? [],
+    [linkedNotesQuery.data],
+  )
   const [startingNote, setStartingNote] = useState(false)
 
   const canLinkNotes = Boolean(event.id)
   const calendarAction = getEventCalendarAction(event)
   const description = event.description ? normalizeDescription(event.description) : ''
-
-  const refreshLinkedNotes = useCallback(async () => {
-    if (!canLinkNotes) return
-    setLinkedNotesLoading(true)
-    try {
-      const result = await listNotesByEvent(event.id)
-      setLinkedNotes(result.notes)
-      setLinkedNotesHasMore(result.hasMore)
-      setLinkedNotesCursor(result.nextCursor)
-    } catch {
-      // silent
-    } finally {
-      setLinkedNotesLoading(false)
-    }
-  }, [canLinkNotes, event.id])
-
-  const loadMoreLinkedNotes = useCallback(async () => {
-    if (!canLinkNotes || linkedNotesLoadingMore || !linkedNotesHasMore) return
-    setLinkedNotesLoadingMore(true)
-    try {
-      const result = await listNotesByEvent(event.id, linkedNotesCursor)
-      setLinkedNotes((prev) => {
-        const existing = new Set(prev.map((n) => n.id))
-        return [...prev, ...result.notes.filter((n) => !existing.has(n.id))]
-      })
-      setLinkedNotesHasMore(result.hasMore)
-      setLinkedNotesCursor(result.nextCursor)
-    } catch {
-      // silent
-    } finally {
-      setLinkedNotesLoadingMore(false)
-    }
-  }, [canLinkNotes, linkedNotesLoadingMore, linkedNotesHasMore, linkedNotesCursor, event.id])
-
-  useEffect(() => {
-    void refreshLinkedNotes()
-  }, [refreshLinkedNotes])
 
   const handleStartNote = async () => {
     if (linkedNotes.length > 0) {
@@ -200,7 +164,7 @@ function EventDetail({
     setStartingNote(true)
     try {
       await onStartNote(event)
-      await refreshLinkedNotes()
+      await linkedNotesQuery.refetch()
     } finally {
       setStartingNote(false)
     }
@@ -285,7 +249,7 @@ function EventDetail({
         {canLinkNotes ? (
           <section>
             <div className="mb-2 text-xs font-semibold text-neutral-400">Note</div>
-            {linkedNotesLoading ? (
+            {linkedNotesQuery.isLoading ? (
               <div className="space-y-1">
                 {[60, 80].map((w, i) => (
                   <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
@@ -304,10 +268,10 @@ function EventDetail({
                     onClick={() => { selectNote(note.id); onSelectNote?.(note.id) }}
                   />
                 ))}
-                {linkedNotesHasMore ? (
+                {linkedNotesQuery.hasNextPage ? (
                   <LoadMoreButton
-                    isLoading={linkedNotesLoadingMore}
-                    onClick={() => void loadMoreLinkedNotes()}
+                    isLoading={linkedNotesQuery.isFetchingNextPage}
+                    onClick={() => void linkedNotesQuery.fetchNextPage()}
                   />
                 ) : null}
               </div>

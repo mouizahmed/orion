@@ -13,6 +13,10 @@ export type ResourceName =
   | 'extract_fields'
   | 'email_draft_settings'
   | 'summary_templates'
+  | 'notes'
+  | 'folders'
+  | 'activity'
+  | 'chat'
 
 export interface ResourceChangedEvent {
   version: 1

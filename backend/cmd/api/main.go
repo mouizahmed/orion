@@ -215,9 +215,9 @@ func main() {
 	extractFieldsHandler := handlers.NewExtractFieldsHandler(extractFieldRepo, resourceEventPublisher)
 	summaryTemplatesHandler := handlers.NewSummaryTemplatesHandler(summaryTemplateRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
-	folderHandler := handlers.NewFoldersHandler(folderRepo)
-	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue)
-	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo)
+	folderHandler := handlers.NewFoldersHandler(folderRepo, resourceEventPublisher)
+	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue, resourceEventPublisher)
+	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo, resourceEventPublisher)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
 	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, wsHub)
@@ -225,7 +225,7 @@ func main() {
 	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, noteAttendeeRepo, redisClient)
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
 	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub, resourceEventPublisher)
-	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue)
+	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue, resourceEventPublisher)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
 	// Initialize the router

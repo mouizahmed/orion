@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 )
 
 var emailRegex = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
@@ -15,12 +16,14 @@ var emailRegex = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
 type NoteAttendeesHandler struct {
 	noteRepo         *repository.NoteRepository
 	noteAttendeeRepo *repository.NoteAttendeeRepository
+	events           resourceevents.Publisher
 }
 
-func NewNoteAttendeesHandler(noteRepo *repository.NoteRepository, noteAttendeeRepo *repository.NoteAttendeeRepository) *NoteAttendeesHandler {
+func NewNoteAttendeesHandler(noteRepo *repository.NoteRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, events resourceevents.Publisher) *NoteAttendeesHandler {
 	return &NoteAttendeesHandler{
 		noteRepo:         noteRepo,
 		noteAttendeeRepo: noteAttendeeRepo,
+		events:           events,
 	}
 }
 
@@ -98,6 +101,7 @@ func (h *NoteAttendeesHandler) AddAttendee(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add attendee"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	c.JSON(http.StatusOK, gin.H{"attendee": attendee})
 }
@@ -138,6 +142,7 @@ func (h *NoteAttendeesHandler) RemoveAttendee(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "attendee not found"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	c.Status(http.StatusNoContent)
 }

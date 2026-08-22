@@ -137,6 +137,7 @@ export async function createConversation(
 export async function listConversations(
   noteId?: string,
   folderId?: string,
+  signal?: AbortSignal,
 ): Promise<Conversation[]> {
   const accessToken = await getAccessToken()
   const params = new URLSearchParams()
@@ -146,6 +147,7 @@ export async function listConversations(
   const payload = await fetchJson<{ conversations: ApiConversation[] }>(
     `${API_BASE_URL}/chat/conversations${qs ? `?${qs}` : ''}`,
     {
+      signal,
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     },
   )
@@ -160,11 +162,12 @@ export async function deleteConversation(id: string): Promise<void> {
   })
 }
 
-export async function getMessages(conversationId: string): Promise<ChatMessage[]> {
+export async function getMessages(conversationId: string, signal?: AbortSignal): Promise<ChatMessage[]> {
   const accessToken = await getAccessToken()
   const payload = await fetchJson<{ messages: ApiMessage[] }>(
     `${API_BASE_URL}/chat/conversations/${conversationId}/messages`,
     {
+      signal,
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     },
   )

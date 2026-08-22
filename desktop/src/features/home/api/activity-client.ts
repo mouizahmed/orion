@@ -44,6 +44,7 @@ export async function listActivityPage(params: {
   sort?: ActivitySort
   direction?: ActivitySortDirection
   scope?: ActivityScope
+  signal?: AbortSignal
 } = {}): Promise<{ activity: ActivityRecord[]; nextCursor?: string; hasMore: boolean }> {
   const url = new URL(`${API_BASE_URL}/dashboard/activity`)
   url.searchParams.set('limit', String(params.limit ?? 20))
@@ -56,6 +57,7 @@ export async function listActivityPage(params: {
     activity: ApiActivity[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
+    signal: params.signal,
     headers: {
       Accept: 'application/json',
     },

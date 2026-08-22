@@ -95,6 +95,7 @@ export async function searchAll(params: {
   folderOffset?: number
   noteLimit?: number
   folderLimit?: number
+  signal?: AbortSignal
 }): Promise<SearchResultPage> {
   const limit = params.limit ?? 12
   const noteOffset = params.noteOffset ?? 0
@@ -127,6 +128,7 @@ export async function searchAll(params: {
   }
 
   const payload = await fetchJson<SearchResponse>(url.toString(), {
+    signal: params.signal,
     headers: {
       Accept: 'application/json',
     },

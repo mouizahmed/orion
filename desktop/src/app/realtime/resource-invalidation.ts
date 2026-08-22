@@ -11,6 +11,10 @@ const resources = new Set<ResourceName>([
   'extract_fields',
   'email_draft_settings',
   'summary_templates',
+  'notes',
+  'folders',
+  'activity',
+  'chat',
 ])
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -45,6 +49,14 @@ export function resourceQueryKeys(accountID: string, resource: ResourceName): re
       return [queryKeys.emailDraftSettings(accountID)]
     case 'summary_templates':
       return [queryKeys.summaryTemplates(accountID)]
+    case 'notes':
+      return [queryKeys.notes(accountID), queryKeys.folders(accountID), queryKeys.activity(accountID), [...queryKeys.account(accountID), 'search']]
+    case 'folders':
+      return [queryKeys.folders(accountID), queryKeys.notes(accountID), queryKeys.activity(accountID), [...queryKeys.account(accountID), 'search']]
+    case 'activity':
+      return [queryKeys.activity(accountID)]
+    case 'chat':
+      return [[...queryKeys.account(accountID), 'chat']]
   }
 }
 

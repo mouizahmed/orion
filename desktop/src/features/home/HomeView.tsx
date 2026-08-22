@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useMemo, useState } from 'react'
 
 import { ArrowDownUp, ArrowUpDown, FileText, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
@@ -18,14 +18,13 @@ import {
   DashboardPanelTitle,
 } from '@/components/ui/dashboard-panel'
 import { NoteRow } from '@/features/notes/NoteRow'
+import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { UpcomingMeetings } from '@/features/home/UpcomingMeetings'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { useCalendarEvents } from '@/features/calendar/useCalendarEvents'
-import { listActivityPage } from '@/features/home/api/activity-client'
+import { useActivityQuery } from '@/features/home/useActivityQuery'
 import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/features/home/types'
-
-const ACTIVITY_REFRESH_EVENT = 'dashboard-activity-refresh'
 
 function formatActivityDate(timestamp: number) {
   const date = new Date(timestamp)
@@ -79,15 +78,21 @@ export default function HomeView({
 }) {
   const { user } = useAuth()
   const { selectNote, openCreateNoteDialog, deleteById, renameNote, moveNote, folders } = useDashboardNotes()
-  const activityRequestRef = useRef(0)
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
   const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
-  const [activity, setActivity] = useState<ActivityRecord[]>([])
-  const [activityLoading, setActivityLoading] = useState(true)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
+  const activityQuery = useActivityQuery(user?.id, {
+    sort: activitySort,
+    direction: activitySortDirection,
+    scope: activityScope,
+  })
+  const activity = useMemo(
+    () => activityQuery.data?.pages.flatMap((page) => page.activity) ?? [],
+    [activityQuery.data],
+  )
 
   const startRename = (noteId: string, currentTitle: string) => {
     setRenamingId(noteId)
@@ -107,38 +112,6 @@ export default function HomeView({
     loading: calendarLoading,
     syncing: calendarSyncing,
   } = useCalendarEvents()
-
-  const loadActivity = useCallback(async () => {
-    const requestId = activityRequestRef.current + 1
-    activityRequestRef.current = requestId
-    setActivityLoading(true)
-    try {
-      const page = await listActivityPage({
-        limit: 20,
-        sort: activitySort,
-        direction: activitySortDirection,
-        scope: activityScope,
-      })
-      if (activityRequestRef.current !== requestId) return
-      setActivity(page.activity)
-    } catch {
-      if (activityRequestRef.current !== requestId) return
-      setActivity([])
-    } finally {
-      if (activityRequestRef.current === requestId) {
-        setActivityLoading(false)
-      }
-    }
-  }, [activityScope, activitySort, activitySortDirection])
-
-  useEffect(() => {
-    void loadActivity()
-
-    window.addEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
-    return () => {
-      window.removeEventListener(ACTIVITY_REFRESH_EVENT, loadActivity)
-    }
-  }, [loadActivity])
 
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
 
@@ -257,7 +230,7 @@ export default function HomeView({
         </DashboardPanelHeader>
 
         <DashboardPanelBody className="min-h-0 flex-1">
-          {activityLoading ? (
+          {activityQuery.isLoading ? (
             <div className="space-y-0.5">
               {[70, 50, 85, 60, 75].map((w, i) => (
                 <div key={i} className="flex items-start gap-2.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 dark:border-white/8 dark:bg-white/[0.03]">
@@ -313,6 +286,12 @@ export default function HomeView({
                   </div>
                 </div>
               ))}
+              {activityQuery.hasNextPage ? (
+                <LoadMoreButton
+                  isLoading={activityQuery.isFetchingNextPage}
+                  onClick={() => void activityQuery.fetchNextPage()}
+                />
+              ) : null}
             </div>
           ) : (
             <div className="flex min-h-24 flex-col items-center justify-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-5 text-center dark:border-white/10 dark:bg-white/[0.03]">

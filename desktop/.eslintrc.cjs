@@ -14,6 +14,30 @@ module.exports = {
   },
   overrides: [
     {
+      files: ['src/**/*.{tsx}'],
+      rules: {
+        'no-restricted-imports': ['error', {
+          paths: [
+            {
+              name: '@/features/notes/api/notes-client',
+              importNames: ['createNote', 'updateNote', 'deleteNote', 'enhanceNote', 'revertToVersion', 'addNoteAttendee', 'removeNoteAttendee'],
+              message: 'Components must use the canonical note mutation hooks.',
+            },
+            {
+              name: '@/features/notes/api/folders-client',
+              importNames: ['createFolder', 'renameFolder', 'deleteFolder'],
+              message: 'Components must use the canonical folder mutation hooks.',
+            },
+            {
+              name: '@/features/chat/chat-client',
+              importNames: ['createConversation', 'deleteConversation', 'renameConversation', 'getMessages', 'listConversations'],
+              message: 'Components and contexts must use the canonical persisted-chat query hooks.',
+            },
+          ],
+        }],
+      },
+    },
+    {
       files: ['src/components/**/*.{ts,tsx}'],
       rules: {
         'no-restricted-imports': ['error', {

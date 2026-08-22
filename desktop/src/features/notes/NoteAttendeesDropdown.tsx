@@ -8,9 +8,9 @@ import {
   DropdownSeparator,
   dropdownItemClassName,
 } from '@/components/ui/dropdown-list'
-import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { useAuth } from '@/features/auth/AuthContext'
 import type { NoteDetail } from '@/features/notes/types'
+import { useAddNoteAttendeeMutation, useRemoveNoteAttendeeMutation } from '@/features/notes/queries/useNoteMutations'
 
 type Props = {
   note: NoteDetail
@@ -51,14 +51,15 @@ function Avatar({ name, email, avatarUrl, size = 'sm' }: { name: string; email: 
 export default function NoteAttendeesDropdown({ note }: Props) {
   const { user } = useAuth()
   const currentUserEmail = user?.email ?? ''
-  const { noteAttendeesByNoteId, addAttendee, removeAttendee } = useDashboardNotes()
+  const { mutateAsync: addAttendee } = useAddNoteAttendeeMutation(user?.id ?? '')
+  const { mutateAsync: removeAttendee } = useRemoveNoteAttendeeMutation(user?.id ?? '')
   const [open, setOpen] = useState(false)
   const [emailInput, setEmailInput] = useState('')
   const [adding, setAdding] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const attendees = noteAttendeesByNoteId[note.id] ?? []
+  const attendees = note.attendees
 
 
   // Close on outside click
@@ -89,13 +90,13 @@ export default function NoteAttendeesDropdown({ note }: Props) {
     const alreadyIn = attendees.some((a) => a.email.toLowerCase() === email)
     if (alreadyIn) { setEmailInput(''); return }
     setAdding(true)
-    await addAttendee(note.id, email)
+    await addAttendee({ noteID: note.id, email })
     setAdding(false)
     setEmailInput('')
   }
 
   const handleRemove = async (email: string) => {
-    await removeAttendee(note.id, email)
+    await removeAttendee({ noteID: note.id, email })
   }
 
   // Stacked avatars — show up to 3, then +N badge

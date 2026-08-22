@@ -15,6 +15,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/prompts"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 	"github.com/mouizahmed/justscribe-backend/internal/retrieval"
 )
 
@@ -25,6 +26,7 @@ type ChatHandler struct {
 	toolExecutor *ai.ToolExecutor
 	retriever    *retrieval.Retriever
 	queue        *queue.Queue
+	events       resourceevents.Publisher
 }
 
 func NewChatHandler(
@@ -34,6 +36,7 @@ func NewChatHandler(
 	toolExecutor *ai.ToolExecutor,
 	retriever *retrieval.Retriever,
 	q *queue.Queue,
+	events resourceevents.Publisher,
 ) *ChatHandler {
 	return &ChatHandler{
 		convRepo:     convRepo,
@@ -42,6 +45,7 @@ func NewChatHandler(
 		toolExecutor: toolExecutor,
 		retriever:    retriever,
 		queue:        q,
+		events:       events,
 	}
 }
 
@@ -81,6 +85,7 @@ func (h *ChatHandler) CreateConversation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create conversation"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceChat, &conv.ID)
 
 	c.JSON(http.StatusOK, gin.H{"conversation": conv})
 }
@@ -127,6 +132,7 @@ func (h *ChatHandler) DeleteConversation(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "conversation not found"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceChat, &convID)
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
@@ -178,6 +184,7 @@ func (h *ChatHandler) RenameConversation(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch conversation"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceChat, &convID)
 
 	c.JSON(http.StatusOK, gin.H{"conversation": conv})
 }
@@ -340,6 +347,7 @@ func (h *ChatHandler) SendMessage(c *gin.Context) {
 	if err != nil {
 		log.Printf("chat: failed to save assistant message: %v", err)
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceChat, &convID)
 
 	// Send done event with saved message
 	doneData := map[string]interface{}{
@@ -464,6 +472,7 @@ func (h *ChatHandler) streamResponse(c *gin.Context, userID, convID, activeNoteI
 
 			// Notify frontend when a note was edited so the editor can refresh
 			if tu.Name == "edit_note" && execErr == nil && activeNoteID != "" {
+				resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &activeNoteID)
 				var editInput struct {
 					Content string `json:"content"`
 				}

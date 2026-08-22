@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, FileText, Folder, FolderPlus, Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -11,9 +11,12 @@ import {
 import { DashboardIconTile, DashboardRow } from '@/components/ui/dashboard-row'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { CreateFolderDialog } from '@/features/notes/dialogs/CreateFolderDialog'
+import { useAuth } from '@/features/auth/AuthContext'
 import { NoteMenuContent } from '@/features/notes/NoteMenuContent'
 import { NoteRow } from '@/features/notes/NoteRow'
-import { UNFILED_ID, useDashboardNotes } from '@/features/notes/DashboardNotesContext'
+import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
+import { useNotesByFolderQuery } from '@/features/notes/queries/useNotesQueries'
+import type { NoteSummary } from '@/features/notes/types'
 
 function EmptyNotes({ folderName }: { folderName?: string }) {
   return (
@@ -30,14 +33,12 @@ function EmptyNotes({ folderName }: { folderName?: string }) {
 }
 
 export default function NotesLibraryView() {
+  const { user } = useAuth()
   const {
     folders,
-    folderPages,
-    noteSummariesById,
     selectedFolderId,
     selectFolder,
     selectNote,
-    loadMoreForFolder,
     openCreateNoteDialog,
     createFolder,
     deleteById,
@@ -48,35 +49,22 @@ export default function NotesLibraryView() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
-  const requestedFolderIdRef = useRef<string | null>(null)
+  const notesQuery = useNotesByFolderQuery(user?.id, selectedFolderId)
 
   const selectedFolder = useMemo(
     () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
     [folders, selectedFolderId],
   )
-  const pageKey = selectedFolderId ?? UNFILED_ID
-  const page = folderPages[pageKey]
-  const noteIds = useMemo(
-    () => [...(page?.noteIds ?? [])].sort(
-      (a, b) => (noteSummariesById[b]?.updatedAt ?? 0) - (noteSummariesById[a]?.updatedAt ?? 0),
-    ),
-    [noteSummariesById, page?.noteIds],
+  const notes = useMemo(
+    () => notesQuery.data?.pages.flatMap((page) => page.notes) ?? [],
+    [notesQuery.data],
   )
 
   useEffect(() => {
-    if (!selectedFolderId) {
-      requestedFolderIdRef.current = null
-      return
-    }
     if (selectedFolderId && !selectedFolder) {
       selectFolder(null)
-      return
     }
-    if (page && !page.loaded && !page.isLoading && requestedFolderIdRef.current !== selectedFolderId) {
-      requestedFolderIdRef.current = selectedFolderId
-      void loadMoreForFolder(selectedFolderId)
-    }
-  }, [loadMoreForFolder, page, selectFolder, selectedFolder, selectedFolderId])
+  }, [selectFolder, selectedFolder, selectedFolderId])
 
   const startRename = (noteId: string, currentTitle: string) => {
     setRenamingId(noteId)
@@ -90,9 +78,7 @@ export default function NotesLibraryView() {
     if (title) await renameNote(noteId, title)
   }
 
-  const renderNote = (noteId: string) => {
-    const note = noteSummariesById[noteId]
-    if (!note) return null
+  const renderNote = (note: NoteSummary) => {
     return (
       <NoteRow
         key={note.id}
@@ -173,19 +159,19 @@ export default function NotesLibraryView() {
 
         <DashboardPanelBody className="min-h-0 flex-1 p-2">
           {selectedFolder ? (
-            page?.isLoading && !page.loaded ? (
+            notesQuery.isLoading ? (
               <div className="space-y-1">
                 {[70, 55, 80, 65].map((width) => (
                   <div key={width} className="h-12 animate-pulse rounded-lg bg-neutral-100 dark:bg-white/5" style={{ width: `${width}%` }} />
                 ))}
               </div>
-            ) : noteIds.length > 0 ? (
+            ) : notes.length > 0 ? (
               <div className="space-y-0.5">
-                {noteIds.map(renderNote)}
-                {page?.hasMore ? (
+                {notes.map(renderNote)}
+                {notesQuery.hasNextPage ? (
                   <LoadMoreButton
-                    isLoading={page.isLoading}
-                    onClick={() => void loadMoreForFolder(selectedFolder.id)}
+                    isLoading={notesQuery.isFetchingNextPage}
+                    onClick={() => void notesQuery.fetchNextPage()}
                   />
                 ) : null}
               </div>
@@ -232,13 +218,13 @@ export default function NotesLibraryView() {
 
               <section>
                 <h3 className="px-2.5 pb-1.5 text-xs font-semibold text-neutral-400">Notes</h3>
-                {noteIds.length > 0 ? (
+                {notes.length > 0 ? (
                   <div className="space-y-0.5">
-                    {noteIds.map(renderNote)}
-                    {page?.hasMore ? (
+                    {notes.map(renderNote)}
+                    {notesQuery.hasNextPage ? (
                       <LoadMoreButton
-                        isLoading={page.isLoading}
-                        onClick={() => void loadMoreForFolder(null)}
+                        isLoading={notesQuery.isFetchingNextPage}
+                        onClick={() => void notesQuery.fetchNextPage()}
                       />
                     ) : null}
                   </div>

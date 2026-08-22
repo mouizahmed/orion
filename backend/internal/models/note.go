@@ -10,6 +10,7 @@ type Note struct {
 	NoteMarkdown    string     `json:"note_markdown"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	Revision        int64      `json:"revision"`
 	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 	CalendarEventID *string    `json:"calendar_event_id,omitempty"`
 }
@@ -54,6 +55,7 @@ type NoteDetail struct {
 	NoteMarkdown    string             `json:"note_markdown"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	Revision        int64              `json:"revision"`
 	CalendarEventID *string            `json:"calendar_event_id,omitempty"`
 	LinkedEvent     *LinkedEventDetail `json:"linked_event,omitempty"`
 	Attendees       []NoteAttendee     `json:"attendees"`

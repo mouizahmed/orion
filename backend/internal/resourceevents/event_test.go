@@ -62,3 +62,13 @@ func TestSummaryTemplatesResourceIsValid(t *testing.T) {
 		t.Fatalf("unexpected resource: %s", change.Resource)
 	}
 }
+
+func TestMigratedServerStateResourcesAreValid(t *testing.T) {
+	for _, resource := range []Resource{ResourceNotes, ResourceFolders, ResourceActivity, ResourceChat} {
+		t.Run(string(resource), func(t *testing.T) {
+			if _, err := NewChange(resource, nil); err != nil {
+				t.Fatalf("resource rejected: %v", err)
+			}
+		})
+	}
+}

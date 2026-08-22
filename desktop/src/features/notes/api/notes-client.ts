@@ -2,7 +2,6 @@ import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary, NoteVersion } f
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
-
 type ApiAttendee = {
   name?: string
   email: string
@@ -38,6 +37,7 @@ type ApiNote = {
   calendar_event_id?: string | null
   linked_event?: ApiLinkedEvent | null
   attendees?: ApiNoteAttendee[]
+  revision: number
 }
 
 type ApiNoteSummary = {
@@ -61,9 +61,13 @@ function toNoteSummary(note: ApiNoteSummary | ApiNote): NoteSummary {
 }
 
 function toNoteRecord(note: ApiNote): NoteRecord {
+  if (!Number.isSafeInteger(note.revision) || note.revision < 1) {
+    throw new Error('Invalid note revision')
+  }
   return {
     ...toNoteSummary(note),
     noteMarkdown: note.note_markdown ?? '',
+    revision: note.revision,
   }
 }
 
@@ -88,7 +92,10 @@ function toNoteDetail(note: ApiNote): NoteDetail {
           eventLink: le.event_link,
           location: le.location,
           organizerEmail: le.organizer_email,
-          attendees: (le.attendees ?? []).map((a) => ({ name: a.name, email: a.email })),
+          attendees: (le.attendees ?? []).map((a) => ({
+            name: a.name,
+            email: a.email,
+          })),
         }
       : null,
     attendees: (note.attendees ?? []).map(toNoteAttendee),
@@ -102,7 +109,9 @@ async function getAccessToken() {
 async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
   const response = await authenticatedFetch(input, init)
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string }
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string
+    }
     throw new Error(payload.error || 'Request failed')
   }
   return (await response.json()) as T
@@ -125,6 +134,7 @@ export async function listNotesPage(params: {
   unfiled?: boolean
   limit?: number
   cursor?: string | null
+  signal?: AbortSignal
 }): Promise<{ notes: NoteSummary[]; nextCursor?: string; hasMore: boolean }> {
   const accessToken = await getAccessToken()
   const limit = params.limit ?? 20
@@ -138,7 +148,11 @@ export async function listNotesPage(params: {
     notes: ApiNoteSummary[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    signal: params.signal,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
 
   const notes = (payload.notes ?? []).map(toNoteSummary)
@@ -148,11 +162,19 @@ export async function listNotesPage(params: {
   return { notes, hasMore, nextCursor }
 }
 
-export async function getNote(userId: string | undefined, noteId: string): Promise<NoteDetail | null> {
+export async function getNote(
+  userId: string | undefined,
+  noteId: string,
+  signal?: AbortSignal,
+): Promise<NoteDetail | null> {
   void userId
   const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}`, {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    signal,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   if (!payload.note) return null
   return toNoteDetail(payload.note)
@@ -196,6 +218,7 @@ export async function updateNote(
     folderId?: string | null
     noteMarkdown?: string
     calendarEventId?: string | null
+    expectedRevision: number
   },
 ): Promise<NoteRecord | null> {
   void userId
@@ -212,54 +235,60 @@ export async function updateNote(
       folder_id: 'folderId' in patch ? (patch.folderId ?? '') : undefined,
       note_markdown: patch.noteMarkdown,
       calendar_event_id: 'calendarEventId' in patch ? (patch.calendarEventId ?? '') : undefined,
+      expected_revision: patch.expectedRevision,
     }),
   })
   return payload.note ? toNoteRecord(payload.note) : null
 }
 
-export async function enhanceNote(noteId: string): Promise<{ note: NoteRecord; versionId: string }> {
+export async function enhanceNote(
+  noteId: string,
+  expectedRevision: number,
+): Promise<{ note: NoteRecord; versionId: string }> {
   const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ note?: ApiNote; version_id?: string }>(
-    `${API_BASE_URL}/notes/${noteId}/enhance`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: '{}',
+  const payload = await fetchJson<{ note?: ApiNote; version_id?: string }>(`${API_BASE_URL}/notes/${noteId}/enhance`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
-  )
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  })
   if (!payload.note) throw new Error('Failed to enhance note')
-  return { note: toNoteRecord(payload.note), versionId: payload.version_id ?? '' }
+  return {
+    note: toNoteRecord(payload.note),
+    versionId: payload.version_id ?? '',
+  }
 }
 
-export async function listVersions(noteId: string): Promise<NoteVersion[]> {
+export async function listVersions(noteId: string, signal?: AbortSignal): Promise<NoteVersion[]> {
   const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ versions: NoteVersion[] }>(
-    `${API_BASE_URL}/notes/${noteId}/versions`,
-    {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+  const payload = await fetchJson<{ versions: NoteVersion[] }>(`${API_BASE_URL}/notes/${noteId}/versions`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
-  )
+    signal,
+  })
   return payload.versions ?? []
 }
 
-export async function revertToVersion(noteId: string, versionId: string): Promise<NoteRecord> {
+export async function revertToVersion(
+  noteId: string,
+  versionId: string,
+  expectedRevision: number,
+): Promise<NoteRecord> {
   const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ note?: ApiNote }>(
-    `${API_BASE_URL}/notes/${noteId}/revert/${versionId}`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: '{}',
+  const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}/revert/${versionId}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
-  )
+    body: JSON.stringify({ expected_revision: expectedRevision }),
+  })
   if (!payload.note) throw new Error('Failed to revert note')
   return toNoteRecord(payload.note)
 }
@@ -282,6 +311,7 @@ export async function listNotesByEvent(
   calendarEventId: string,
   cursor?: string | null,
   limit = 20,
+  signal?: AbortSignal,
 ): Promise<{ notes: NoteRecord[]; hasMore: boolean; nextCursor?: string }> {
   const accessToken = await getAccessToken()
   const url = new URL(`${API_BASE_URL}/notes/by-event`)
@@ -292,7 +322,11 @@ export async function listNotesByEvent(
     notes: ApiNote[]
     pagination?: { has_more?: boolean; next_cursor?: string | null }
   }>(url.toString(), {
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    signal,
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   return {
     notes: (payload.notes ?? []).map(toNoteRecord),
@@ -306,7 +340,10 @@ export async function deleteNote(userId: string | undefined, noteId: string): Pr
   const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
   return true
 }
@@ -324,28 +361,39 @@ type ApiNoteAttendee = {
 }
 
 function toNoteAttendee(a: ApiNoteAttendee): NoteAttendee {
-  return { id: a.id, noteId: a.note_id, userId: a.user_id, email: a.email, name: a.name, avatarUrl: a.avatar_url || undefined, createdAt: a.created_at }
+  return {
+    id: a.id,
+    noteId: a.note_id,
+    userId: a.user_id,
+    email: a.email,
+    name: a.name,
+    avatarUrl: a.avatar_url || undefined,
+    createdAt: a.created_at,
+  }
 }
 
 export async function listNoteAttendees(noteId: string): Promise<NoteAttendee[]> {
   const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ attendees: ApiNoteAttendee[] }>(
-    `${API_BASE_URL}/notes/${noteId}/attendees`,
-    { headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` } },
-  )
+  const payload = await fetchJson<{ attendees: ApiNoteAttendee[] }>(`${API_BASE_URL}/notes/${noteId}/attendees`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
   return (payload.attendees ?? []).map(toNoteAttendee)
 }
 
 export async function addNoteAttendee(noteId: string, email: string): Promise<NoteAttendee> {
   const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ attendee: ApiNoteAttendee }>(
-    `${API_BASE_URL}/notes/${noteId}/attendees`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ email }),
+  const payload = await fetchJson<{ attendee: ApiNoteAttendee }>(`${API_BASE_URL}/notes/${noteId}/attendees`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
     },
-  )
+    body: JSON.stringify({ email }),
+  })
   return toNoteAttendee(payload.attendee)
 }
 
@@ -353,6 +401,9 @@ export async function removeNoteAttendee(noteId: string, email: string): Promise
   const accessToken = await getAccessToken()
   await fetchJson(`${API_BASE_URL}/notes/${noteId}/attendees/${encodeURIComponent(email)}`, {
     method: 'DELETE',
-    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
   })
 }

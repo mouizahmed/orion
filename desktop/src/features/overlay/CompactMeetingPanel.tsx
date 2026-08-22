@@ -2,9 +2,11 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { Loader2 } from 'lucide-react'
 
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/features/notes/MarkdownEditor'
-import { getNote, updateNote } from '@/features/notes/api/notes-client'
 import type { NoteRecord } from '@/features/notes/types'
 import type { LiveTranscriptSegment } from '@/features/overlay/types'
+import { useNoteQuery } from '@/features/notes/queries/useNotesQueries'
+import { useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
+import { reconcileCanonicalDraft } from '@/features/notes/draft-reconciliation'
 
 type TranscriptionStatus = 'idle' | 'connecting' | 'connected' | 'error' | 'disconnected'
 const LOCAL_MEETING_NOTE_PREFIX = 'local-meeting-'
@@ -53,62 +55,55 @@ function CompactMeetingPanel({
   transcriptionMode = 'live',
   transcriptionNotice = null,
 }: CompactMeetingPanelProps, ref: ForwardedRef<CompactMeetingPanelHandle>) {
-  const [note, setNote] = useState<NoteRecord | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [localNote, setLocalNote] = useState<NoteRecord | null>(null)
   const [draftNote, setDraftNote] = useState('')
 
   const saveTimerRef = useRef<number | null>(null)
   const editorRef = useRef<MarkdownEditorHandle>(null)
   const lastLoadedIdRef = useRef<string | null>(null)
-  const isHydratingDraftsRef = useRef(false)
+  const canonicalBodyRef = useRef('')
   const isLocalMeetingNote = noteId.startsWith(LOCAL_MEETING_NOTE_PREFIX)
+  const remoteNoteQuery = useNoteQuery(userId, isLocalMeetingNote ? null : noteId)
+  const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(userId ?? '')
+  const note = isLocalMeetingNote ? localNote : remoteNoteQuery.data ?? null
+  const isLoading = isLocalMeetingNote ? localNote === null : remoteNoteQuery.isLoading
+  const error = remoteNoteQuery.error instanceof Error ? remoteNoteQuery.error.message : null
 
   const latestTranscriptText = useMemo(() => {
     if (!transcriptSegments?.length) return ''
     return transcriptSegments[transcriptSegments.length - 1]?.text?.trim() ?? ''
   }, [transcriptSegments])
 
-  const refresh = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-
-    if (isLocalMeetingNote) {
-      setNote({
+  useEffect(() => {
+    if (!isLocalMeetingNote) return
+      setLocalNote({
         id: noteId,
         title: 'Meeting notes',
         noteMarkdown: readLocalMeetingNote(noteId),
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        revision: 1,
       })
-      setIsLoading(false)
-      return
-    }
-
-    try {
-      const result = await getNote(userId, noteId)
-      setNote(result ?? null)
-      if (!result) {
-        setError('Note not found')
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load note')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [isLocalMeetingNote, noteId, userId])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
+  }, [isLocalMeetingNote, noteId])
 
   useEffect(() => {
     if (!note) return
-    if (lastLoadedIdRef.current === note.id) return
-    lastLoadedIdRef.current = note.id
-    isHydratingDraftsRef.current = true
-    setDraftNote(note.noteMarkdown)
-  }, [note])
+    if (lastLoadedIdRef.current !== note.id) {
+      lastLoadedIdRef.current = note.id
+      canonicalBodyRef.current = note.noteMarkdown
+      setDraftNote(note.noteMarkdown)
+      return
+    }
+
+    const nextBody = reconcileCanonicalDraft(
+      canonicalBodyRef.current,
+      draftNote,
+      note.noteMarkdown,
+    )
+    if (nextBody === null) return
+    canonicalBodyRef.current = nextBody
+    setDraftNote(nextBody)
+  }, [draftNote, note])
 
   const scheduleSave = useCallback(
     (patch: { noteMarkdown: string }) => {
@@ -116,7 +111,8 @@ function CompactMeetingPanel({
 
       if (isLocalMeetingNote) {
         writeLocalMeetingNote(noteId, patch.noteMarkdown)
-        setNote((current) =>
+        canonicalBodyRef.current = patch.noteMarkdown
+        setLocalNote((current) =>
           current
             ? {
                 ...current,
@@ -131,24 +127,25 @@ function CompactMeetingPanel({
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
 
       saveTimerRef.current = window.setTimeout(() => {
-        void updateNote(userId, noteId, patch).then((updated) => {
-          if (updated) setNote(updated)
-        })
+        void updateNoteAsync({ noteID: noteId, patch })
+          .then((updated) => {
+            if (updated) canonicalBodyRef.current = updated.noteMarkdown
+          })
+          .catch(() => {
+            // The mutation restores and refetches canonical data. Keep the dirty draft for retry.
+          })
       }, 350)
     },
-    [isLocalMeetingNote, noteId, userId],
+    [isLocalMeetingNote, noteId, updateNoteAsync],
   )
 
   useEffect(() => {
-    if (!note) return
     if (!noteId) return
-    if (isHydratingDraftsRef.current) {
-      isHydratingDraftsRef.current = false
-      return
-    }
+    if (lastLoadedIdRef.current !== noteId) return
+    if (draftNote === canonicalBodyRef.current) return
 
     scheduleSave({ noteMarkdown: draftNote })
-  }, [draftNote, note, noteId, scheduleSave])
+  }, [draftNote, noteId, scheduleSave])
 
   const captionText =
     transcriptionNotice ||

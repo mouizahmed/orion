@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
 import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, X } from 'lucide-react'
 
@@ -11,15 +11,19 @@ import {
   DropdownSeparator,
 } from '@/components/ui/dropdown-list'
 import { InfoBanner } from '@/components/ui/info-banner'
-import { updateNote, enhanceNote, getNote } from '@/features/notes/api/notes-client'
 import { toast } from 'sonner'
-import { authenticatedFetch } from '@/features/auth/auth-session'
-import { getTranscriptSegments, type TranscriptSegment } from '@/features/notes/api/transcript-client'
 import SavedTranscriptView from '@/features/notes/SavedTranscriptView'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
-import { API_BASE_URL } from '@/lib/api-config'
+import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
+import { noteQueryOptions } from '@/features/notes/queries/note-query-options'
+import { useNoteTranscriptQuery } from '@/features/notes/queries/useNotesQueries'
+import { useAddNoteAttendeeMutation, useEnhanceNoteMutation, useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
+import { useCalendarEventSearchQuery } from '@/features/calendar/useCalendarEventSearchQuery'
+import { useDebouncedValue } from '@/lib/use-debounced-value'
+import { useQueryClient } from '@tanstack/react-query'
+import { reconcileCanonicalDraft } from '@/features/notes/draft-reconciliation'
 
 
 type MeetingOption = {
@@ -36,7 +40,13 @@ type NoteEditorViewProps = {
 export default function NoteEditorView({
   userId,
 }: NoteEditorViewProps) {
-  const { folders, selectedId, selectedNote, selectedNoteLoading, noteSummariesById, optimisticPatch, replaceNote, evictNote, addAttendee } = useDashboardNotes()
+  const { folders, selectedId, selectedNote, selectedNoteLoading, selectNote } = useDashboardNotes()
+  const queryClient = useQueryClient()
+  const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(userId ?? '')
+  const { mutateAsync: moveNoteAsync } = useMoveNoteMutation(userId ?? '')
+  const { mutateAsync: addAttendeeAsync } = useAddNoteAttendeeMutation(userId ?? '')
+  const { mutateAsync: enhanceNoteAsync } = useEnhanceNoteMutation(userId ?? '')
+  const { mutateAsync: linkNoteEventAsync } = useLinkNoteEventMutation(userId ?? '')
 
   const [draftTitle, setDraftTitle] = useState('')
   const [folderPickerOpen, setFolderPickerOpen] = useState(false)
@@ -48,80 +58,84 @@ export default function NoteEditorView({
   const [enhanceError, setEnhanceError] = useState<string | null>(null)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
-  const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([])
-  const [transcriptLoading, setTranscriptLoading] = useState(false)
-  const transcriptLoadedForRef = useRef<string | null>(null)
+  const transcriptQuery = useNoteTranscriptQuery(userId, selectedId, transcriptOpen)
 
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false)
   const meetingPickerRef = useRef<HTMLDivElement | null>(null)
   const meetingSearchRef = useRef<HTMLInputElement | null>(null)
-  const meetingSearchTimerRef = useRef<number | null>(null)
-  const linkedMeetingHydratedForRef = useRef<string | null>(null)
   const [meetingSearch, setMeetingSearch] = useState('')
-  const [meetingResults, setMeetingResults] = useState<MeetingOption[]>([])
-  const [selectedLinkedMeeting, setSelectedLinkedMeeting] = useState<MeetingOption | null>(null)
-  const [meetingResultsLoading, setMeetingResultsLoading] = useState(false)
   const [linkingMeeting, setLinkingMeeting] = useState(false)
+  const debouncedMeetingSearch = useDebouncedValue(meetingSearch, 300)
+  const meetingResultsQuery = useCalendarEventSearchQuery(
+    userId,
+    selectedId,
+    debouncedMeetingSearch,
+    meetingPickerOpen,
+  )
+  const meetingResults = meetingResultsQuery.data ?? []
+  const meetingResultsLoading = meetingResultsQuery.isLoading
 
-  const saveTimerRef = useRef<number | null>(null)
+  const titleSaveTimerRef = useRef<number | null>(null)
+  const bodySaveTimerRef = useRef<number | null>(null)
+  const canonicalTitleRef = useRef('')
+  const canonicalBodyRef = useRef('')
   const lastLoadedIdRef = useRef<string | null>(null)
-  const isHydratingDraftsRef = useRef(false)
-  const linkedMeetingCache = useRef<Map<string, MeetingOption | null>>(new Map())
-  const selectedIdRef = useRef(selectedId)
-  useEffect(() => { selectedIdRef.current = selectedId }, [selectedId])
 
   // Hydrate drafts when selected note detail arrives from context
   useEffect(() => {
     if (!selectedNote) {
       lastLoadedIdRef.current = null
-      isHydratingDraftsRef.current = false
       setHydratedNoteId(null)
       setDraftTitle('')
       setDraftFolderId('')
       setDraftNote('')
-      setSelectedLinkedMeeting(null)
       setTranscriptOpen(false)
       return
     }
     if (lastLoadedIdRef.current === selectedNote.id) return
     lastLoadedIdRef.current = selectedNote.id
-    isHydratingDraftsRef.current = true
     setDraftTitle(selectedNote.title)
     setDraftFolderId(selectedNote.folderId ?? '')
     setDraftNote(selectedNote.noteMarkdown)
-    setMeetingResults([])
+    canonicalTitleRef.current = selectedNote.title
+    canonicalBodyRef.current = selectedNote.noteMarkdown
     setMeetingSearch('')
     setEnhanceError(null)
 
-    if (selectedNote.linkedEvent) {
-      const le = selectedNote.linkedEvent
-      const option: MeetingOption = { id: le.id, title: le.title, start: le.start, color: le.color }
-      linkedMeetingCache.current.set(selectedNote.id, option)
-      setSelectedLinkedMeeting(option)
-      linkedMeetingHydratedForRef.current = le.id
-      setMeetingResults((prev) => {
-        const exists = prev.some((m) => m.id === le.id)
-        if (exists) return prev
-        return [option, ...prev]
-      })
-    } else {
-      linkedMeetingCache.current.set(selectedNote.id, null)
-      setSelectedLinkedMeeting(null)
-    }
     setHydratedNoteId(selectedNote.id)
   }, [selectedNote])
 
-  // Sync AI-driven note edits into the local draft so the editor updates in real time
+  // Folder moves can also originate from the sidebar while this editor stays open.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const { noteId, content } = (e as CustomEvent<{ noteId: string; content: string }>).detail
-      if (noteId === selectedId && content != null) {
-        setDraftNote(content)
-      }
-    }
-    window.addEventListener('note-updated-by-ai', handler)
-    return () => window.removeEventListener('note-updated-by-ai', handler)
-  }, [selectedId])
+    if (!selectedNote || selectedNote.id !== selectedId) return
+    setDraftFolderId(selectedNote.folderId ?? '')
+  }, [selectedId, selectedNote])
+
+  // Reconcile canonical title changes without overwriting a dirty title draft.
+  useEffect(() => {
+    if (!selectedNote || selectedNote.id !== selectedId) return
+    const nextTitle = reconcileCanonicalDraft(
+      canonicalTitleRef.current,
+      draftTitle,
+      selectedNote.title,
+    )
+    if (nextTitle === null) return
+    canonicalTitleRef.current = nextTitle
+    setDraftTitle(nextTitle)
+  }, [draftTitle, selectedId, selectedNote])
+
+  // Reconcile canonical body changes (including chat/AI updates) without overwriting a dirty draft.
+  useEffect(() => {
+    if (!selectedNote || selectedNote.id !== selectedId) return
+    const nextBody = reconcileCanonicalDraft(
+      canonicalBodyRef.current,
+      draftNote,
+      selectedNote.noteMarkdown,
+    )
+    if (nextBody === null) return
+    canonicalBodyRef.current = nextBody
+    setDraftNote(nextBody)
+  }, [draftNote, selectedId, selectedNote])
 
   // Close pickers on outside click / escape
   useEffect(() => {
@@ -148,116 +162,49 @@ export default function NoteEditorView({
     }
   }, [])
 
-  const searchMeetings = useCallback(async (q: string) => {
-    setMeetingResultsLoading(true)
-    try {
-      const url = new URL(`${API_BASE_URL}/calendar/events/search`)
-      url.searchParams.set('limit', '20')
-      if (q.trim()) url.searchParams.set('q', q.trim())
-      if (selectedIdRef.current) url.searchParams.set('note_id', selectedIdRef.current)
-      const res = await authenticatedFetch(url.toString(), {
-        headers: { Accept: 'application/json' },
-      })
-      if (!res.ok) return
-      const data = await res.json() as {
-        status: string
-        events?: Array<{
-          id: string
-          provider_id?: string
-          connection_id?: string
-          calendar_id?: string
-          title: string
-          start: string
-          color?: string
-          provider: string
-        }>
-      }
-      if (data.status === 'success' && Array.isArray(data.events)) {
-        setMeetingResults(data.events.map((e) => ({
-          id: e.id,
-          title: e.title || 'Untitled event',
-          start: e.start,
-          color: e.color ?? '#9f73f2',
-        })))
-      }
-    } catch {
-      // ignore
-    } finally {
-      setMeetingResultsLoading(false)
-    }
-  }, [])
-
   const openMeetingPicker = () => {
     setMeetingSearch('')
     setMeetingPickerOpen(true)
-    void searchMeetings('')
     setTimeout(() => meetingSearchRef.current?.focus(), 0)
   }
 
   const handleMeetingSearchChange = (q: string) => {
     setMeetingSearch(q)
-    if (meetingSearchTimerRef.current !== null) window.clearTimeout(meetingSearchTimerRef.current)
-    meetingSearchTimerRef.current = window.setTimeout(() => {
-      meetingSearchTimerRef.current = null
-      void searchMeetings(q)
-    }, 300)
   }
 
   const selectedCalendarEventId =
-    selectedNote?.calendarEventId ??
-    (selectedNoteLoading && selectedId ? noteSummariesById[selectedId]?.calendarEventId : undefined) ??
-    selectedLinkedMeeting?.id
+    selectedNote?.calendarEventId
   const linkedMeetingFromDetail: MeetingOption | null = selectedNote?.linkedEvent
     ? { id: selectedNote.linkedEvent.id, title: selectedNote.linkedEvent.title, start: selectedNote.linkedEvent.start, color: selectedNote.linkedEvent.color }
     : null
   const linkedMeeting = selectedCalendarEventId
-    ? (meetingResults.find((m) => m.id === selectedCalendarEventId) ?? selectedLinkedMeeting ?? linkedMeetingFromDetail ?? null)
+    ? (meetingResults.find((m) => m.id === selectedCalendarEventId) ?? linkedMeetingFromDetail ?? null)
     : null
   const displayedMeetingResults =
     linkedMeeting && !meetingSearch.trim() && !meetingResults.some((m) => m.id === linkedMeeting.id)
       ? [linkedMeeting, ...meetingResults]
       : meetingResults
 
-  useEffect(() => {
-    if (!selectedCalendarEventId) {
-      linkedMeetingHydratedForRef.current = null
-      return
-    }
-    if (linkedMeetingHydratedForRef.current === selectedCalendarEventId) return
-    const alreadyLoaded = meetingResults.some((m) => m.id === selectedCalendarEventId)
-    if (alreadyLoaded) {
-      linkedMeetingHydratedForRef.current = selectedCalendarEventId
-      return
-    }
-    linkedMeetingHydratedForRef.current = selectedCalendarEventId
-    void searchMeetings('')
-  }, [meetingResults, searchMeetings, selectedCalendarEventId])
-
   const handleLinkMeeting = async (meeting: MeetingOption | null) => {
     if (!selectedId || linkingMeeting) return
     setLinkingMeeting(true)
     setMeetingPickerOpen(false)
     try {
-      const updated = await updateNote(userId, selectedId, {
-        calendarEventId: meeting?.id ?? '',
+      await linkNoteEventAsync({
+        noteID: selectedId,
+        eventID: meeting?.id ?? null,
       })
-      if (updated) replaceNote(updated)
       if (meeting) {
-        linkedMeetingCache.current.set(selectedId, meeting)
-        setSelectedLinkedMeeting(meeting)
-        const fullNote = await getNote(userId, selectedId)
+        const fullNote = await queryClient.fetchQuery(noteQueryOptions(userId ?? '', selectedId))
         if (fullNote?.linkedEvent?.attendees) {
           for (const a of fullNote.linkedEvent.attendees) {
-            if (a.email) await addAttendee(selectedId, a.email)
+            if (a.email) await addAttendeeAsync({ noteID: selectedId, email: a.email })
           }
         }
-      } else {
-        linkedMeetingCache.current.set(selectedId, null)
-        setSelectedLinkedMeeting(null)
       }
     } catch (err) {
       if (err instanceof Error && err.message === 'note not found') {
-        evictNote(selectedId)
+        selectNote(null)
       } else {
         toast.error(err instanceof Error ? err.message : 'Failed to link event')
       }
@@ -266,62 +213,53 @@ export default function NoteEditorView({
     }
   }
 
-  // Load transcript when sidebar opens
-  useEffect(() => {
-    if (!transcriptOpen || !selectedId) return
-    if (transcriptLoadedForRef.current === selectedId) return
-    transcriptLoadedForRef.current = selectedId
-    setTranscriptLoading(true)
-    void getTranscriptSegments(selectedId)
-      .then(({ segments }) => { setTranscriptSegments(segments) })
-      .catch(() => { setTranscriptSegments([]) })
-      .finally(() => setTranscriptLoading(false))
-  }, [transcriptOpen, selectedId])
-
-  // Reset transcript when note changes
-  useEffect(() => {
-    transcriptLoadedForRef.current = null
-    setTranscriptSegments([])
-  }, [selectedId])
-
-  // Auto-save with debounce
-  const scheduleSave = useCallback(
-    (patch: {
-      title: string
-      folderId?: string
-      noteMarkdown: string
-    }) => {
-      if (!selectedId) return
-      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
-
-      optimisticPatch(selectedId, { title: patch.title, folderId: patch.folderId })
-
-      saveTimerRef.current = window.setTimeout(() => {
-        void updateNote(userId, selectedId, patch).then((updated) => {
-          if (!updated) return
-          replaceNote(updated)
-        }).catch((err: unknown) => {
-          if (err instanceof Error && err.message === 'note not found') evictNote(selectedId)
-        })
-      }, 400)
-    },
-    [optimisticPatch, replaceNote, selectedId, userId, evictNote],
-  )
-
-  // Trigger save on draft changes
+  // Title and body are independent drafts. Relationship changes use dedicated mutations.
   useEffect(() => {
     if (!selectedId) return
     if (lastLoadedIdRef.current !== selectedId) return
-    if (isHydratingDraftsRef.current) {
-      isHydratingDraftsRef.current = false
-      return
+    if (draftTitle === canonicalTitleRef.current) return
+    if (titleSaveTimerRef.current) window.clearTimeout(titleSaveTimerRef.current)
+    const noteID = selectedId
+    titleSaveTimerRef.current = window.setTimeout(() => {
+      void updateNoteAsync({ noteID, patch: { title: draftTitle } })
+        .then((note) => { if (note) canonicalTitleRef.current = note.title })
+        .catch((error: unknown) => {
+          if (error instanceof Error && error.message === 'note not found') selectNote(null)
+          else if (error instanceof Error && error.message === 'note has changed') toast.error('This note changed elsewhere. Your title draft was kept.')
+        })
+    }, 400)
+    return () => {
+      if (titleSaveTimerRef.current) window.clearTimeout(titleSaveTimerRef.current)
     }
-    scheduleSave({
-      title: draftTitle,
-      folderId: draftFolderId || '',
-      noteMarkdown: draftNote,
+  }, [draftTitle, selectNote, selectedId, updateNoteAsync])
+
+  useEffect(() => {
+    if (!selectedId) return
+    if (lastLoadedIdRef.current !== selectedId) return
+    if (draftNote === canonicalBodyRef.current) return
+    if (bodySaveTimerRef.current) window.clearTimeout(bodySaveTimerRef.current)
+    const noteID = selectedId
+    bodySaveTimerRef.current = window.setTimeout(() => {
+      void updateNoteAsync({ noteID, patch: { noteMarkdown: draftNote } })
+        .then((note) => { if (note) canonicalBodyRef.current = note.noteMarkdown })
+        .catch((error: unknown) => {
+          if (error instanceof Error && error.message === 'note not found') selectNote(null)
+          else if (error instanceof Error && error.message === 'note has changed') toast.error('This note changed elsewhere. Your note draft was kept.')
+        })
+    }, 400)
+    return () => {
+      if (bodySaveTimerRef.current) window.clearTimeout(bodySaveTimerRef.current)
+    }
+  }, [draftNote, selectNote, selectedId, updateNoteAsync])
+
+  const handleMoveNote = useCallback((folderID: string | null) => {
+    if (!selectedId) return
+    setDraftFolderId(folderID ?? '')
+    setFolderPickerOpen(false)
+    void moveNoteAsync({ noteID: selectedId, folderID }).catch((error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to move note')
     })
-  }, [draftTitle, draftFolderId, draftNote, scheduleSave, selectedId])
+  }, [moveNoteAsync, selectedId])
 
   // Enhance: save version, overwrite note in-place
   const handleEnhance = useCallback(async () => {
@@ -329,16 +267,14 @@ export default function NoteEditorView({
     setIsEnhancing(true)
     setEnhanceError(null)
     try {
-      const { note } = await enhanceNote(selectedId)
-      isHydratingDraftsRef.current = true
+      const { note } = await enhanceNoteAsync(selectedId)
       setDraftNote(note.noteMarkdown)
-      replaceNote(note)
     } catch (error) {
       setEnhanceError(error instanceof Error ? error.message : 'Failed to enhance note')
     } finally {
       setIsEnhancing(false)
     }
-  }, [replaceNote, selectedId])
+  }, [enhanceNoteAsync, selectedId])
 
   const handleEditorEnhance = useCallback(() => {
     void handleEnhance()
@@ -381,23 +317,11 @@ export default function NoteEditorView({
             {folderPickerOpen && (
               <DropdownPopover width="md">
                 <DropdownLabel>Add to folder</DropdownLabel>
-                {[{ id: '', name: 'No folder' }, ...folders].map((f, i) => {
-                  const active = (f.id === '' && !draftFolderId) || f.id === draftFolderId
-                  return (
-                    <Fragment key={f.id || '__none__'}>
-                      {i === 1 && folders.length > 0 && (
-                        <DropdownSeparator />
-                      )}
-                      <DropdownItem
-                        onClick={() => { setDraftFolderId(f.id); setFolderPickerOpen(false) }}
-                      >
-                        <DropdownIconSlot>{active ? <Check className="h-3.5 w-3.5" /> : null}</DropdownIconSlot>
-                        <Folder className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" />
-                        {f.name}
-                      </DropdownItem>
-                    </Fragment>
-                  )
-                })}
+                <FolderOptionsList
+                  folders={folders}
+                  selectedFolderId={draftFolderId || null}
+                  onSelect={handleMoveNote}
+                />
               </DropdownPopover>
             )}
           </div>
@@ -572,8 +496,8 @@ export default function NoteEditorView({
               The transcript may show repeated sentences without headphones, but your final notes will be unaffected. For the best experience, use headphones.
             </InfoBanner>
             <SavedTranscriptView
-              segments={transcriptSegments}
-              loading={transcriptLoading}
+              segments={transcriptQuery.data?.segments ?? []}
+              loading={transcriptQuery.isLoading}
               theme="light"
             />
           </div>

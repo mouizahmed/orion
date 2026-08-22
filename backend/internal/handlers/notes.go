@@ -18,6 +18,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
+	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 	"github.com/mouizahmed/justscribe-backend/internal/storage"
 )
 
@@ -39,6 +40,7 @@ type NotesHandler struct {
 	noteAttendeeRepo *repository.NoteAttendeeRepository
 	aiClient         *ai.Client
 	queue            *queue.Queue
+	events           resourceevents.Publisher
 }
 
 type CreateNoteRequest struct {
@@ -49,10 +51,11 @@ type CreateNoteRequest struct {
 }
 
 type UpdateNoteRequest struct {
-	Title           *string `json:"title"`
-	FolderID        *string `json:"folder_id"`
-	NoteMarkdown    *string `json:"note_markdown"`
-	CalendarEventID *string `json:"calendar_event_id"`
+	Title            *string `json:"title"`
+	FolderID         *string `json:"folder_id"`
+	NoteMarkdown     *string `json:"note_markdown"`
+	CalendarEventID  *string `json:"calendar_event_id"`
+	ExpectedRevision *int64  `json:"expected_revision"`
 }
 
 type StopRecordingRequest struct {
@@ -78,7 +81,7 @@ type SearchSectionMeta struct {
 	HasMore    bool `json:"has_more"`
 }
 
-func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repository.NoteVersionRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, aiClient *ai.Client, q *queue.Queue) *NotesHandler {
+func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repository.NoteVersionRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, aiClient *ai.Client, q *queue.Queue, events resourceevents.Publisher) *NotesHandler {
 	return &NotesHandler{
 		noteRepo:         noteRepo,
 		noteVersionRepo:  noteVersionRepo,
@@ -89,12 +92,16 @@ func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repos
 		noteAttendeeRepo: noteAttendeeRepo,
 		aiClient:         aiClient,
 		queue:            q,
+		events:           events,
 	}
 }
 
 type EnhanceNoteRequest struct {
-	Title        string `json:"title"`
-	NoteMarkdown string `json:"note_markdown"`
+	ExpectedRevision *int64 `json:"expected_revision"`
+}
+
+type RevertNoteRequest struct {
+	ExpectedRevision *int64 `json:"expected_revision"`
 }
 
 // EnhanceNote saves a version of the current note, then overwrites note_markdown with the enhanced result.
@@ -111,9 +118,19 @@ func (h *NotesHandler) EnhanceNote(c *gin.Context) {
 		return
 	}
 
+	var req EnhanceNoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
 	note, err := h.noteRepo.GetNoteByID(userID, noteID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+		return
+	}
+	if req.ExpectedRevision != nil && note.Revision != *req.ExpectedRevision {
+		c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
 		return
 	}
 
@@ -152,12 +169,21 @@ Output only the enhanced markdown, no preamble or explanation.`
 
 	// Overwrite note_markdown with enhanced content
 	note.NoteMarkdown = enhanced
-	updated, err := h.noteRepo.UpdateNote(note)
+	updated, err := h.noteRepo.UpdateNoteWithRevision(note, req.ExpectedRevision)
 	if err != nil {
+		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
+			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
+				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+			return
+		}
 		log.Printf("notes: failed to update note %s after enhance: %v", noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save enhanced note"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	c.JSON(http.StatusOK, gin.H{"note": updated, "version_id": version.ID})
 }
@@ -212,9 +238,19 @@ func (h *NotesHandler) RevertToVersion(c *gin.Context) {
 		return
 	}
 
+	var req RevertNoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+
 	note, err := h.noteRepo.GetNoteByID(userID, noteID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+		return
+	}
+	if req.ExpectedRevision != nil && note.Revision != *req.ExpectedRevision {
+		c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
 		return
 	}
 
@@ -235,12 +271,21 @@ func (h *NotesHandler) RevertToVersion(c *gin.Context) {
 	}
 
 	note.NoteMarkdown = version.NoteMarkdown
-	updated, err := h.noteRepo.UpdateNote(note)
+	updated, err := h.noteRepo.UpdateNoteWithRevision(note, req.ExpectedRevision)
 	if err != nil {
+		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
+			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
+				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+			return
+		}
 		log.Printf("notes: failed to revert note %s to version %s: %v", noteID, versionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revert note"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	c.JSON(http.StatusOK, gin.H{"note": updated})
 }
@@ -550,7 +595,6 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create note"})
 		return
 	}
-
 	if err := h.noteAttendeeRepo.AddByUserID(created.ID, userID); err != nil {
 		log.Printf("notes: failed to add creator attendee for note %s: %v", created.ID, err)
 	}
@@ -559,6 +603,7 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 			log.Printf("notes: failed to sync attendees from calendar event for note %s: %v", created.ID, err)
 		}
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &created.ID)
 
 	c.JSON(http.StatusOK, gin.H{"note": created})
 }
@@ -624,8 +669,16 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 		}
 	}
 
-	updated, err := h.noteRepo.UpdateNote(existing)
+	updated, err := h.noteRepo.UpdateNoteWithRevision(existing, req.ExpectedRevision)
 	if err != nil {
+		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
+			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
+				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
+				return
+			}
+			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+			return
+		}
 		if strings.Contains(err.Error(), "notes_one_per_event_idx") {
 			c.JSON(http.StatusConflict, gin.H{"error": "Another note is already linked to this event"})
 			return
@@ -634,6 +687,7 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update note"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	if h.queue != nil {
 		go func() {
@@ -669,6 +723,7 @@ func (h *NotesHandler) DeleteNote(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
 		return
 	}
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
 
 	if h.queue != nil {
 		go func() {
