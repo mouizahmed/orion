@@ -22,24 +22,51 @@ type CachedCalendarSource struct {
 }
 
 type CachedCalendarEvent struct {
-	ID            string
-	ProviderID    string
-	ConnectionID  string
-	AccountEmail  string
-	Title         string
-	Start         time.Time
-	End           time.Time
-	AllDay        bool
-	Location      string
-	Description   string
-	MeetingLink   string
-	EventLink     string
-	CalendarID    string
-	CalendarName  string
-	Color         string
-	Organizer     string
-	Provider      string
-	AttendeesJSON []byte
+	ID             string
+	ProviderID     string
+	ConnectionID   string
+	AccountEmail   string
+	Title          string
+	Start          time.Time
+	End            time.Time
+	AllDay         bool
+	Location       string
+	Description    string
+	MeetingLink    string
+	EventLink      string
+	CalendarID     string
+	CalendarName   string
+	Color          string
+	OrganizerName  string
+	OrganizerEmail string
+	Provider       string
+	Attendees      []CalendarEventAttendee
+	AttendeesJSON  []byte
+}
+
+type CalendarEventAttendee struct {
+	ProviderID     string `json:"provider_id,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	ResponseStatus string `json:"response_status,omitempty"`
+	AttendeeType   string `json:"attendee_type,omitempty"`
+	Optional       bool   `json:"optional,omitempty"`
+	Organizer      bool   `json:"organizer,omitempty"`
+	Self           bool   `json:"self,omitempty"`
+	Resource       bool   `json:"resource,omitempty"`
+}
+
+func (a CalendarEventAttendee) EligibleForNote() bool {
+	return a.Email != "" && !a.Resource && !a.Self && !a.Organizer && a.ResponseStatus != "declined"
+}
+
+type CalendarEventSyncBatch struct {
+	Events      []*CachedCalendarEvent
+	Deleted     []string
+	NextToken   string
+	WasFullSync bool
+	WindowStart time.Time
+	WindowEnd   time.Time
 }
 
 type CalendarSyncState struct {

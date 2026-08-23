@@ -200,8 +200,8 @@ function EventDetail({
                 <span className="truncate">{event.location}</span>
               </div>
             ) : null}
-            {event.organizer ? (
-              <div className="truncate">Organizer: {event.organizer}</div>
+            {event.organizerName || event.organizerEmail ? (
+              <div className="truncate">Organizer: {event.organizerName || event.organizerEmail}</div>
             ) : null}
             <div className="truncate">Calendar: {event.calendarName}</div>
             {event.accountEmail ? (
@@ -321,7 +321,7 @@ export function CalendarView({
   initialSelectedEventId?: string | null
 }) {
   const { createNewNote, selectNote } = useDashboardNotes()
-  const { events, loading, syncing } = useCalendarEvents()
+  const { events, loading, syncing, stale, partial, lastError, error, refresh } = useCalendarEvents()
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const consumedInitialEventRef = useRef<string | null>(null)
 
@@ -383,6 +383,8 @@ export function CalendarView({
                   <span>Syncing</span>
                 </div>
               ) : null}
+              {!syncing && partial ? <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Partial sync</span> : null}
+              {!syncing && stale && !partial ? <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Cached</span> : null}
             </div>
           </div>
           <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
@@ -417,6 +419,19 @@ export function CalendarView({
                   </div>
                 </div>
               ))}
+            </div>
+          ) : error ? (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <CalendarDays className="mb-2 h-5 w-5 text-red-500" />
+              <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Calendar unavailable</p>
+              <p className="mt-1 max-w-sm text-xs text-neutral-500 dark:text-neutral-400">{error}</p>
+              <Button className="mt-3" type="button" variant="secondary" size="sm" onClick={() => void refresh()}>Try again</Button>
+            </div>
+          ) : visibleEvents.length === 0 && lastError ? (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <CalendarDays className="mb-2 h-5 w-5 text-amber-500" />
+              <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Calendar sync needs attention</p>
+              <p className="mt-1 max-w-sm text-xs text-neutral-500 dark:text-neutral-400">{lastError}</p>
             </div>
           ) : visibleEvents.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center text-center">

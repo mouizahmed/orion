@@ -15,6 +15,12 @@ export type NoteRecord = NoteSummary & {
 export type CalendarAttendee = {
   name?: string
   email: string
+  responseStatus?: string
+  attendeeType?: string
+  optional?: boolean
+  organizer?: boolean
+  self?: boolean
+  resource?: boolean
 }
 
 export type LinkedEventDetail = {
@@ -32,7 +38,9 @@ export type LinkedEventDetail = {
   meetingLink?: string
   eventLink?: string
   location?: string
+  organizerName?: string
   organizerEmail?: string
+  historical: boolean
   attendees: CalendarAttendee[]
 }
 
@@ -48,6 +56,7 @@ export type NoteAttendee = {
   email: string
   name: string
   avatarUrl?: string
+  source: 'manual' | 'calendar'
   createdAt: string
 }
 

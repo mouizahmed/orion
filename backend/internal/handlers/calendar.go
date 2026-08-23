@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -26,29 +27,36 @@ type CalendarHandler struct {
 }
 
 type CalendarEvent struct {
-	ID           string             `json:"id"`
-	ProviderID   string             `json:"provider_id"`
-	ConnectionID string             `json:"connection_id"`
-	AccountEmail string             `json:"account_email,omitempty"`
-	Title        string             `json:"title"`
-	Start        time.Time          `json:"start"`
-	End          time.Time          `json:"end"`
-	AllDay       bool               `json:"all_day"`
-	Location     string             `json:"location,omitempty"`
-	Description  string             `json:"description,omitempty"`
-	MeetingLink  string             `json:"meeting_link,omitempty"`
-	EventLink    string             `json:"event_link,omitempty"`
-	CalendarID   string             `json:"calendar_id,omitempty"`
-	CalendarName string             `json:"calendar_name,omitempty"`
-	Color        string             `json:"color,omitempty"`
-	Organizer    string             `json:"organizer,omitempty"`
-	Provider     string             `json:"provider"`
-	Attendees    []CalendarAttendee `json:"attendees,omitempty"`
+	ID             string             `json:"id"`
+	ProviderID     string             `json:"provider_id"`
+	ConnectionID   string             `json:"connection_id"`
+	AccountEmail   string             `json:"account_email,omitempty"`
+	Title          string             `json:"title"`
+	Start          time.Time          `json:"start"`
+	End            time.Time          `json:"end"`
+	AllDay         bool               `json:"all_day"`
+	Location       string             `json:"location,omitempty"`
+	Description    string             `json:"description,omitempty"`
+	MeetingLink    string             `json:"meeting_link,omitempty"`
+	EventLink      string             `json:"event_link,omitempty"`
+	CalendarID     string             `json:"calendar_id,omitempty"`
+	CalendarName   string             `json:"calendar_name,omitempty"`
+	Color          string             `json:"color,omitempty"`
+	OrganizerName  string             `json:"organizer_name,omitempty"`
+	OrganizerEmail string             `json:"organizer_email,omitempty"`
+	Provider       string             `json:"provider"`
+	Attendees      []CalendarAttendee `json:"attendees,omitempty"`
 }
 
 type CalendarAttendee struct {
-	Name  string `json:"name,omitempty"`
-	Email string `json:"email,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	ResponseStatus string `json:"response_status,omitempty"`
+	AttendeeType   string `json:"attendee_type,omitempty"`
+	Optional       bool   `json:"optional,omitempty"`
+	Organizer      bool   `json:"organizer,omitempty"`
+	Self           bool   `json:"self,omitempty"`
+	Resource       bool   `json:"resource,omitempty"`
 }
 
 type CalendarSource struct {
@@ -75,6 +83,7 @@ type calendarCacheMetadata struct {
 	Stale        bool       `json:"stale"`
 	LastSyncedAt *time.Time `json:"last_synced_at,omitempty"`
 	LastError    string     `json:"last_error,omitempty"`
+	Partial      bool       `json:"partial"`
 }
 
 func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, hub *WsHub, events resourceevents.Publisher) *CalendarHandler {
@@ -112,6 +121,7 @@ func (h *CalendarHandler) GetCalendars(c *gin.Context) {
 		"stale":          metadata.Stale,
 		"last_synced_at": metadata.LastSyncedAt,
 		"last_error":     metadata.LastError,
+		"partial":        metadata.Partial,
 	})
 }
 
@@ -145,6 +155,7 @@ func (h *CalendarHandler) GetUpcomingEvents(c *gin.Context) {
 		"stale":          metadata.Stale,
 		"last_synced_at": metadata.LastSyncedAt,
 		"last_error":     metadata.LastError,
+		"partial":        metadata.Partial,
 	})
 }
 
@@ -163,14 +174,19 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 	if c.Query("wait") == "true" {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
 		defer cancel()
-		if err := h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll); err != nil {
+		changedNoteIDs, err := h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll)
+		if err != nil {
 			log.Printf("calendar: manual sync failed for user %s: %v", userID, err)
 			h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
-			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Calendar sync failed"})
+			h.publishSyncChanges(context.Background(), userID, calendarservice.SyncScopeAll)
+			h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
+			var partialError *calendarservice.PartialSyncError
+			c.JSON(http.StatusBadGateway, gin.H{"status": "error", "error": "Calendar sync failed", "partial": errors.As(err, &partialError)})
 			return
 		}
 		h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
 		h.publishSyncChanges(context.Background(), userID, calendarservice.SyncScopeAll)
+		h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
 		c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": false})
 		return
 	}
@@ -282,24 +298,25 @@ func (h *CalendarHandler) getCachedUpcomingEvents(ctx context.Context, userID st
 			_ = json.Unmarshal(event.AttendeesJSON, &attendees)
 		}
 		events = append(events, &CalendarEvent{
-			ID:           event.ID,
-			ProviderID:   event.ProviderID,
-			ConnectionID: event.ConnectionID,
-			AccountEmail: event.AccountEmail,
-			Title:        event.Title,
-			Start:        event.Start,
-			End:          event.End,
-			AllDay:       event.AllDay,
-			Location:     event.Location,
-			Description:  event.Description,
-			MeetingLink:  event.MeetingLink,
-			EventLink:    event.EventLink,
-			CalendarID:   event.CalendarID,
-			CalendarName: event.CalendarName,
-			Color:        event.Color,
-			Organizer:    event.Organizer,
-			Provider:     event.Provider,
-			Attendees:    attendees,
+			ID:             event.ID,
+			ProviderID:     event.ProviderID,
+			ConnectionID:   event.ConnectionID,
+			AccountEmail:   event.AccountEmail,
+			Title:          event.Title,
+			Start:          event.Start,
+			End:            event.End,
+			AllDay:         event.AllDay,
+			Location:       event.Location,
+			Description:    event.Description,
+			MeetingLink:    event.MeetingLink,
+			EventLink:      event.EventLink,
+			CalendarID:     event.CalendarID,
+			CalendarName:   event.CalendarName,
+			Color:          event.Color,
+			OrganizerName:  event.OrganizerName,
+			OrganizerEmail: event.OrganizerEmail,
+			Provider:       event.Provider,
+			Attendees:      attendees,
 		})
 	}
 	return events, nil
@@ -334,6 +351,10 @@ func (h *CalendarHandler) getCacheMetadata(ctx context.Context, userID string, s
 		}
 		if state.LastError != nil && metadata.LastError == "" {
 			metadata.LastError = *state.LastError
+		}
+		if state.Status == "partial" {
+			metadata.Partial = true
+			metadata.Stale = true
 		}
 		var lastSynced *time.Time
 		var ttl time.Duration
@@ -387,20 +408,21 @@ func (h *CalendarHandler) SearchEvents(c *gin.Context) {
 	result := make([]*CalendarEvent, 0, len(events))
 	for _, event := range events {
 		result = append(result, &CalendarEvent{
-			ID:           event.ID,
-			ProviderID:   event.ProviderID,
-			ConnectionID: event.ConnectionID,
-			AccountEmail: event.AccountEmail,
-			Title:        event.Title,
-			Start:        event.Start,
-			End:          event.End,
-			AllDay:       event.AllDay,
-			EventLink:    event.EventLink,
-			CalendarID:   event.CalendarID,
-			CalendarName: event.CalendarName,
-			Color:        event.Color,
-			Organizer:    event.Organizer,
-			Provider:     event.Provider,
+			ID:             event.ID,
+			ProviderID:     event.ProviderID,
+			ConnectionID:   event.ConnectionID,
+			AccountEmail:   event.AccountEmail,
+			Title:          event.Title,
+			Start:          event.Start,
+			End:            event.End,
+			AllDay:         event.AllDay,
+			EventLink:      event.EventLink,
+			CalendarID:     event.CalendarID,
+			CalendarName:   event.CalendarName,
+			Color:          event.Color,
+			OrganizerName:  event.OrganizerName,
+			OrganizerEmail: event.OrganizerEmail,
+			Provider:       event.Provider,
 		})
 	}
 
@@ -436,20 +458,21 @@ func (h *CalendarHandler) GetLinkedEvent(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
 		"event": &CalendarEvent{
-			ID:           event.ID,
-			ProviderID:   event.ProviderID,
-			ConnectionID: event.ConnectionID,
-			AccountEmail: event.AccountEmail,
-			Title:        event.Title,
-			Start:        event.Start,
-			End:          event.End,
-			AllDay:       event.AllDay,
-			EventLink:    event.EventLink,
-			CalendarID:   event.CalendarID,
-			CalendarName: event.CalendarName,
-			Color:        event.Color,
-			Organizer:    event.Organizer,
-			Provider:     event.Provider,
+			ID:             event.ID,
+			ProviderID:     event.ProviderID,
+			ConnectionID:   event.ConnectionID,
+			AccountEmail:   event.AccountEmail,
+			Title:          event.Title,
+			Start:          event.Start,
+			End:            event.End,
+			AllDay:         event.AllDay,
+			EventLink:      event.EventLink,
+			CalendarID:     event.CalendarID,
+			CalendarName:   event.CalendarName,
+			Color:          event.Color,
+			OrganizerName:  event.OrganizerName,
+			OrganizerEmail: event.OrganizerEmail,
+			Provider:       event.Provider,
 		},
 	})
 }
@@ -462,14 +485,33 @@ func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarser
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := h.syncService.SyncUser(ctx, userID, scope); err != nil {
+		changedNoteIDs, err := h.syncService.SyncUser(ctx, userID, scope)
+		if err != nil {
 			log.Printf("calendar: background sync failed for user %s: %v", userID, err)
 			h.sendCalendarSyncMetadata(context.Background(), userID, scope)
+			h.publishSyncChanges(context.Background(), userID, scope)
+			h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
 			return
 		}
 		h.sendCalendarSyncMetadata(context.Background(), userID, scope)
 		h.publishSyncChanges(context.Background(), userID, scope)
+		h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
 	}()
+}
+
+func (h *CalendarHandler) publishChangedNotes(ctx context.Context, userID string, noteIDs []string) {
+	seen := make(map[string]struct{}, len(noteIDs))
+	for _, noteID := range noteIDs {
+		if noteID == "" {
+			continue
+		}
+		if _, exists := seen[noteID]; exists {
+			continue
+		}
+		seen[noteID] = struct{}{}
+		noteID := noteID
+		resourceevents.PublishBestEffort(ctx, h.events, userID, resourceevents.ResourceNotes, &noteID)
+	}
 }
 
 func (h *CalendarHandler) publishSyncChanges(ctx context.Context, userID string, scope calendarservice.SyncScope) {

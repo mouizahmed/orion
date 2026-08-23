@@ -222,7 +222,7 @@ func main() {
 
 	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, wsHub)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
-	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, noteAttendeeRepo, redisClient)
+	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo)
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
 	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub, resourceEventPublisher)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue, resourceEventPublisher)
@@ -316,6 +316,7 @@ func main() {
 		authenticated.GET("/notes/:noteID", notesHandler.GetNote)
 		authenticated.POST("/notes", notesHandler.CreateNote)
 		authenticated.PATCH("/notes/:noteID", notesHandler.UpdateNote)
+		authenticated.PUT("/notes/:noteID/calendar-link", notesHandler.UpdateCalendarLink)
 		authenticated.DELETE("/notes/:noteID", notesHandler.DeleteNote)
 		authenticated.POST("/notes/:noteID/enhance", notesHandler.EnhanceNote)
 		authenticated.GET("/notes/:noteID/versions", notesHandler.ListVersions)

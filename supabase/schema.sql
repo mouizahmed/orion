@@ -32,7 +32,10 @@ as $$
     )
 $$;
 
+drop table if exists public.note_attendee_suppressions cascade;
 drop table if exists public.note_attendees cascade;
+drop table if exists public.note_calendar_links cascade;
+drop table if exists public.calendar_event_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
 drop table if exists public.calendar_events cascade;
 drop table if exists public.calendar_sources cascade;
@@ -568,7 +571,8 @@ create table public.calendar_events (
   meeting_link text,
   calendar_name text,
   color text,
-  organizer text,
+  organizer_name text,
+  organizer_email text,
   attendees jsonb not null default '[]'::jsonb,
   synced_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
@@ -582,10 +586,36 @@ create table public.calendar_events (
 );
 create index calendar_events_user_start_idx on public.calendar_events (user_id, start_at);
 
+create table public.calendar_event_attendees (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  calendar_event_id uuid not null,
+  provider_attendee_id text,
+  email text not null check (btrim(email) <> ''),
+  display_name text not null default '',
+  response_status text not null default 'unknown',
+  attendee_type text not null default 'required',
+  optional boolean not null default false,
+  organizer boolean not null default false,
+  self_attendee boolean not null default false,
+  resource boolean not null default false,
+  raw jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (calendar_event_id, user_id)
+    references public.calendar_events(id, user_id) on delete cascade
+);
+create unique index calendar_event_attendees_event_email_key
+  on public.calendar_event_attendees (calendar_event_id, lower(btrim(email)));
+create index calendar_event_attendees_owner_idx
+  on public.calendar_event_attendees (user_id, calendar_event_id);
+create index calendar_event_attendees_event_owner_idx
+  on public.calendar_event_attendees (calendar_event_id, user_id);
+
 create table public.calendar_sync_state (
   user_id uuid not null,
   connection_id uuid not null,
-  status text not null default 'idle' check (status in ('idle', 'syncing', 'success', 'error')),
+  status text not null default 'idle' check (status in ('idle', 'syncing', 'success', 'partial', 'error')),
   calendar_last_synced_at timestamptz,
   events_last_synced_at timestamptz,
   sync_started_at timestamptz,
@@ -615,9 +645,51 @@ create table public.notes (
   constraint notes_revision_positive check (revision > 0),
   unique (id, user_id),
   foreign key (folder_id, user_id) references public.folders(id, user_id),
-  foreign key (calendar_event_id, user_id) references public.calendar_events(id, user_id)
+  constraint notes_calendar_event_owner_fk
+    foreign key (calendar_event_id, user_id)
+    references public.calendar_events(id, user_id)
+    on delete set null (calendar_event_id)
 );
 create index notes_user_updated_idx on public.notes (user_id, updated_at desc) where deleted_at is null;
+create unique index notes_one_per_event_idx
+  on public.notes (user_id, calendar_event_id)
+  where calendar_event_id is not null and deleted_at is null;
+
+create table public.note_calendar_links (
+  note_id uuid primary key,
+  user_id uuid not null,
+  calendar_event_id uuid,
+  snapshot_event_id uuid not null,
+  provider_event_id text not null,
+  connection_id uuid not null,
+  calendar_id text not null,
+  provider text not null check (provider in ('google', 'microsoft')),
+  account_email text,
+  title text not null default '',
+  start_at timestamptz not null,
+  end_at timestamptz not null,
+  all_day boolean not null default false,
+  location text,
+  meeting_link text,
+  event_link text,
+  calendar_name text,
+  color text,
+  organizer_name text,
+  organizer_email text,
+  attendees_snapshot jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  foreign key (note_id, user_id) references public.notes(id, user_id) on delete cascade,
+  foreign key (calendar_event_id, user_id)
+    references public.calendar_events(id, user_id)
+    on delete set null (calendar_event_id)
+);
+create index note_calendar_links_owner_idx on public.note_calendar_links (user_id, note_id);
+create index note_calendar_links_note_owner_idx on public.note_calendar_links (note_id, user_id);
+create index note_calendar_links_live_event_idx
+  on public.note_calendar_links (calendar_event_id, user_id)
+  where calendar_event_id is not null;
+create index note_calendar_links_connection_idx on public.note_calendar_links (user_id, connection_id);
 
 create table public.note_versions (
   id uuid primary key default gen_random_uuid(),
@@ -677,6 +749,21 @@ create table public.note_attendees (
 );
 create unique index note_attendees_note_email_key on public.note_attendees (note_id, lower(btrim(email)));
 
+create table public.note_attendee_suppressions (
+  note_id uuid not null,
+  user_id uuid not null,
+  email text not null check (btrim(email) <> ''),
+  created_at timestamptz not null default now(),
+  primary key (note_id, email),
+  foreign key (note_id, user_id) references public.notes(id, user_id) on delete cascade
+);
+create unique index note_attendee_suppressions_normalized_key
+  on public.note_attendee_suppressions (note_id, lower(btrim(email)));
+create index note_attendee_suppressions_owner_idx
+  on public.note_attendee_suppressions (user_id, note_id);
+create index note_attendee_suppressions_note_owner_idx
+  on public.note_attendee_suppressions (note_id, user_id);
+
 create table public.conversations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
@@ -717,6 +804,7 @@ create index calendar_sync_state_connection_owner_idx on public.calendar_sync_st
 create index notes_user_fk_idx on public.notes (user_id);
 create index notes_folder_owner_idx on public.notes (folder_id, user_id);
 create index notes_calendar_event_owner_idx on public.notes (calendar_event_id, user_id);
+create index note_attendees_note_idx on public.note_attendees (note_id);
 create index note_versions_note_idx on public.note_versions (note_id);
 create index recording_sessions_note_owner_idx on public.note_recording_sessions (note_id, user_id);
 create index recording_sessions_user_idx on public.note_recording_sessions (user_id);
@@ -741,9 +829,9 @@ begin
     'account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
     'billing_webhook_events','folders','integration_connections',
-    'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
+    'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
-    'note_attachments','note_attendees','conversations','messages'
+    'note_attachments','note_calendar_links','note_attendees','note_attendee_suppressions','conversations','messages'
   ] loop
     execute format('alter table public.%I enable row level security', table_name);
     execute format('alter table public.%I force row level security', table_name);
@@ -1078,9 +1166,9 @@ begin
   foreach table_name in array array[
     'users','folders','account_extract_fields','account_extract_field_folders',
     'account_summary_templates','account_summary_template_folders','integration_connections',
-    'calendar_preferences','calendar_sources','calendar_events','calendar_sync_state',
+    'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
-    'note_attachments','note_attendees','conversations','messages'
+    'note_attachments','note_calendar_links','note_attendees','note_attendee_suppressions','conversations','messages'
   ] loop
     execute format(
       'create policy backend_only on public.%I for all to orion_backend using (true) with check (true)',

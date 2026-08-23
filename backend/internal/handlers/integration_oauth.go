@@ -326,18 +326,24 @@ func (h *IntegrationOAuthHandler) DisconnectConnection(c *gin.Context) {
 		return
 	}
 
-	if err := revokeIntegrationToken(c.Request.Context(), connection); err != nil {
-		log.Printf("Provider token revocation failed for integration %s: %v", connectionID, err)
-	}
-
-	if err := h.connectionRepo.DeleteCredentials(userID, connectionID); err != nil {
+	affectedNoteIDs, err := h.connectionRepo.DisconnectLocal(c.Request.Context(), userID, connectionID)
+	if err != nil {
 		log.Printf("Failed to erase integration connection %s: %v", connectionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to disconnect calendar account"})
 		return
 	}
 
+	if err := revokeIntegrationToken(c.Request.Context(), connection); err != nil {
+		log.Printf("Provider token revocation failed after local disconnect for integration %s: %v", connectionID, err)
+	}
+
 	log.Printf("Integration connection disconnected (provider: %s)", connection.Provider)
 	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarSettings, nil)
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarEvents, nil)
+	for _, noteID := range affectedNoteIDs {
+		noteID := noteID
+		resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"status":        "success",
 		"connection_id": connectionID,

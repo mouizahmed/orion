@@ -1,14 +1,24 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
+)
+
+var (
+	ErrNoteNotFound          = errors.New("note not found")
+	ErrNoteRevisionConflict  = errors.New("note revision conflict")
+	ErrCalendarEventNotFound = errors.New("calendar event not found")
+	ErrCalendarEventLinked   = errors.New("calendar event already linked")
 )
 
 type NoteRepository struct {
@@ -28,6 +38,12 @@ func NewNoteRepository(db *database.DB) *NoteRepository {
 }
 
 func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
+	tx, err := r.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin note creation: %w", err)
+	}
+	defer tx.Rollback()
+
 	query := `
 		INSERT INTO notes (user_id, folder_id, title, note_markdown, calendar_event_id)
 		VALUES ($1, $2, $3, $4, $5)
@@ -41,7 +57,7 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 	var created models.Note
 	var folder, calEvID sql.NullString
 	var deleted sql.NullTime
-	err := r.db.QueryRow(
+	err = tx.QueryRow(
 		query,
 		note.UserID,
 		folderID,
@@ -61,7 +77,35 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		&created.Revision,
 	)
 	if err != nil {
+		if isConstraintViolation(err, "notes_one_per_event_idx") {
+			return nil, ErrCalendarEventLinked
+		}
 		return nil, fmt.Errorf("failed to create note: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO note_attendees (note_id, email, user_id, source)
+		SELECT $1, u.email, u.id, 'manual'
+		FROM users u
+		WHERE u.id = $2
+		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
+			user_id = EXCLUDED.user_id,
+			source = 'manual'
+	`, created.ID, note.UserID); err != nil {
+		return nil, fmt.Errorf("failed to add note creator: %w", err)
+	}
+
+	if created.CalendarEventID != nil {
+		if err := upsertNoteCalendarSnapshot(tx, created.ID, note.UserID, *created.CalendarEventID); err != nil {
+			return nil, err
+		}
+		if err := reconcileCalendarAttendeesTx(tx, created.ID, note.UserID, *created.CalendarEventID); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit note creation: %w", err)
 	}
 
 	created.FolderID = fromNullString(folder)
@@ -133,18 +177,15 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 		SELECT
 			n.id, n.folder_id, n.title, n.note_markdown, n.created_at, n.updated_at,
 			n.calendar_event_id::text, n.revision,
-			e.id::text, e.provider, e.connection_id::text, e.calendar_id, e.provider_event_id,
-			e.title, e.start_at, e.end_at, e.all_day,
-			COALESCE(e.color, s.color, ''), COALESCE(e.calendar_name, s.name, ''),
-			COALESCE(e.meeting_link, ''), COALESCE(e.event_link, ''),
-			COALESCE(e.location, ''), COALESCE(e.organizer, ''),
-			COALESCE(e.attendees, '[]'::jsonb)
+			l.snapshot_event_id::text, l.provider, l.connection_id::text, l.calendar_id, l.provider_event_id,
+			l.title, l.start_at, l.end_at, l.all_day,
+			COALESCE(l.color, ''), COALESCE(l.calendar_name, ''),
+			COALESCE(l.meeting_link, ''), COALESCE(l.event_link, ''),
+			COALESCE(l.location, ''), COALESCE(l.organizer_name, ''), COALESCE(l.organizer_email, ''),
+			l.calendar_event_id IS NULL,
+			COALESCE(l.attendees_snapshot, '[]'::jsonb)
 		FROM notes n
-		LEFT JOIN calendar_events e ON e.id = n.calendar_event_id
-		LEFT JOIN calendar_sources s
-			ON s.user_id = e.user_id
-			AND s.connection_id = e.connection_id
-			AND s.calendar_id = e.calendar_id
+		LEFT JOIN note_calendar_links l ON l.note_id = n.id AND l.user_id = n.user_id
 		WHERE n.id = $1 AND n.user_id = $2 AND n.deleted_at IS NULL
 		LIMIT 1
 	`
@@ -155,7 +196,8 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 	var evTitle sql.NullString
 	var evStart, evEnd sql.NullTime
 	var evAllDay sql.NullBool
-	var evColor, evCalName, evMeetingLink, evEventLink, evLocation, evOrganizer sql.NullString
+	var evColor, evCalName, evMeetingLink, evEventLink, evLocation, evOrganizerName, evOrganizerEmail sql.NullString
+	var evHistorical sql.NullBool
 	var evAttendeesJSON []byte
 
 	err := r.db.QueryRow(query, noteID, userID).Scan(
@@ -163,7 +205,8 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 		&calEvID, &detail.Revision,
 		&evID, &evProvider, &evConnID, &evCalID, &evProvEventID,
 		&evTitle, &evStart, &evEnd, &evAllDay,
-		&evColor, &evCalName, &evMeetingLink, &evEventLink, &evLocation, &evOrganizer,
+		&evColor, &evCalName, &evMeetingLink, &evEventLink, &evLocation, &evOrganizerName, &evOrganizerEmail,
+		&evHistorical,
 		&evAttendeesJSON,
 	)
 	if err != nil {
@@ -194,7 +237,9 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 			MeetingLink:     evMeetingLink.String,
 			EventLink:       evEventLink.String,
 			Location:        evLocation.String,
-			OrganizerEmail:  evOrganizer.String,
+			OrganizerName:   evOrganizerName.String,
+			OrganizerEmail:  evOrganizerEmail.String,
+			Historical:      evHistorical.Bool,
 			Attendees:       attendees,
 		}
 	}
@@ -392,7 +437,10 @@ func (r *NoteRepository) UpdateNoteWithRevision(note *models.Note, expectedRevis
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("note not found")
+			return nil, ErrNoteNotFound
+		}
+		if isConstraintViolation(err, "notes_one_per_event_idx") {
+			return nil, ErrCalendarEventLinked
 		}
 		return nil, fmt.Errorf("failed to update note: %w", err)
 	}
@@ -401,6 +449,11 @@ func (r *NoteRepository) UpdateNoteWithRevision(note *models.Note, expectedRevis
 	updated.DeletedAt = fromNullTime(deleted)
 	updated.CalendarEventID = fromNullString(calEvID)
 	return &updated, nil
+}
+
+func isConstraintViolation(err error, constraint string) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Constraint == constraint
 }
 
 func (r *NoteRepository) DeleteNote(userID, noteID string) (bool, error) {

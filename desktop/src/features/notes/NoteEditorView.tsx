@@ -17,12 +17,10 @@ import MarkdownEditor from '@/features/notes/MarkdownEditor'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
 import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
-import { noteQueryOptions } from '@/features/notes/queries/note-query-options'
 import { useNoteTranscriptQuery } from '@/features/notes/queries/useNotesQueries'
-import { useAddNoteAttendeeMutation, useEnhanceNoteMutation, useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
+import { useEnhanceNoteMutation, useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
 import { useCalendarEventSearchQuery } from '@/features/calendar/useCalendarEventSearchQuery'
 import { useDebouncedValue } from '@/lib/use-debounced-value'
-import { useQueryClient } from '@tanstack/react-query'
 import { reconcileCanonicalDraft } from '@/features/notes/draft-reconciliation'
 
 
@@ -41,10 +39,8 @@ export default function NoteEditorView({
   userId,
 }: NoteEditorViewProps) {
   const { folders, selectedId, selectedNote, selectedNoteLoading, selectNote } = useDashboardNotes()
-  const queryClient = useQueryClient()
   const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(userId ?? '')
   const { mutateAsync: moveNoteAsync } = useMoveNoteMutation(userId ?? '')
-  const { mutateAsync: addAttendeeAsync } = useAddNoteAttendeeMutation(userId ?? '')
   const { mutateAsync: enhanceNoteAsync } = useEnhanceNoteMutation(userId ?? '')
   const { mutateAsync: linkNoteEventAsync } = useLinkNoteEventMutation(userId ?? '')
 
@@ -172,8 +168,7 @@ export default function NoteEditorView({
     setMeetingSearch(q)
   }
 
-  const selectedCalendarEventId =
-    selectedNote?.calendarEventId
+  const selectedCalendarEventId = selectedNote?.calendarEventId ?? selectedNote?.linkedEvent?.id
   const linkedMeetingFromDetail: MeetingOption | null = selectedNote?.linkedEvent
     ? { id: selectedNote.linkedEvent.id, title: selectedNote.linkedEvent.title, start: selectedNote.linkedEvent.start, color: selectedNote.linkedEvent.color }
     : null
@@ -194,14 +189,6 @@ export default function NoteEditorView({
         noteID: selectedId,
         eventID: meeting?.id ?? null,
       })
-      if (meeting) {
-        const fullNote = await queryClient.fetchQuery(noteQueryOptions(userId ?? '', selectedId))
-        if (fullNote?.linkedEvent?.attendees) {
-          for (const a of fullNote.linkedEvent.attendees) {
-            if (a.email) await addAttendeeAsync({ noteID: selectedId, email: a.email })
-          }
-        }
-      }
     } catch (err) {
       if (err instanceof Error && err.message === 'note not found') {
         selectNote(null)

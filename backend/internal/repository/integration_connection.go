@@ -1,12 +1,14 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/utils"
@@ -18,8 +20,108 @@ type IntegrationConnectionRepository interface {
 	GetActiveByUser(userID string) ([]*models.IntegrationConnection, error)
 	GetActiveByUserAndProvider(userID, provider string) ([]*models.IntegrationConnection, error)
 	DeleteCredentials(userID, connectionID string) error
+	DisconnectLocal(ctx context.Context, userID, connectionID string) ([]string, error)
 	MarkNeedsReconnect(userID, connectionID string) error
 	UpdateTokens(userID, connectionID string, updates *models.UpdateIntegrationConnectionTokensRequest) error
+}
+
+func (r *integrationConnectionRepository) DisconnectLocal(ctx context.Context, userID, connectionID string) ([]string, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin local disconnect: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO note_calendar_links (
+			note_id, user_id, calendar_event_id, snapshot_event_id, provider_event_id,
+			connection_id, calendar_id, provider, account_email, title, start_at, end_at,
+			all_day, location, meeting_link, event_link, calendar_name, color,
+			organizer_name, organizer_email, attendees_snapshot, created_at, updated_at
+		)
+		SELECT n.id, n.user_id, e.id, e.id, e.provider_event_id,
+			e.connection_id, e.calendar_id, e.provider, e.account_email, e.title, e.start_at, e.end_at,
+			e.all_day, e.location, e.meeting_link, e.event_link, e.calendar_name, e.color,
+			e.organizer_name, e.organizer_email, e.attendees, now(), now()
+		FROM notes n
+		JOIN calendar_events e ON e.id = n.calendar_event_id AND e.user_id = n.user_id
+		WHERE n.user_id = $1 AND e.connection_id = $2 AND n.deleted_at IS NULL
+		ON CONFLICT (note_id) DO UPDATE SET
+			calendar_event_id = EXCLUDED.calendar_event_id,
+			snapshot_event_id = EXCLUDED.snapshot_event_id,
+			provider_event_id = EXCLUDED.provider_event_id,
+			connection_id = EXCLUDED.connection_id,
+			calendar_id = EXCLUDED.calendar_id,
+			provider = EXCLUDED.provider,
+			account_email = EXCLUDED.account_email,
+			title = EXCLUDED.title,
+			start_at = EXCLUDED.start_at,
+			end_at = EXCLUDED.end_at,
+			all_day = EXCLUDED.all_day,
+			location = EXCLUDED.location,
+			meeting_link = EXCLUDED.meeting_link,
+			event_link = EXCLUDED.event_link,
+			calendar_name = EXCLUDED.calendar_name,
+			color = EXCLUDED.color,
+			organizer_name = EXCLUDED.organizer_name,
+			organizer_email = EXCLUDED.organizer_email,
+			attendees_snapshot = EXCLUDED.attendees_snapshot,
+			updated_at = now()
+	`, userID, connectionID); err != nil {
+		return nil, fmt.Errorf("failed to preserve linked event snapshots: %w", err)
+	}
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT note_id::text
+		FROM note_calendar_links
+		WHERE user_id = $1 AND connection_id = $2
+		ORDER BY note_id
+	`, userID, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list affected notes: %w", err)
+	}
+	var noteIDs []string
+	for rows.Next() {
+		var noteID string
+		if err := rows.Scan(&noteID); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("failed to scan affected note: %w", err)
+		}
+		noteIDs = append(noteIDs, noteID)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close affected notes: %w", err)
+	}
+
+	if len(noteIDs) > 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM note_attendees WHERE source = 'calendar' AND note_id = ANY($1)`, pq.Array(noteIDs)); err != nil {
+			return nil, fmt.Errorf("failed to remove disconnected calendar attendees: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM note_attendee_suppressions WHERE note_id = ANY($1)`, pq.Array(noteIDs)); err != nil {
+			return nil, fmt.Errorf("failed to remove disconnected attendee suppressions: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE notes SET calendar_event_id = NULL, updated_at = now() WHERE user_id = $1 AND calendar_event_id IN (SELECT id FROM calendar_events WHERE user_id = $1 AND connection_id = $2)`, userID, connectionID); err != nil {
+		return nil, fmt.Errorf("failed to detach notes: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE note_calendar_links SET calendar_event_id = NULL, updated_at = now() WHERE user_id = $1 AND connection_id = $2`, userID, connectionID); err != nil {
+		return nil, fmt.Errorf("failed to detach calendar snapshots: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM integration_connections WHERE user_id = $1 AND id = $2`, userID, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove integration connection: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify integration removal: %w", err)
+	}
+	if count != 1 {
+		return nil, sql.ErrNoRows
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit local disconnect: %w", err)
+	}
+	return noteIDs, nil
 }
 
 type integrationConnectionRepository struct {

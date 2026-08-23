@@ -36,6 +36,8 @@ export function useCalendarEvents() {
     syncing: query.data?.syncing ?? false,
     stale: query.data?.stale ?? false,
     lastSyncedAt: query.data?.lastSyncedAt,
+    lastError: query.data?.lastError,
+    partial: query.data?.partial ?? false,
     refresh: query.refetch,
   }
 }

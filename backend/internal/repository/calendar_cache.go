@@ -18,15 +18,15 @@ type CalendarCacheRepository interface {
 	GetEventByProviderID(ctx context.Context, userID, connectionID, calendarID, providerEventID string) (*models.CachedCalendarEvent, error)
 	SearchEvents(ctx context.Context, userID, query string, limit int, excludeLinkedExceptNoteID *string) ([]*models.CachedCalendarEvent, error)
 	ListConnectionSyncStates(ctx context.Context, userID string) ([]*models.CalendarSyncState, error)
-	UpsertCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) error
-	UpsertCalendarEvents(ctx context.Context, userID string, connection *models.IntegrationConnection, events []*models.CachedCalendarEvent) error
-	DeleteEventsNotSeen(ctx context.Context, userID, connectionID, calendarID string, windowStart, windowEnd time.Time, seenProviderIDs []string) error
-	SaveCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID, token string, windowStart, windowEnd time.Time) error
 	ClearCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID string) error
-	DeleteCalendarEventsByProviderID(ctx context.Context, userID, connectionID, calendarID string, providerIDs []string) error
 	MarkSyncStarted(ctx context.Context, userID, connectionID string) error
 	MarkSyncSuccess(ctx context.Context, userID, connectionID, scope string, windowStart, windowEnd *time.Time) error
+	MarkSyncPartial(ctx context.Context, userID, connectionID string, syncErr error) error
 	MarkSyncError(ctx context.Context, userID, connectionID string, syncErr error) error
+	ReconcileCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) ([]string, error)
+	ApplyCalendarEventSync(ctx context.Context, userID string, connection *models.IntegrationConnection, calendarID string, batch models.CalendarEventSyncBatch) ([]string, error)
+	DeleteEventsBefore(ctx context.Context, userID, connectionID string, cutoff time.Time) ([]string, error)
+	AcquireSyncLock(ctx context.Context, userID, connectionID string) (func(), error)
 }
 
 type calendarCacheRepository struct {
@@ -83,7 +83,7 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
 			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
-			COALESCE(e.organizer, ''), e.attendees
+			COALESCE(e.organizer_name, ''), COALESCE(e.organizer_email, ''), e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
 			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
@@ -110,7 +110,7 @@ func (r *calendarCacheRepository) ListUpcomingEvents(ctx context.Context, userID
 			&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
-			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
+			&event.EventLink, &event.CalendarName, &event.Color, &event.OrganizerName, &event.OrganizerEmail,
 			&event.AttendeesJSON,
 		); err != nil {
 			return nil, err
@@ -126,7 +126,7 @@ func (r *calendarCacheRepository) GetEventByProviderID(ctx context.Context, user
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
 			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
-			COALESCE(e.organizer, ''), e.attendees
+			COALESCE(e.organizer_name, ''), COALESCE(e.organizer_email, ''), e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
 			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
@@ -144,7 +144,7 @@ func (r *calendarCacheRepository) GetEventByProviderID(ctx context.Context, user
 		&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 		&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 		&event.Location, &event.Description, &event.MeetingLink,
-		&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
+		&event.EventLink, &event.CalendarName, &event.Color, &event.OrganizerName, &event.OrganizerEmail,
 		&event.AttendeesJSON,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -165,7 +165,7 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 			COALESCE(e.account_email, ''), e.title, e.start_at, e.end_at, COALESCE(e.all_day, false),
 			COALESCE(e.location, ''), COALESCE(e.description, ''), COALESCE(e.meeting_link, ''),
 			COALESCE(e.event_link, ''), COALESCE(e.calendar_name, s.name), COALESCE(e.color, s.color, ''),
-			COALESCE(e.organizer, ''), e.attendees
+			COALESCE(e.organizer_name, ''), COALESCE(e.organizer_email, ''), e.attendees
 		FROM calendar_events e
 		JOIN calendar_sources s
 			ON s.user_id = e.user_id AND s.connection_id = e.connection_id AND s.calendar_id = e.calendar_id
@@ -223,7 +223,7 @@ func (r *calendarCacheRepository) SearchEvents(ctx context.Context, userID, quer
 			&event.ID, &event.Provider, &event.ConnectionID, &event.CalendarID, &event.ProviderID,
 			&event.AccountEmail, &event.Title, &event.Start, &event.End, &event.AllDay,
 			&event.Location, &event.Description, &event.MeetingLink,
-			&event.EventLink, &event.CalendarName, &event.Color, &event.Organizer,
+			&event.EventLink, &event.CalendarName, &event.Color, &event.OrganizerName, &event.OrganizerEmail,
 			&event.AttendeesJSON,
 		); err != nil {
 			return nil, err
@@ -345,15 +345,15 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		return nil
 	}
 
-	const nParams = 18
+	const nParams = 19
 	placeholders := make([]string, len(events))
 	args := make([]interface{}, 0, len(events)*nParams)
 	for i, event := range events {
 		b := i * nParams
 		placeholders[i] = fmt.Sprintf(
-			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,now(),now(),now())",
 			b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8, b+9, b+10,
-			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18,
+			b+11, b+12, b+13, b+14, b+15, b+16, b+17, b+18, b+19,
 		)
 		attendees := event.AttendeesJSON
 		if len(attendees) == 0 {
@@ -363,7 +363,7 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 			userID, connection.ID, event.CalendarID, event.ProviderID, event.Provider,
 			nullString(event.AccountEmail), event.Title, event.Start, event.End, event.AllDay,
 			nullString(event.Location), nullString(event.Description), nullString(event.MeetingLink),
-			nullString(event.EventLink), nullString(event.CalendarName), nullString(event.Color), nullString(event.Organizer),
+			nullString(event.EventLink), nullString(event.CalendarName), nullString(event.Color), nullString(event.OrganizerName), nullString(event.OrganizerEmail),
 			attendees,
 		)
 	}
@@ -371,7 +371,7 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 	query := `INSERT INTO calendar_events (
 		user_id, connection_id, calendar_id, provider_event_id, provider, account_email,
 		title, start_at, end_at, all_day, location, description, meeting_link, event_link, calendar_name,
-		color, organizer, attendees, synced_at, created_at, updated_at
+		color, organizer_name, organizer_email, attendees, synced_at, created_at, updated_at
 	) VALUES ` + strings.Join(placeholders, ",") + `
 	ON CONFLICT (user_id, connection_id, calendar_id, provider_event_id) DO UPDATE SET
 		provider = EXCLUDED.provider, account_email = EXCLUDED.account_email,
@@ -379,7 +379,7 @@ func (r *calendarCacheRepository) upsertCalendarEventsChunk(ctx context.Context,
 		all_day = EXCLUDED.all_day,
 		location = EXCLUDED.location, description = EXCLUDED.description,
 		meeting_link = EXCLUDED.meeting_link, event_link = EXCLUDED.event_link, calendar_name = EXCLUDED.calendar_name,
-		color = EXCLUDED.color, organizer = EXCLUDED.organizer,
+		color = EXCLUDED.color, organizer_name = EXCLUDED.organizer_name, organizer_email = EXCLUDED.organizer_email,
 		attendees = EXCLUDED.attendees,
 		synced_at = EXCLUDED.synced_at, updated_at = EXCLUDED.updated_at`
 
@@ -488,6 +488,23 @@ func (r *calendarCacheRepository) MarkSyncError(ctx context.Context, userID, con
 		DO UPDATE SET status = 'error', last_error = EXCLUDED.last_error, updated_at = now()
 	`
 	_, err := r.db.ExecContext(ctx, query, userID, connectionID, message)
+	return err
+}
+
+func (r *calendarCacheRepository) MarkSyncPartial(ctx context.Context, userID, connectionID string, syncErr error) error {
+	message := "partial calendar synchronization"
+	if syncErr != nil {
+		message = syncErr.Error()
+		if len(message) > 1000 {
+			message = message[:1000]
+		}
+	}
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO calendar_sync_state (user_id, connection_id, status, last_error, created_at, updated_at)
+		VALUES ($1, $2, 'partial', $3, now(), now())
+		ON CONFLICT (user_id, connection_id)
+		DO UPDATE SET status = 'partial', last_error = EXCLUDED.last_error, updated_at = now()
+	`, userID, connectionID, message)
 	return err
 }
 

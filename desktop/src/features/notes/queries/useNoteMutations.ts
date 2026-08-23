@@ -8,6 +8,7 @@ import {
   addNoteAttendee,
   removeNoteAttendee,
   revertToVersion,
+  updateCalendarLink,
   updateNote,
 } from '@/features/notes/api/notes-client'
 import type { FolderRecord } from '@/features/notes/folder-types'
@@ -242,10 +243,7 @@ export function useLinkNoteEventMutation(accountID: string) {
   return useMutation({
     mutationFn: async ({ noteID, eventID }: { noteID: string; eventID: string | null }) => {
       const revision = await resolveNoteRevision(queryClient, accountID, noteID)
-      return updateNote(accountID, noteID, {
-        calendarEventId: eventID,
-        expectedRevision: revision,
-      })
+      return updateCalendarLink(accountID, noteID, eventID, revision)
     },
     scope: { id: `note-update:${accountID}` },
     onMutate: async ({ noteID, eventID }) => {

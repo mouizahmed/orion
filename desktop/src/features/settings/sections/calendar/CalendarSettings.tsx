@@ -115,6 +115,8 @@ export function CalendarSettings() {
         </div>
         {connections.length > 0 ? connections.map((connection) => {
           const isDisconnecting = action === `disconnect:${connection.id}`
+          const needsReconnect = connection.status === 'needs_reconnect'
+          const isReconnecting = action === `connect:${connection.provider}`
           const icon = providerIcon(connection.provider)
           return (
             <div key={connection.id} className="flex min-h-14 items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 last:border-b-0 dark:border-white/10">
@@ -123,11 +125,19 @@ export function CalendarSettings() {
                 <div className="min-w-0">
                   <div className="truncate text-xs font-medium text-neutral-900 dark:text-neutral-100">{providerLabel(connection.provider)}</div>
                   <div className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{accountLabel(connection)}</div>
+                  {needsReconnect ? <div className="mt-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">Authorization required</div> : null}
                 </div>
               </div>
-              <Button type="button" variant="outline" size="sm" disabled={Boolean(action)} className="border-red-500/25 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-400/20 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200" onClick={() => void disconnectConnection(connection.id)}>
-                {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {needsReconnect ? (
+                  <Button type="button" variant="secondary" size="sm" disabled={Boolean(action)} onClick={() => void connectProvider(connection.provider)}>
+                    {isReconnecting ? 'Reconnecting...' : 'Reconnect'}
+                  </Button>
+                ) : null}
+                <Button type="button" variant="outline" size="sm" disabled={Boolean(action)} className="border-red-500/25 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-400/20 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200" onClick={() => void disconnectConnection(connection.id)}>
+                  {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                </Button>
+              </div>
             </div>
           )
         }) : query.isPending ? (

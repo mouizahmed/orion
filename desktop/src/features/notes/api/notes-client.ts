@@ -5,6 +5,12 @@ import { API_BASE_URL } from '@/lib/api-config'
 type ApiAttendee = {
   name?: string
   email: string
+  response_status?: string
+  attendee_type?: string
+  optional?: boolean
+  organizer?: boolean
+  self?: boolean
+  resource?: boolean
 }
 
 type ApiLinkedEvent = {
@@ -22,7 +28,9 @@ type ApiLinkedEvent = {
   meeting_link?: string
   event_link?: string
   location?: string
+  organizer_name?: string
   organizer_email?: string
+  historical?: boolean
   attendees?: ApiAttendee[]
 }
 
@@ -91,10 +99,18 @@ function toNoteDetail(note: ApiNote): NoteDetail {
           meetingLink: le.meeting_link,
           eventLink: le.event_link,
           location: le.location,
+          organizerName: le.organizer_name,
           organizerEmail: le.organizer_email,
+          historical: Boolean(le.historical),
           attendees: (le.attendees ?? []).map((a) => ({
             name: a.name,
             email: a.email,
+            responseStatus: a.response_status,
+            attendeeType: a.attendee_type,
+            optional: Boolean(a.optional),
+            organizer: Boolean(a.organizer),
+            self: Boolean(a.self),
+            resource: Boolean(a.resource),
           })),
         }
       : null,
@@ -241,6 +257,30 @@ export async function updateNote(
   return payload.note ? toNoteRecord(payload.note) : null
 }
 
+export async function updateCalendarLink(
+  userId: string | undefined,
+  noteId: string,
+  calendarEventId: string | null,
+  expectedRevision: number,
+): Promise<NoteRecord> {
+  void userId
+  const accessToken = await getAccessToken()
+  const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}/calendar-link`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      calendar_event_id: calendarEventId,
+      expected_revision: expectedRevision,
+    }),
+  })
+  if (!payload.note) throw new Error('Failed to update calendar link')
+  return toNoteRecord(payload.note)
+}
+
 export async function enhanceNote(
   noteId: string,
   expectedRevision: number,
@@ -357,6 +397,7 @@ type ApiNoteAttendee = {
   email: string
   name: string
   avatar_url?: string
+  source: 'manual' | 'calendar'
   created_at: string
 }
 
@@ -368,6 +409,7 @@ function toNoteAttendee(a: ApiNoteAttendee): NoteAttendee {
     email: a.email,
     name: a.name,
     avatarUrl: a.avatar_url || undefined,
+    source: a.source,
     createdAt: a.created_at,
   }
 }

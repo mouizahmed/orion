@@ -25,8 +25,14 @@ type NoteSummary struct {
 }
 
 type CalendarAttendee struct {
-	Name  string `json:"name,omitempty"`
-	Email string `json:"email,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Email          string `json:"email,omitempty"`
+	ResponseStatus string `json:"response_status,omitempty"`
+	AttendeeType   string `json:"attendee_type,omitempty"`
+	Optional       bool   `json:"optional,omitempty"`
+	Organizer      bool   `json:"organizer,omitempty"`
+	Self           bool   `json:"self,omitempty"`
+	Resource       bool   `json:"resource,omitempty"`
 }
 
 type LinkedEventDetail struct {
@@ -44,7 +50,9 @@ type LinkedEventDetail struct {
 	MeetingLink     string             `json:"meeting_link,omitempty"`
 	EventLink       string             `json:"event_link,omitempty"`
 	Location        string             `json:"location,omitempty"`
+	OrganizerName   string             `json:"organizer_name,omitempty"`
 	OrganizerEmail  string             `json:"organizer_email,omitempty"`
+	Historical      bool               `json:"historical"`
 	Attendees       []CalendarAttendee `json:"attendees"`
 }
 
@@ -75,5 +83,6 @@ type NoteAttendee struct {
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
 	AvatarURL string    `json:"avatar_url,omitempty"`
+	Source    string    `json:"source"`
 	CreatedAt time.Time `json:"created_at"`
 }

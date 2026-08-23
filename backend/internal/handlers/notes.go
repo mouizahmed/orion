@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -54,6 +55,11 @@ type UpdateNoteRequest struct {
 	Title            *string `json:"title"`
 	FolderID         *string `json:"folder_id"`
 	NoteMarkdown     *string `json:"note_markdown"`
+	CalendarEventID  *string `json:"calendar_event_id"`
+	ExpectedRevision *int64  `json:"expected_revision"`
+}
+
+type UpdateCalendarLinkRequest struct {
 	CalendarEventID  *string `json:"calendar_event_id"`
 	ExpectedRevision *int64  `json:"expected_revision"`
 }
@@ -579,29 +585,22 @@ func (h *NotesHandler) CreateNote(c *gin.Context) {
 		}
 	}
 
-	// If this note is linked to a calendar event, return the existing note rather than
-	// creating a duplicate (one note per event per user).
-	if note.CalendarEventID != nil {
-		existing, err := h.noteRepo.ListNotesByEvent(userID, *note.CalendarEventID, 1, nil, nil)
-		if err == nil && len(existing) > 0 {
-			c.JSON(http.StatusOK, gin.H{"note": existing[0]})
-			return
-		}
-	}
-
 	created, err := h.noteRepo.CreateNote(note)
 	if err != nil {
+		if errors.Is(err, repository.ErrCalendarEventLinked) && note.CalendarEventID != nil {
+			existing, readErr := h.noteRepo.ListNotesByEvent(userID, *note.CalendarEventID, 1, nil, nil)
+			if readErr == nil && len(existing) > 0 {
+				c.JSON(http.StatusOK, gin.H{"note": existing[0]})
+				return
+			}
+		}
+		if errors.Is(err, repository.ErrCalendarEventNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "calendar event not found"})
+			return
+		}
 		log.Printf("notes: failed to create note for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create note"})
 		return
-	}
-	if err := h.noteAttendeeRepo.AddByUserID(created.ID, userID); err != nil {
-		log.Printf("notes: failed to add creator attendee for note %s: %v", created.ID, err)
-	}
-	if created.CalendarEventID != nil {
-		if err := h.noteAttendeeRepo.SyncNoteFromEvent(created.ID, *created.CalendarEventID); err != nil {
-			log.Printf("notes: failed to sync attendees from calendar event for note %s: %v", created.ID, err)
-		}
 	}
 	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &created.ID)
 
@@ -629,6 +628,10 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 
 	if req.Title == nil && req.FolderID == nil && req.NoteMarkdown == nil && req.CalendarEventID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+		return
+	}
+	if req.CalendarEventID != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "use the calendar-link endpoint to change an event link"})
 		return
 	}
 
@@ -661,17 +664,9 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 	if req.NoteMarkdown != nil {
 		existing.NoteMarkdown = *req.NoteMarkdown
 	}
-	if req.CalendarEventID != nil {
-		if *req.CalendarEventID == "" {
-			existing.CalendarEventID = nil
-		} else {
-			existing.CalendarEventID = req.CalendarEventID
-		}
-	}
-
 	updated, err := h.noteRepo.UpdateNoteWithRevision(existing, req.ExpectedRevision)
 	if err != nil {
-		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
+		if req.ExpectedRevision != nil && errors.Is(err, repository.ErrNoteNotFound) {
 			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
 				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
 				return
@@ -679,7 +674,7 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
 			return
 		}
-		if strings.Contains(err.Error(), "notes_one_per_event_idx") {
+		if errors.Is(err, repository.ErrCalendarEventLinked) {
 			c.JSON(http.StatusConflict, gin.H{"error": "Another note is already linked to this event"})
 			return
 		}
@@ -697,6 +692,55 @@ func (h *NotesHandler) UpdateNote(c *gin.Context) {
 		}()
 	}
 
+	c.JSON(http.StatusOK, gin.H{"note": updated})
+}
+
+func (h *NotesHandler) UpdateCalendarLink(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	noteID := strings.TrimSpace(c.Param("noteID"))
+	if noteID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
+		return
+	}
+	var req UpdateCalendarLinkRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
+	}
+
+	var updated *models.Note
+	calendarEventID := ""
+	if req.CalendarEventID != nil {
+		calendarEventID = strings.TrimSpace(*req.CalendarEventID)
+	}
+	if calendarEventID == "" {
+		updated, err = h.noteRepo.ClearCalendarLink(c.Request.Context(), userID, noteID, req.ExpectedRevision)
+	} else {
+		updated, err = h.noteRepo.SetCalendarLink(c.Request.Context(), userID, noteID, calendarEventID, req.ExpectedRevision)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrNoteNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
+		case errors.Is(err, repository.ErrNoteRevisionConflict):
+			c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
+		case errors.Is(err, repository.ErrCalendarEventNotFound):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "calendar event not found"})
+		case errors.Is(err, repository.ErrCalendarEventLinked):
+			c.JSON(http.StatusConflict, gin.H{"error": "Another note is already linked to this event"})
+		default:
+			log.Printf("notes: failed to update calendar link for note %s: %v", noteID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update calendar link"})
+		}
+		return
+	}
+
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
+	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarEvents, nil)
 	c.JSON(http.StatusOK, gin.H{"note": updated})
 }
 

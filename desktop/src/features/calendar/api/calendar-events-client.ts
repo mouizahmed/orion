@@ -6,6 +6,23 @@ const MAX_EVENTS = 100
 export type CalendarAttendee = {
   name?: string
   email?: string
+  responseStatus?: string
+  attendeeType?: string
+  optional?: boolean
+  organizer?: boolean
+  self?: boolean
+  resource?: boolean
+}
+
+type ServerCalendarAttendee = {
+  name?: string
+  email?: string
+  response_status?: string
+  attendee_type?: string
+  optional?: boolean
+  organizer?: boolean
+  self?: boolean
+  resource?: boolean
 }
 
 type ServerCalendarEvent = {
@@ -24,9 +41,10 @@ type ServerCalendarEvent = {
   calendar_id?: string
   calendar_name?: string
   color?: string
-  organizer?: string
+  organizer_name?: string
+  organizer_email?: string
   provider: string
-  attendees?: CalendarAttendee[]
+  attendees?: ServerCalendarAttendee[]
 }
 
 export type CalendarEvent = {
@@ -46,7 +64,8 @@ export type CalendarEvent = {
   eventLink?: string
   location?: string
   description?: string
-  organizer?: string
+  organizerName?: string
+  organizerEmail?: string
   provider: string
 }
 
@@ -55,6 +74,8 @@ export type CalendarEventsSnapshot = {
   syncing: boolean
   stale: boolean
   lastSyncedAt?: string
+  lastError?: string
+  partial: boolean
 }
 
 function extractMeetingLink(event: ServerCalendarEvent) {
@@ -81,12 +102,22 @@ function normalizeEvent(event: ServerCalendarEvent): CalendarEvent {
     calendarId: event.calendar_id || event.provider,
     calendarName: event.calendar_name || providerLabel,
     color: event.color || (event.provider === 'microsoft' ? '#38bdf8' : '#9f73f2'),
-    attendees: event.attendees ?? [],
+    attendees: (event.attendees ?? []).map((attendee) => ({
+      name: attendee.name,
+      email: attendee.email,
+      responseStatus: attendee.response_status,
+      attendeeType: attendee.attendee_type,
+      optional: attendee.optional,
+      organizer: attendee.organizer,
+      self: attendee.self,
+      resource: attendee.resource,
+    })),
     meetingLink: event.meeting_link ?? extractMeetingLink(event),
     eventLink: event.event_link,
     location: event.location,
     description: event.description,
-    organizer: event.organizer,
+    organizerName: event.organizer_name,
+    organizerEmail: event.organizer_email,
     provider: event.provider,
   }
 }
@@ -96,7 +127,10 @@ export async function getCalendarEvents(signal?: AbortSignal): Promise<CalendarE
     headers: { Accept: 'application/json' },
     signal,
   })
-  if (!response.ok) throw new Error(`Failed to fetch calendar events: ${response.status}`)
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({})) as { error?: string }
+    throw new Error(error.error || `Failed to fetch calendar events: ${response.status}`)
+  }
 
   const data = await response.json()
   return {
@@ -106,5 +140,7 @@ export async function getCalendarEvents(signal?: AbortSignal): Promise<CalendarE
     syncing: Boolean(data.syncing),
     stale: Boolean(data.stale),
     lastSyncedAt: typeof data.last_synced_at === 'string' ? data.last_synced_at : undefined,
+    lastError: typeof data.last_error === 'string' && data.last_error ? data.last_error : undefined,
+    partial: Boolean(data.partial),
   }
 }
