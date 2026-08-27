@@ -1,6 +1,9 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
+
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 )
 
@@ -24,7 +27,12 @@ func (r *calendarPreferenceRepository) GetVisibleCalendarIDs(userID string, conn
 		WHERE user_id = $1 AND connection_id = $2
 	`
 
-	rows, err := r.db.Query(query, userID, connectionID)
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(query, userID, connectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +48,16 @@ func (r *calendarPreferenceRepository) GetVisibleCalendarIDs(userID string, conn
 		visibility[calendarID] = visible
 	}
 
-	return visibility, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return visibility, nil
 }
 
 func (r *calendarPreferenceRepository) UpsertVisibility(userID string, connectionID string, calendarID string, visible bool) error {
@@ -53,6 +70,13 @@ func (r *calendarPreferenceRepository) UpsertVisibility(userID string, connectio
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err := r.db.Exec(query, userID, connectionID, calendarID, visible)
-	return err
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(query, userID, connectionID, calendarID, visible); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -488,7 +488,7 @@ func exchangeIntegrationCode(ctx context.Context, provider string, config *oauth
 func exchangeGoogleIntegrationCode(ctx context.Context, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
 	token, err := config.Exchange(ctx, code)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
+		return nil, nil, fmt.Errorf("failed to exchange Google authorization code")
 	}
 
 	client := config.Client(ctx, token)
@@ -529,7 +529,7 @@ func exchangeGoogleIntegrationCode(ctx context.Context, config *oauth2.Config, c
 func exchangeMicrosoftIntegrationCode(ctx context.Context, config *oauth2.Config, code string) (*oauth2.Token, *integrationUser, error) {
 	token, err := config.Exchange(ctx, code)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to exchange authorization code: %w", err)
+		return nil, nil, fmt.Errorf("failed to exchange Microsoft authorization code")
 	}
 
 	client := config.Client(ctx, token)
@@ -544,8 +544,7 @@ func exchangeMicrosoftIntegrationCode(ctx context.Context, config *oauth2.Config
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return nil, nil, fmt.Errorf("Microsoft user info returned status %d: %s", resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("Microsoft user info returned status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

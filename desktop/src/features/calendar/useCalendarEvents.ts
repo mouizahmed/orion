@@ -34,7 +34,6 @@ export function useCalendarEvents() {
     loading: query.isPending,
     error: query.error instanceof Error ? query.error.message : null,
     syncing: query.data?.syncing ?? false,
-    stale: query.data?.stale ?? false,
     lastSyncedAt: query.data?.lastSyncedAt,
     lastError: query.data?.lastError,
     partial: query.data?.partial ?? false,

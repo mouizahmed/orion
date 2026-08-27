@@ -70,13 +70,16 @@ type CalendarEventSyncBatch struct {
 }
 
 type CalendarSyncState struct {
-	ConnectionID         string
-	Status               string
-	CalendarLastSyncedAt *time.Time
-	EventsLastSyncedAt   *time.Time
-	SyncStartedAt        *time.Time
-	LastError            *string
-	EventsWindowStart    *time.Time
-	EventsWindowEnd      *time.Time
-	UpdatedAt            time.Time
+	ConnectionID          string
+	CalendarStatus        string
+	EventsStatus          string
+	CalendarLastSyncedAt  *time.Time
+	EventsLastSyncedAt    *time.Time
+	CalendarSyncStartedAt *time.Time
+	EventsSyncStartedAt   *time.Time
+	CalendarLastError     *string
+	EventsLastError       *string
+	EventsWindowStart     *time.Time
+	EventsWindowEnd       *time.Time
+	UpdatedAt             time.Time
 }

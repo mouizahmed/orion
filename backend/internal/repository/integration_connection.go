@@ -26,7 +26,7 @@ type IntegrationConnectionRepository interface {
 }
 
 func (r *integrationConnectionRepository) DisconnectLocal(ctx context.Context, userID, connectionID string) ([]string, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin local disconnect: %w", err)
 	}
@@ -179,7 +179,13 @@ func (r *integrationConnectionRepository) CreateOrUpdate(connection *models.Inte
 		RETURNING id, connected_at, updated_at
 	`
 
-	return r.db.QueryRow(
+	tx, err := r.db.BeginTenantTx(context.Background(), connection.UserID, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin integration upsert: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := tx.QueryRow(
 		query,
 		connection.UserID,
 		connection.Provider,
@@ -196,7 +202,32 @@ func (r *integrationConnectionRepository) CreateOrUpdate(connection *models.Inte
 		connection.ConnectedAt,
 		connection.UpdatedAt,
 		connection.DisconnectedAt,
-	).Scan(&connection.ID, &connection.ConnectedAt, &connection.UpdatedAt)
+	).Scan(&connection.ID, &connection.ConnectedAt, &connection.UpdatedAt); err != nil {
+		return err
+	}
+
+	var scopes []string
+	if connection.Scopes != nil {
+		scopes = strings.Fields(*connection.Scopes)
+	}
+	if _, err := tx.Exec(`
+		INSERT INTO integration_capabilities (
+			user_id, connection_id, capability_key, enabled,
+			required_scopes, granted_scopes, status, last_success_at, created_at, updated_at
+		)
+		SELECT $1, $2, 'calendar.read', true, $3, $3, 'active', now(), now(), now()
+		WHERE $4 IN ('google', 'microsoft')
+		ON CONFLICT (user_id, connection_id, capability_key) DO UPDATE SET
+			enabled = true,
+			granted_scopes = EXCLUDED.granted_scopes,
+			status = 'active',
+			last_error_code = NULL,
+			updated_at = now()
+	`, connection.UserID, connection.ID, pq.Array(scopes), connection.Provider); err != nil {
+		return fmt.Errorf("failed to enable calendar capability: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 func (r *integrationConnectionRepository) GetByID(userID, connectionID string) (*models.IntegrationConnection, error) {
@@ -208,7 +239,19 @@ func (r *integrationConnectionRepository) GetByID(userID, connectionID string) (
 		WHERE user_id = $1 AND id = $2
 	`
 
-	return r.scanConnection(r.db.QueryRow(query, userID, connectionID))
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	connection, err := r.scanConnection(tx.QueryRow(query, userID, connectionID))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return connection, nil
 }
 
 func (r *integrationConnectionRepository) GetActiveByUser(userID string) ([]*models.IntegrationConnection, error) {
@@ -221,7 +264,7 @@ func (r *integrationConnectionRepository) GetActiveByUser(userID string) ([]*mod
 		ORDER BY provider, provider_email, connected_at
 	`
 
-	return r.listConnections(query, userID)
+	return r.listConnections(userID, query, userID)
 }
 
 func (r *integrationConnectionRepository) GetActiveByUserAndProvider(userID, provider string) ([]*models.IntegrationConnection, error) {
@@ -234,11 +277,16 @@ func (r *integrationConnectionRepository) GetActiveByUserAndProvider(userID, pro
 		ORDER BY provider_email, connected_at
 	`
 
-	return r.listConnections(query, userID, provider)
+	return r.listConnections(userID, query, userID, provider)
 }
 
 func (r *integrationConnectionRepository) DeleteCredentials(userID, connectionID string) error {
-	result, err := r.db.Exec(`DELETE FROM integration_connections WHERE user_id = $1 AND id = $2`, userID, connectionID)
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`DELETE FROM integration_connections WHERE user_id = $1 AND id = $2`, userID, connectionID)
 	if err != nil {
 		return err
 	}
@@ -249,7 +297,7 @@ func (r *integrationConnectionRepository) DeleteCredentials(userID, connectionID
 	if rows != 1 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (r *integrationConnectionRepository) MarkNeedsReconnect(userID, connectionID string) error {
@@ -261,8 +309,22 @@ func (r *integrationConnectionRepository) MarkNeedsReconnect(userID, connectionI
 		WHERE user_id = $1 AND id = $2
 	`
 
-	_, err := r.db.Exec(query, userID, connectionID, time.Now())
-	return err
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(query, userID, connectionID, time.Now()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`
+		UPDATE integration_capabilities
+		SET status = 'needs_reconnect', last_error_code = 'authorization_required', updated_at = now()
+		WHERE user_id = $1 AND connection_id = $2
+	`, userID, connectionID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID string, updates *models.UpdateIntegrationConnectionTokensRequest) error {
@@ -324,12 +386,24 @@ func (r *integrationConnectionRepository) UpdateTokens(userID, connectionID stri
 	query := "UPDATE integration_connections SET " + strings.Join(setParts, ", ") +
 		fmt.Sprintf(" WHERE user_id = $%d AND id = $%d", argIndex, argIndex+1)
 
-	_, err := r.db.Exec(query, args...)
-	return err
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(query, args...); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-func (r *integrationConnectionRepository) listConnections(query string, args ...interface{}) ([]*models.IntegrationConnection, error) {
-	rows, err := r.db.Query(query, args...)
+func (r *integrationConnectionRepository) listConnections(userID, query string, args ...interface{}) ([]*models.IntegrationConnection, error) {
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +418,16 @@ func (r *integrationConnectionRepository) listConnections(query string, args ...
 		connections = append(connections, connection)
 	}
 
-	return connections, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return connections, nil
 }
 
 func (r *integrationConnectionRepository) scanConnection(row interface {

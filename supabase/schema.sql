@@ -40,6 +40,12 @@ drop table if exists public.calendar_sync_state cascade;
 drop table if exists public.calendar_events cascade;
 drop table if exists public.calendar_sources cascade;
 drop table if exists public.calendar_preferences cascade;
+drop table if exists public.integration_delivery_attempts cascade;
+drop table if exists public.integration_outbox_events cascade;
+drop table if exists public.integration_webhook_receipts cascade;
+drop table if exists public.integration_jobs cascade;
+drop table if exists public.integration_webhook_subscriptions cascade;
+drop table if exists public.integration_capabilities cascade;
 drop table if exists public.integration_connections cascade;
 drop table if exists public.note_attachments cascade;
 drop table if exists public.note_recording_sessions cascade;
@@ -500,7 +506,7 @@ create index account_summary_template_folders_folder_owner_idx
 create table public.integration_connections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
-  provider text not null check (provider in ('google', 'microsoft')),
+  provider text not null check (btrim(provider) <> ''),
   provider_account_id text not null,
   provider_email text,
   display_name text,
@@ -517,6 +523,195 @@ create table public.integration_connections (
   unique (user_id, provider, provider_account_id),
   unique (id, user_id)
 );
+
+create table public.integration_capabilities (
+  user_id uuid not null,
+  connection_id uuid not null,
+  capability_key text not null check (btrim(capability_key) <> ''),
+  enabled boolean not null default true,
+  required_scopes text[] not null default '{}'::text[],
+  granted_scopes text[] not null default '{}'::text[],
+  status text not null default 'active' check (status in ('active', 'disabled', 'consent_required', 'needs_reconnect', 'error')),
+  last_success_at timestamptz,
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, connection_id, capability_key),
+  foreign key (connection_id, user_id)
+    references public.integration_connections(id, user_id) on delete cascade
+);
+create index integration_capabilities_connection_owner_idx
+  on public.integration_capabilities (connection_id, user_id);
+
+create table public.integration_webhook_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  connection_id uuid,
+  provider text not null check (btrim(provider) <> ''),
+  capability_key text not null check (btrim(capability_key) <> ''),
+  direction text not null default 'inbound' check (direction in ('inbound', 'outbound')),
+  provider_subscription_id text,
+  watched_resource_id text,
+  callback_url text,
+  verification_secret_ciphertext text,
+  verification_secret_hash text,
+  status text not null default 'active' check (status in ('pending', 'active', 'renewing', 'disabled', 'failed')),
+  expires_at timestamptz,
+  renewal_attempted_at timestamptz,
+  last_notification_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, user_id),
+  foreign key (connection_id, user_id)
+    references public.integration_connections(id, user_id) on delete cascade,
+  foreign key (user_id, connection_id, capability_key)
+    references public.integration_capabilities(user_id, connection_id, capability_key) on delete cascade,
+  check (connection_id is not null or direction = 'outbound')
+);
+create unique index integration_webhook_subscriptions_provider_key
+  on public.integration_webhook_subscriptions (user_id, provider, provider_subscription_id)
+  where provider_subscription_id is not null;
+create index integration_webhook_subscriptions_renewal_idx
+  on public.integration_webhook_subscriptions (status, expires_at)
+  where status in ('active', 'renewing') and expires_at is not null;
+create index integration_webhook_subscriptions_tenant_renewal_idx
+  on public.integration_webhook_subscriptions (user_id, expires_at)
+  where status in ('active', 'renewing') and expires_at is not null;
+create index integration_webhook_subscriptions_connection_owner_idx
+  on public.integration_webhook_subscriptions (connection_id, user_id)
+  where connection_id is not null;
+create index integration_webhook_subscriptions_capability_owner_idx
+  on public.integration_webhook_subscriptions (user_id, connection_id, capability_key);
+
+create table public.integration_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  connection_id uuid,
+  capability_key text not null check (btrim(capability_key) <> ''),
+  provider_resource_key text not null default '',
+  job_kind text not null check (btrim(job_kind) <> ''),
+  idempotency_key text not null check (btrim(idempotency_key) <> ''),
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'pending' check (status in ('pending', 'running', 'succeeded', 'failed', 'dead')),
+  attempts integer not null default 0 check (attempts >= 0),
+  max_attempts integer not null default 8 check (max_attempts > 0),
+  available_at timestamptz not null default now(),
+  leased_by text,
+  lease_expires_at timestamptz,
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, job_kind, idempotency_key),
+  foreign key (connection_id, user_id)
+    references public.integration_connections(id, user_id) on delete cascade,
+  foreign key (user_id, connection_id, capability_key)
+    references public.integration_capabilities(user_id, connection_id, capability_key) on delete cascade
+);
+create index integration_jobs_due_idx
+  on public.integration_jobs (available_at, created_at)
+  where status in ('pending', 'failed');
+create index integration_jobs_tenant_due_idx
+  on public.integration_jobs (user_id, available_at, created_at)
+  where status in ('pending', 'failed');
+create index integration_jobs_lease_idx
+  on public.integration_jobs (lease_expires_at)
+  where status = 'running';
+create index integration_jobs_connection_owner_idx
+  on public.integration_jobs (connection_id, user_id)
+  where connection_id is not null;
+create index integration_jobs_capability_owner_idx
+  on public.integration_jobs (user_id, connection_id, capability_key);
+create index integration_jobs_terminal_retention_idx
+  on public.integration_jobs (updated_at, id)
+  where status in ('succeeded', 'dead');
+
+create table public.integration_webhook_receipts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  connection_id uuid,
+  provider text not null check (btrim(provider) <> ''),
+  capability_key text not null check (btrim(capability_key) <> ''),
+  provider_event_id text not null check (btrim(provider_event_id) <> ''),
+  payload_sha256 text not null check (payload_sha256 ~ '^[0-9a-f]{64}$'),
+  status text not null default 'received' check (status in ('received', 'processing', 'processed', 'rejected', 'failed')),
+  received_at timestamptz not null default now(),
+  processed_at timestamptz,
+  last_error_code text,
+  unique (user_id, provider, capability_key, provider_event_id),
+  foreign key (connection_id, user_id)
+    references public.integration_connections(id, user_id) on delete cascade,
+  foreign key (user_id, connection_id, capability_key)
+    references public.integration_capabilities(user_id, connection_id, capability_key) on delete cascade
+);
+create index integration_webhook_receipts_connection_owner_idx
+  on public.integration_webhook_receipts (connection_id, user_id)
+  where connection_id is not null;
+create index integration_webhook_receipts_capability_owner_idx
+  on public.integration_webhook_receipts (user_id, connection_id, capability_key);
+create index integration_webhook_receipts_unprocessed_idx
+  on public.integration_webhook_receipts (received_at)
+  where status in ('received', 'failed');
+create index integration_webhook_receipts_tenant_unprocessed_idx
+  on public.integration_webhook_receipts (user_id, received_at)
+  where status in ('received', 'failed');
+create index integration_webhook_receipts_terminal_retention_idx
+  on public.integration_webhook_receipts ((coalesce(processed_at, received_at)), id)
+  where status in ('processed', 'rejected');
+
+create table public.integration_outbox_events (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  subscription_id uuid,
+  event_type text not null check (btrim(event_type) <> ''),
+  aggregate_type text not null check (btrim(aggregate_type) <> ''),
+  aggregate_id text not null check (btrim(aggregate_id) <> ''),
+  idempotency_key text not null check (btrim(idempotency_key) <> ''),
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'pending' check (status in ('pending', 'delivering', 'delivered', 'failed', 'dead')),
+  attempts integer not null default 0 check (attempts >= 0),
+  max_attempts integer not null default 12 check (max_attempts > 0),
+  available_at timestamptz not null default now(),
+  leased_by text,
+  lease_expires_at timestamptz,
+  delivered_at timestamptz,
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, idempotency_key),
+  unique (id, user_id),
+  foreign key (subscription_id, user_id)
+    references public.integration_webhook_subscriptions(id, user_id) on delete cascade
+);
+create index integration_outbox_events_due_idx
+  on public.integration_outbox_events (available_at, created_at)
+  where status in ('pending', 'failed');
+create index integration_outbox_events_tenant_due_idx
+  on public.integration_outbox_events (user_id, available_at, created_at)
+  where status in ('pending', 'failed');
+create index integration_outbox_events_subscription_owner_idx
+  on public.integration_outbox_events (subscription_id, user_id)
+  where subscription_id is not null;
+create index integration_outbox_events_terminal_retention_idx
+  on public.integration_outbox_events (updated_at, id)
+  where status in ('delivered', 'dead');
+
+create table public.integration_delivery_attempts (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.users(id) on delete cascade,
+  outbox_event_id uuid not null,
+  attempt_number integer not null check (attempt_number > 0),
+  outcome text not null check (outcome in ('delivered', 'retryable_failure', 'permanent_failure')),
+  response_status integer check (response_status between 100 and 599),
+  error_code text,
+  attempted_at timestamptz not null default now(),
+  unique (outbox_event_id, attempt_number),
+  foreign key (outbox_event_id, user_id)
+    references public.integration_outbox_events(id, user_id) on delete cascade
+);
+create index integration_delivery_attempts_owner_idx
+  on public.integration_delivery_attempts (user_id, outbox_event_id);
+create index integration_delivery_attempts_event_owner_idx
+  on public.integration_delivery_attempts (outbox_event_id, user_id);
 
 create table public.calendar_preferences (
   user_id uuid not null references public.users(id) on delete cascade,
@@ -615,11 +810,14 @@ create index calendar_event_attendees_event_owner_idx
 create table public.calendar_sync_state (
   user_id uuid not null,
   connection_id uuid not null,
-  status text not null default 'idle' check (status in ('idle', 'syncing', 'success', 'partial', 'error')),
+  calendar_status text not null default 'idle' check (calendar_status in ('idle', 'syncing', 'success', 'partial', 'error')),
+  events_status text not null default 'idle' check (events_status in ('idle', 'syncing', 'success', 'partial', 'error')),
   calendar_last_synced_at timestamptz,
   events_last_synced_at timestamptz,
-  sync_started_at timestamptz,
-  last_error text,
+  calendar_sync_started_at timestamptz,
+  events_sync_started_at timestamptz,
+  calendar_last_error text,
+  events_last_error text,
   events_window_start timestamptz,
   events_window_end timestamptz,
   created_at timestamptz not null default now(),
@@ -741,13 +939,17 @@ create table public.note_attachments (
 
 create table public.note_attendees (
   id uuid primary key default gen_random_uuid(),
-  note_id uuid not null references public.notes(id) on delete cascade,
+  note_id uuid not null,
+  owner_user_id uuid not null,
   email text not null,
-  user_id uuid references public.users(id) on delete set null,
+  matched_user_id uuid references public.users(id) on delete set null,
   source text not null default 'manual' check (source in ('manual', 'calendar')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  foreign key (note_id, owner_user_id)
+    references public.notes(id, user_id) on delete cascade
 );
 create unique index note_attendees_note_email_key on public.note_attendees (note_id, lower(btrim(email)));
+create index note_attendees_note_owner_idx on public.note_attendees (note_id, owner_user_id);
 
 create table public.note_attendee_suppressions (
   note_id uuid not null,
@@ -810,7 +1012,7 @@ create index recording_sessions_note_owner_idx on public.note_recording_sessions
 create index recording_sessions_user_idx on public.note_recording_sessions (user_id);
 create index note_attachments_note_owner_idx on public.note_attachments (note_id, user_id);
 create index note_attachments_user_idx on public.note_attachments (user_id);
-create index note_attendees_user_idx on public.note_attendees (user_id);
+create index note_attendees_matched_user_idx on public.note_attendees (matched_user_id);
 create index conversations_user_idx on public.conversations (user_id);
 create index conversations_note_owner_idx on public.conversations (note_id, user_id);
 create index conversations_folder_owner_idx on public.conversations (folder_id, user_id);
@@ -828,7 +1030,9 @@ begin
     'account_extract_field_folders','account_summary_templates','account_summary_template_folders',
     'account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
-    'billing_webhook_events','folders','integration_connections',
+    'billing_webhook_events','folders','integration_connections','integration_capabilities',
+    'integration_webhook_subscriptions','integration_jobs','integration_webhook_receipts',
+    'integration_outbox_events','integration_delivery_attempts',
     'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
     'notes','note_versions','transcript_segments','note_recording_sessions',
     'note_attachments','note_calendar_links','note_attendees','note_attendee_suppressions','conversations','messages'
@@ -868,6 +1072,75 @@ as $$
       and session.id = p_session_id
       and (session.not_after is null or session.not_after > now())
   )
+$$;
+
+-- Narrow coordinator function for the durable integration worker. It exposes
+-- only tenant IDs that currently have due work; job payloads remain behind RLS.
+create function orion_internal.integration_job_tenants_due(p_limit integer default 100)
+returns table (user_id uuid)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select job.user_id
+  from public.integration_jobs as job
+  where job.attempts < job.max_attempts
+    and job.available_at <= now()
+    and (
+      job.status in ('pending', 'failed')
+      or (job.status = 'running' and job.lease_expires_at < now())
+    )
+  group by job.user_id
+  order by min(job.available_at), job.user_id
+  limit greatest(1, least(coalesce(p_limit, 100), 1000))
+$$;
+
+-- Purges bounded batches of terminal control-plane data after 30 days. Outbox
+-- deletion cascades its immutable delivery attempts; pending/retryable work is
+-- never selected.
+create function orion_internal.purge_integration_control_plane(p_limit integer default 1000)
+returns table (jobs_deleted bigint, webhook_receipts_deleted bigint, outbox_events_deleted bigint)
+language sql
+volatile
+security definer
+set search_path = ''
+as $$
+  with deleted_jobs as (
+    delete from public.integration_jobs
+    where id in (
+      select id from public.integration_jobs
+      where status in ('succeeded', 'dead')
+        and updated_at < now() - interval '30 days'
+      order by updated_at, id
+      limit greatest(1, least(coalesce(p_limit, 1000), 10000))
+    )
+    returning 1
+  ), deleted_receipts as (
+    delete from public.integration_webhook_receipts
+    where id in (
+      select id from public.integration_webhook_receipts
+      where status in ('processed', 'rejected')
+        and coalesce(processed_at, received_at) < now() - interval '30 days'
+      order by coalesce(processed_at, received_at), id
+      limit greatest(1, least(coalesce(p_limit, 1000), 10000))
+    )
+    returning 1
+  ), deleted_outbox as (
+    delete from public.integration_outbox_events
+    where id in (
+      select id from public.integration_outbox_events
+      where status in ('delivered', 'dead')
+        and updated_at < now() - interval '30 days'
+      order by updated_at, id
+      limit greatest(1, least(coalesce(p_limit, 1000), 10000))
+    )
+    returning 1
+  )
+  select
+    (select count(*) from deleted_jobs),
+    (select count(*) from deleted_receipts),
+    (select count(*) from deleted_outbox)
 $$;
 
 -- Atomically creates/locks a usage period, applies only the unconsumed part of
@@ -1108,6 +1381,14 @@ grant execute on function orion_internal.vocabulary_terms_valid(text[])
   to orion_backend;
 grant execute on function orion_internal.is_auth_session_active(uuid, uuid)
   to orion_backend;
+revoke all on function orion_internal.integration_job_tenants_due(integer)
+  from public, anon, authenticated;
+grant execute on function orion_internal.integration_job_tenants_due(integer)
+  to orion_backend;
+revoke all on function orion_internal.purge_integration_control_plane(integer)
+  from public, anon, authenticated;
+grant execute on function orion_internal.purge_integration_control_plane(integer)
+  to orion_backend;
 revoke all on function orion_internal.consume_account_usage(
   uuid, text, timestamptz, timestamptz, text, bigint, bigint
 ) from public, anon, authenticated;
@@ -1160,15 +1441,31 @@ grant usage on sequence public.billing_webhook_events_id_seq to orion_backend;
 -- owner/admin sessions and does not use SET ROLE.
 revoke orion_backend from postgres;
 
+-- Keep tenant resolution in one stable, narrowly granted function. Referencing
+-- it through a scalar subquery lets Postgres initialize the value once per
+-- statement instead of evaluating current_setting for every candidate row.
+create function orion_internal.current_tenant_user_id()
+returns uuid
+language sql
+stable
+security invoker
+set search_path = ''
+as $$
+  select nullif(current_setting('app.current_user_id', true), '')::uuid
+$$;
+revoke all on function orion_internal.current_tenant_user_id()
+  from public, anon, authenticated;
+grant execute on function orion_internal.current_tenant_user_id()
+  to orion_backend;
+
 do $$
 declare table_name text;
 begin
   foreach table_name in array array[
     'users','folders','account_extract_fields','account_extract_field_folders',
-    'account_summary_templates','account_summary_template_folders','integration_connections',
-    'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
+    'account_summary_templates','account_summary_template_folders',
     'notes','note_versions','transcript_segments','note_recording_sessions',
-    'note_attachments','note_calendar_links','note_attendees','note_attendee_suppressions','conversations','messages'
+    'note_attachments','conversations','messages'
   ] loop
     execute format(
       'create policy backend_only on public.%I for all to orion_backend using (true) with check (true)',
@@ -1176,6 +1473,32 @@ begin
     );
   end loop;
 end $$;
+
+-- Calendar and connector data is additionally restricted to the tenant bound
+-- by the backend at transaction start. An unset setting matches no rows, so
+-- an accidentally unscoped query fails closed; application input is UUID-validated.
+do $$
+declare table_name text;
+begin
+  foreach table_name in array array[
+    'integration_connections','integration_capabilities','integration_webhook_subscriptions',
+    'integration_jobs','integration_webhook_receipts','integration_outbox_events',
+    'integration_delivery_attempts','calendar_preferences','calendar_sources',
+    'calendar_events','calendar_event_attendees','calendar_sync_state',
+    'note_calendar_links','note_attendee_suppressions'
+  ] loop
+    execute format('drop policy if exists backend_only on public.%I', table_name);
+    execute format(
+      'create policy backend_tenant_only on public.%I for all to orion_backend using (user_id = (select orion_internal.current_tenant_user_id())) with check (user_id = (select orion_internal.current_tenant_user_id()))',
+      table_name
+    );
+  end loop;
+end $$;
+
+create policy backend_tenant_only on public.note_attendees
+  for all to orion_backend
+  using (owner_user_id = (select orion_internal.current_tenant_user_id()))
+  with check (owner_user_id = (select orion_internal.current_tenant_user_id()));
 
 create policy backend_select on public.accounts
   for select to orion_backend using (true);

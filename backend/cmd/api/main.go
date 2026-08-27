@@ -21,6 +21,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/email"
 	"github.com/mouizahmed/justscribe-backend/internal/handlers"
+	"github.com/mouizahmed/justscribe-backend/internal/integrationworker"
 	"github.com/mouizahmed/justscribe-backend/internal/memory"
 	"github.com/mouizahmed/justscribe-backend/internal/middleware"
 	"github.com/mouizahmed/justscribe-backend/internal/profile"
@@ -114,6 +115,8 @@ func main() {
 	integrationConnectionRepo := repository.NewIntegrationConnectionRepository(db)
 	calendarPreferenceRepo := repository.NewCalendarPreferenceRepository(db)
 	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
+	integrationControlPlaneRepo := repository.NewIntegrationControlPlaneRepository(db)
+	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
@@ -189,9 +192,16 @@ func main() {
 	// Initialize queue and worker
 	indexQueue := queue.NewQueue(redisClient)
 	w := worker.NewWorker(indexQueue, embedder, pineconeClient, noteRepo, transcriptRepo)
+	integrationWorker := integrationworker.New(integrationControlPlaneRepo, calendarSyncService, resourceEventPublisher, func(userID string, syncing, stale bool) {
+		wsHub.SendToUser(userID, map[string]any{
+			"type": "calendar.sync_status",
+			"data": map[string]any{"syncing": syncing, "stale": stale},
+		})
+	})
 	workerCtx, cancelWorker := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelWorker()
 	go w.Start(workerCtx)
+	go integrationWorker.Start(workerCtx)
 	go billingEventProcessor.Start(workerCtx)
 	go billingReconciler.Start(workerCtx)
 	resourceEventSubscriberDone := make(chan struct{})
@@ -222,9 +232,8 @@ func main() {
 
 	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, wsHub)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
-	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo)
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
-	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, wsHub, resourceEventPublisher)
+	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, integrationControlPlaneRepo, wsHub, resourceEventPublisher)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue, resourceEventPublisher)
 	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 

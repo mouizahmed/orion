@@ -18,9 +18,14 @@ func (r *calendarCacheRepository) AcquireSyncLock(ctx context.Context, userID, c
 		return nil, fmt.Errorf("failed to reserve calendar lock connection: %w", err)
 	}
 	key := "calendar-sync:" + userID + ":" + connectionID
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, key); err != nil {
+	var acquired bool
+	if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtextextended($1, 0))`, key).Scan(&acquired); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to acquire calendar sync lock: %w", err)
+	}
+	if !acquired {
+		conn.Close()
+		return nil, ErrCalendarSyncInProgress
 	}
 	return func() {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -31,7 +36,7 @@ func (r *calendarCacheRepository) AcquireSyncLock(ctx context.Context, userID, c
 }
 
 func (r *calendarCacheRepository) ReconcileCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) ([]string, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin calendar source reconciliation: %w", err)
 	}
@@ -97,7 +102,7 @@ func (r *calendarCacheRepository) ReconcileCalendarSources(ctx context.Context, 
 }
 
 func (r *calendarCacheRepository) ApplyCalendarEventSync(ctx context.Context, userID string, connection *models.IntegrationConnection, calendarID string, batch models.CalendarEventSyncBatch) ([]string, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin calendar event apply: %w", err)
 	}
@@ -187,7 +192,7 @@ func (r *calendarCacheRepository) ApplyCalendarEventSync(ctx context.Context, us
 }
 
 func (r *calendarCacheRepository) DeleteEventsBefore(ctx context.Context, userID, connectionID string, cutoff time.Time) ([]string, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin calendar retention cleanup: %w", err)
 	}

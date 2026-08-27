@@ -234,22 +234,25 @@ func (s *Service) SyncUser(ctx context.Context, userID string, scope SyncScope) 
 func (s *Service) syncConnection(ctx context.Context, userID string, connection *models.IntegrationConnection, scope SyncScope) ([]string, error) {
 	release, err := s.cache.AcquireSyncLock(ctx, userID, connection.ID)
 	if err != nil {
+		if errors.Is(err, repository.ErrCalendarSyncInProgress) {
+			return nil, nil
+		}
 		return nil, err
 	}
 	defer release()
 
-	if err := s.cache.MarkSyncStarted(ctx, userID, connection.ID); err != nil {
+	if err := s.cache.MarkSyncStarted(ctx, userID, connection.ID, string(scope)); err != nil {
 		return nil, err
 	}
 
 	if connection.ExpiresAt != nil && time.Now().Add(2*time.Minute).After(*connection.ExpiresAt) {
 		if err := s.refreshConnectionTokenIfNeeded(ctx, userID, connection); err != nil {
-			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
+			s.recordSyncError(ctx, userID, connection.ID, scope, err)
 			return nil, err
 		}
 		refreshed, err := s.connections.GetByID(userID, connection.ID)
 		if err != nil {
-			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
+			s.recordSyncError(ctx, userID, connection.ID, scope, err)
 			return nil, err
 		}
 		connection = refreshed
@@ -261,12 +264,12 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 		calendars, err := s.fetchCalendarsWithAuthRetry(ctx, userID, connection)
 		if err != nil {
 			s.markNeedsReconnectOnAuthError(userID, connection.ID, err)
-			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
+			s.recordSyncError(ctx, userID, connection.ID, scope, err)
 			return nil, err
 		}
 		noteIDs, err := s.cache.ReconcileCalendarSources(ctx, userID, connection, calendars)
 		if err != nil {
-			_ = s.cache.MarkSyncError(ctx, userID, connection.ID, err)
+			s.recordSyncError(ctx, userID, connection.ID, scope, err)
 			return nil, err
 		}
 		changedNoteIDs = append(changedNoteIDs, noteIDs...)
@@ -304,20 +307,33 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 		}
 		if outcome.err != nil {
 			if outcome.succeeded > 0 {
-				_ = s.cache.MarkSyncPartial(ctx, userID, connection.ID, outcome.err)
+				if stateErr := s.cache.MarkSyncPartial(ctx, userID, connection.ID, string(SyncScopeEvents), outcome.err); stateErr != nil {
+					log.Printf("calendar sync: failed to persist partial state for connection %s: %v", connection.ID, stateErr)
+				}
 				return changedNoteIDs, &PartialSyncError{Err: outcome.err}
 			} else {
-				_ = s.cache.MarkSyncError(ctx, userID, connection.ID, outcome.err)
+				s.recordSyncError(ctx, userID, connection.ID, SyncScopeEvents, outcome.err)
 			}
 			return changedNoteIDs, outcome.err
 		}
 		if err := s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(scope), &windowStart, &windowEnd); err != nil {
+			s.recordSyncError(ctx, userID, connection.ID, scope, errors.New("failed to persist sync completion"))
 			return changedNoteIDs, err
 		}
 		return changedNoteIDs, nil
 	}
 
-	return changedNoteIDs, s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(scope), nil, nil)
+	if err := s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(scope), nil, nil); err != nil {
+		s.recordSyncError(ctx, userID, connection.ID, scope, errors.New("failed to persist sync completion"))
+		return changedNoteIDs, err
+	}
+	return changedNoteIDs, nil
+}
+
+func (s *Service) recordSyncError(ctx context.Context, userID, connectionID string, scope SyncScope, syncErr error) {
+	if stateErr := s.cache.MarkSyncError(ctx, userID, connectionID, string(scope), syncErr); stateErr != nil {
+		log.Printf("calendar sync: failed to persist error state for connection %s: %v", connectionID, stateErr)
+	}
 }
 
 func (s *Service) fetchCalendarsWithAuthRetry(ctx context.Context, userID string, connection *models.IntegrationConnection) ([]*models.CachedCalendarSource, error) {
@@ -518,7 +534,7 @@ func (s *Service) fetchGoogleCalendars(ctx context.Context, connection *models.I
 			return nil, err
 		}
 		if status != http.StatusOK {
-			return nil, fmt.Errorf("Google CalendarList API error %d: %s", status, string(body))
+			return nil, providerAPIError("Google CalendarList", status, body)
 		}
 		var page struct {
 			Items         []calendarListItem `json:"items"`
@@ -576,7 +592,7 @@ func (s *Service) fetchGoogleEventsFull(ctx context.Context, connection *models.
 			return nil, err
 		}
 		if status != http.StatusOK {
-			return nil, fmt.Errorf("Google Calendar API error %d: %s", status, string(body))
+			return nil, providerAPIError("Google Calendar", status, body)
 		}
 		var page struct {
 			Items         []googleEventItem `json:"items"`
@@ -621,7 +637,7 @@ func (s *Service) fetchGoogleEventsIncremental(ctx context.Context, connection *
 			return nil, fmt.Errorf("Google Calendar syncToken expired (410 Gone)")
 		}
 		if status != http.StatusOK {
-			return nil, fmt.Errorf("Google Calendar API error %d: %s", status, string(body))
+			return nil, providerAPIError("Google Calendar", status, body)
 		}
 		var page struct {
 			Items         []googleEventItem `json:"items"`
@@ -984,7 +1000,7 @@ func (s *Service) doMicrosoftGet(ctx context.Context, connection *models.Integra
 			}
 			continue
 		}
-		return nil, fmt.Errorf("Microsoft Graph API error status %d: %s", resp.StatusCode, string(body))
+		return nil, providerAPIError("Microsoft Graph", resp.StatusCode, body)
 	}
 	return nil, fmt.Errorf("Microsoft Graph API error: retry attempts exhausted")
 }
@@ -1045,14 +1061,6 @@ func (s *Service) refreshConnectionTokenIfNeeded(parent context.Context, userID 
 		return fmt.Errorf("unsupported provider: %s", connection.Provider)
 	}
 
-	oauthToken := &oauth2.Token{
-		AccessToken:  connection.AccessToken,
-		RefreshToken: *connection.RefreshToken,
-		TokenType:    "Bearer",
-	}
-	if connection.ExpiresAt != nil {
-		oauthToken.Expiry = *connection.ExpiresAt
-	}
 	config := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
@@ -1062,14 +1070,15 @@ func (s *Service) refreshConnectionTokenIfNeeded(parent context.Context, userID 
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
-	newToken, err := config.TokenSource(ctx, oauthToken).Token()
+	newToken, err := forceRefreshOAuthToken(ctx, config, *connection.RefreshToken)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "invalid_grant") {
+		safeErr := redactOAuthError(err)
+		if strings.Contains(strings.ToLower(safeErr.Error()), "invalid_grant") {
 			if markErr := s.connections.MarkNeedsReconnect(userID, connection.ID); markErr != nil {
 				log.Printf("calendar sync: failed to mark connection %s needs reconnect: %v", connection.ID, markErr)
 			}
 		}
-		return fmt.Errorf("failed to refresh token: %w", err)
+		return fmt.Errorf("failed to refresh token: %w", safeErr)
 	}
 
 	updates := &models.UpdateIntegrationConnectionTokensRequest{AccessToken: &newToken.AccessToken}
@@ -1080,6 +1089,79 @@ func (s *Service) refreshConnectionTokenIfNeeded(parent context.Context, userID 
 		updates.ExpiresAt = &newToken.Expiry
 	}
 	return s.connections.UpdateTokens(userID, connection.ID, updates)
+}
+
+func forceRefreshOAuthToken(ctx context.Context, config *oauth2.Config, refreshToken string) (*oauth2.Token, error) {
+	// Config.TokenSource reuses a supplied token while it is valid. Supplying
+	// only the refresh token makes this an explicit refresh, which is required
+	// both for the pre-expiry threshold and for retrying a provider 401.
+	return config.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}).Token()
+}
+
+func redactOAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) {
+		status := 0
+		if retrieveErr.Response != nil {
+			status = retrieveErr.Response.StatusCode
+		}
+		code := safeProviderErrorCode(retrieveErr.ErrorCode)
+		if code != "" {
+			return fmt.Errorf("OAuth token endpoint status %d (%s)", status, code)
+		}
+		return fmt.Errorf("OAuth token endpoint status %d", status)
+	}
+	return fmt.Errorf("OAuth token request failed")
+}
+
+func providerAPIError(provider string, status int, body []byte) error {
+	var payload struct {
+		Error json.RawMessage `json:"error"`
+	}
+	code := ""
+	if json.Unmarshal(body, &payload) == nil && len(payload.Error) > 0 {
+		var text string
+		if json.Unmarshal(payload.Error, &text) == nil {
+			code = text
+		} else {
+			var nested struct {
+				Code json.RawMessage `json:"code"`
+			}
+			if json.Unmarshal(payload.Error, &nested) == nil {
+				if json.Unmarshal(nested.Code, &text) == nil {
+					code = text
+				} else {
+					var number json.Number
+					if json.Unmarshal(nested.Code, &number) == nil {
+						code = number.String()
+					}
+				}
+			}
+		}
+	}
+	code = safeProviderErrorCode(code)
+	if code != "" {
+		return fmt.Errorf("%s API error status %d (%s)", provider, status, code)
+	}
+	return fmt.Errorf("%s API error status %d", provider, status)
+}
+
+func safeProviderErrorCode(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) > 80 {
+		value = value[:80]
+	}
+	for _, character := range value {
+		if (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || strings.ContainsRune("._-", character) {
+			continue
+		}
+		return ""
+	}
+	return value
 }
 
 func parseGoogleTime(dateTime, date string) time.Time {

@@ -111,6 +111,9 @@ export default function HomeView({
     events: calendarEvents,
     loading: calendarLoading,
     syncing: calendarSyncing,
+    error: calendarError,
+    lastError: calendarLastError,
+    refresh: refreshCalendar,
   } = useCalendarEvents()
 
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
@@ -158,6 +161,9 @@ export default function HomeView({
             <UpcomingMeetings
               events={calendarEvents}
               loading={calendarLoading}
+              failed={Boolean(calendarError || calendarLastError)}
+              errorMessage={calendarError ?? calendarLastError}
+              onRetry={() => void refreshCalendar()}
               onSelect={onOpenCalendar ? (event) => onOpenCalendar(event.id) : undefined}
             />
           </DashboardPanelBody>

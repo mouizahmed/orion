@@ -72,7 +72,6 @@ export type CalendarEvent = {
 export type CalendarEventsSnapshot = {
   events: CalendarEvent[]
   syncing: boolean
-  stale: boolean
   lastSyncedAt?: string
   lastError?: string
   partial: boolean
@@ -138,7 +137,6 @@ export async function getCalendarEvents(signal?: AbortSignal): Promise<CalendarE
       ? data.events.map((event: ServerCalendarEvent) => normalizeEvent(event))
       : [],
     syncing: Boolean(data.syncing),
-    stale: Boolean(data.stale),
     lastSyncedAt: typeof data.last_synced_at === 'string' ? data.last_synced_at : undefined,
     lastError: typeof data.last_error === 'string' && data.last_error ? data.last_error : undefined,
     partial: Boolean(data.partial),

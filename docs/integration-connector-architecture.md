@@ -277,15 +277,18 @@ Orion would provide:
 
 Zapier should therefore reuse Orion's installation, capability, subscription, audit, and lifecycle concepts, but its request direction and credential ownership are different from Google, Microsoft, and Notion connectors.
 
-## Recommended persistence model
+## Implemented persistence foundation
 
-The names below are architectural recommendations, not an approved migration or final SQL contract.
+The shared foundation below was approved and implemented on 2026-08-27 in the
+canonical schema and hosted development project. Calendar remains the first
+active capability; provider-specific domain models for mail, files, Notion,
+and Zapier remain future work.
 
-### `integration_installations`
+### `integration_connections` (installation compatibility model)
 
 Represents the connected external account or workspace.
 
-Suggested responsibilities:
+Implemented responsibilities:
 
 - `id`;
 - `user_id` or future account/tenant owner ID;
@@ -296,15 +299,20 @@ Suggested responsibilities:
 - provider metadata that is safe and necessary to retain;
 - connected, updated, reconnect-required, and disconnected timestamps.
 
-Use uniqueness that matches the provider identity boundary. For Google this may be provider account ID; for Notion it must include workspace/installation identity. Do not assume every provider is uniquely identified by an email address.
+The current uniqueness boundary is `(user_id, provider, provider_account_id)`.
+Future workspace providers must populate `provider_account_id` with their stable
+installation/workspace identity; email is display metadata, not identity.
 
-### `integration_credentials`
+### Credential fields (current compatibility model)
 
-Stores encrypted credential material separately from ordinary installation reads.
+The compatibility table currently stores encrypted credential material beside
+installation metadata. Repository list methods scan credentials only inside the
+backend and response models exclude them. A physically separate credential
+table remains a later hardening option, not a prerequisite for another adapter.
 
-Suggested responsibilities:
+Implemented fields:
 
-- installation ID;
+- connection ID;
 - encrypted access token;
 - encrypted refresh token;
 - encryption key version;
@@ -318,9 +326,9 @@ Normal list APIs should query installations without selecting credential columns
 
 Represents product intent and consent state.
 
-Suggested responsibilities:
+Implemented fields:
 
-- installation ID;
+- connection ID;
 - capability key;
 - enabled state;
 - required scopes;
@@ -331,29 +339,31 @@ Suggested responsibilities:
 
 An installation and capability should have one active configuration unless a later product requirement explicitly supports multiple configurations.
 
-### `integration_sync_states`
+### `calendar_sync_state` and `integration_jobs`
 
-Stores synchronization state per capability and resource.
+Calendar lifecycle state remains split by list/event scope in
+`calendar_sync_state`; shared retryable work lives in `integration_jobs`.
 
-Suggested responsibilities:
+Implemented job fields and behavior:
 
 - installation ID;
 - capability key;
 - provider resource key;
-- opaque cursor or checkpoint;
-- sync status;
-- full-sync generation;
-- lease or job ownership state if required;
-- last started and completed timestamps;
-- retry scheduling and last error metadata.
+- capability and provider resource keys;
+- JSON payload and stable idempotency key;
+- pending, running, succeeded, failed, and dead states;
+- bounded attempt count, next availability, lease owner, and lease expiry;
+- bounded operational error code without raw provider text.
 
-Use a uniqueness constraint across installation, capability, and provider resource key. Index due/retry work by status and next-attempt timestamp if workers query it that way.
+Calendar provider cursors remain on each `calendar_sources` row. Shared jobs are
+unique by tenant, job kind, and idempotency key and use tenant-leading partial
+indexes for due work.
 
 ### `integration_webhook_subscriptions`
 
 Stores provider notification registrations and Zapier callback subscriptions.
 
-Suggested responsibilities:
+Implemented fields:
 
 - installation ID;
 - capability key;
@@ -366,6 +376,19 @@ Suggested responsibilities:
 
 Secrets must not be included in generic connection responses or logs.
 
+### `integration_webhook_receipts`
+
+Provides an idempotent inbound notification ledger keyed by tenant, provider,
+capability, and provider event ID. It retains only a SHA-256 payload digest and
+bounded status/error metadata; it deliberately does not retain the raw payload.
+
+### `integration_outbox_events` and `integration_delivery_attempts`
+
+Provide transactional outbound event enqueue, leased delivery, retry/dead-letter
+state, and immutable attempt history. Domain writers enqueue through the caller's
+existing tenant-bound transaction so a business change and its outbound event
+commit or roll back together.
+
 ### Domain data
 
 Use capability-specific normalized tables for durable product data. Avoid one universal `connector_objects` table containing only provider name and arbitrary JSON.
@@ -373,6 +396,12 @@ Use capability-specific normalized tables for durable product data. Avoid one un
 Raw provider JSON can be retained selectively for debugging or forward compatibility, but it should not be the only representation of fields used for ownership, filtering, ordering, joining, lifecycle decisions, or user-visible behavior.
 
 Every user-data table must carry an enforceable tenant ownership path. Tables exposed through Supabase's Data API require explicit grants where applicable and RLS policies that combine authentication with row ownership; `TO authenticated` alone is not tenant authorization.
+
+Do not reuse a tenant-owner column for the identity of a related person or
+provider principal. Child records such as attendees and future file recipients
+must keep a non-null owner/tenant column for RLS and ownership foreign keys,
+plus a separate nullable matched-user column when the related identity may be
+external, unresolved, or owned by another Orion account.
 
 ## Security requirements
 
@@ -393,12 +422,12 @@ Every user-data table must carry an enforceable tenant ownership path. Tables ex
 
 Orion does need to evolve the calendar implementation before using it as the foundation for many additional connectors, but the working calendar functionality does not need to be discarded.
 
-The recommended direction is:
+The implemented direction is:
 
 1. Preserve the existing calendar provider adapters, event cache, and calendar-specific sync tokens.
-2. Extract installation identity and credentials from the feature-specific connection assumptions.
-3. Persist `calendar.read` as an explicit capability.
-4. Move general job state and webhook subscription lifecycle into shared connector services.
+2. Treat `integration_connections` as the compatibility installation and credential record while keeping tokens excluded from every response.
+3. Persist `calendar.read` as an explicit capability. **Complete.**
+4. Move general job state, webhook receipt/subscription, outbox, and delivery-attempt lifecycle into shared connector services. **Complete at the foundation layer.**
 5. Keep calendar sources, events, preferences, and attendee logic in the calendar domain.
 6. Add Gmail, Drive, Outlook Mail, OneDrive, or Notion only after the first generic connector seams exist.
 
@@ -499,10 +528,10 @@ The connector foundation is ready when:
 
 This document does not:
 
-- approve or apply a database migration;
+- implement provider-specific Gmail, Drive, Outlook Mail, OneDrive, Notion, or Zapier domain adapters;
 - define every provider object Orion may eventually store;
 - authorize broad mailbox or file-content ingestion;
-- select a queue implementation;
+- replace the implemented PostgreSQL durable job/outbox foundation with a different queue;
 - replace the calendar events and attendee audit;
 - commit Orion to supporting every connector listed here.
 

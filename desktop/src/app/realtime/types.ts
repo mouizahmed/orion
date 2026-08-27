@@ -1,7 +1,7 @@
 export interface ServerEventMap {
   'auth.ok': undefined
   'auth.error': { message: string }
-  'calendar.sync_status': { syncing: boolean; stale: boolean; last_synced_at?: string }
+  'calendar.sync_status': { syncing: boolean; last_synced_at?: string }
   'resource.changed': ResourceChangedEvent
 }
 

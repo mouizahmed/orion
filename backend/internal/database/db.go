@@ -1,17 +1,34 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/url"
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
 
 type DB struct {
 	*sql.DB
+}
+
+func (db *DB) BeginTenantTx(ctx context.Context, userID string, options *sql.TxOptions) (*sql.Tx, error) {
+	if _, err := uuid.Parse(userID); err != nil {
+		return nil, fmt.Errorf("invalid tenant ID")
+	}
+	tx, err := db.BeginTx(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `SELECT set_config('app.current_user_id', $1, true)`, userID); err != nil {
+		_ = tx.Rollback()
+		return nil, fmt.Errorf("failed to bind database tenant: %w", err)
+	}
+	return tx, nil
 }
 
 const backendDatabaseRole = "orion_backend"

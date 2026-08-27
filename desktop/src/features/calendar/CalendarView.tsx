@@ -321,7 +321,7 @@ export function CalendarView({
   initialSelectedEventId?: string | null
 }) {
   const { createNewNote, selectNote } = useDashboardNotes()
-  const { events, loading, syncing, stale, partial, lastError, error, refresh } = useCalendarEvents()
+  const { events, loading, syncing, partial, lastError, error, refresh } = useCalendarEvents()
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const consumedInitialEventRef = useRef<string | null>(null)
 
@@ -384,7 +384,6 @@ export function CalendarView({
                 </div>
               ) : null}
               {!syncing && partial ? <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Partial sync</span> : null}
-              {!syncing && stale && !partial ? <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Cached</span> : null}
             </div>
           </div>
           <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>

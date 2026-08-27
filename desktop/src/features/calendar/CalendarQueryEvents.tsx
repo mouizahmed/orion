@@ -49,7 +49,6 @@ export default function CalendarQueryEvents() {
         ? {
             ...current,
             syncing: data.syncing,
-            stale: data.stale,
             lastSyncedAt: data.last_synced_at,
           }
         : current)

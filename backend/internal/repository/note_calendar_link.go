@@ -9,7 +9,7 @@ import (
 )
 
 func (r *NoteRepository) SetCalendarLink(ctx context.Context, userID, noteID, calendarEventID string, expectedRevision *int64) (*models.Note, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin calendar link update: %w", err)
 	}
@@ -65,7 +65,7 @@ func (r *NoteRepository) SetCalendarLink(ctx context.Context, userID, noteID, ca
 }
 
 func (r *NoteRepository) ClearCalendarLink(ctx context.Context, userID, noteID string, expectedRevision *int64) (*models.Note, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin calendar unlink: %w", err)
 	}
@@ -219,8 +219,8 @@ func reconcileCalendarAttendeesTx(tx *sql.Tx, noteID, userID, calendarEventID st
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO note_attendees (note_id, email, user_id, source)
-		SELECT $1, cea.email, (
+		INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id, source)
+		SELECT $1, $2, cea.email, (
 			SELECT candidate.id
 			FROM users candidate
 			WHERE lower(btrim(candidate.email)) = lower(btrim(cea.email))
@@ -246,7 +246,7 @@ func reconcileCalendarAttendeesTx(tx *sql.Tx, noteID, userID, calendarEventID st
 			  AND lower(btrim(nas.email)) = lower(btrim(cea.email))
 		  )
 		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
-			user_id = COALESCE(EXCLUDED.user_id, note_attendees.user_id)
+			matched_user_id = COALESCE(EXCLUDED.matched_user_id, note_attendees.matched_user_id)
 	`, noteID, userID, calendarEventID); err != nil {
 		return fmt.Errorf("failed to add calendar attendees: %w", err)
 	}

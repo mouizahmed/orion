@@ -32,10 +32,16 @@ function formatMeetingDate(event: CalendarEvent) {
 export function UpcomingMeetings({
   events,
   loading,
+  failed,
+  errorMessage,
+  onRetry,
   onSelect,
 }: {
   events: CalendarEvent[]
   loading: boolean
+  failed: boolean
+  errorMessage?: string | null
+  onRetry?: () => void
   onSelect?: (event: CalendarEvent) => void
 }) {
   const meetings = events.slice(0, 3)
@@ -84,6 +90,16 @@ export function UpcomingMeetings({
             </div>
           </div>
         ))}
+      </div>
+    )
+  }
+
+  if (failed && meetings.length === 0) {
+    return (
+      <div className="flex min-h-24 flex-col items-center justify-center px-4 py-5 text-center">
+        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Calendar unavailable</p>
+        <p className="mt-1 max-w-sm text-xs text-neutral-500 dark:text-neutral-400">{errorMessage || 'Calendar synchronization needs attention.'}</p>
+        {onRetry ? <button type="button" className="mt-2 text-xs font-medium text-[#7c3aed] hover:underline dark:text-[#bda1ff]" onClick={onRetry}>Try again</button> : null}
       </div>
     )
   }

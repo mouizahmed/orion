@@ -1,6 +1,6 @@
 # Calendar Events and Attendee System Audit
 
-**Date:** 2026-08-22  
+**Date:** 2026-08-22; re-reviewed 2026-08-27
 **Scope:** Calendar integrations, provider synchronization, cached events, linked notes, attendee reconciliation, database security, desktop consumers, and automated tests.
 
 ## Executive summary
@@ -184,18 +184,22 @@ The cache stores the organizer display name before the email address, while link
 8. Syncs acquire a PostgreSQL advisory lock keyed only by user and connection, independent of requested scope.
 9. Repository sync operations return affected note IDs. Handlers publish targeted note resource events after commits, including disconnect and attendee changes.
 10. `calendar_event_attendees` stores response status, attendee type, optional, organizer, self, resource, and provider identifiers. Declined, organizer, self, and resource rows are ineligible for note attendee reconciliation. Manual attendee removals are durable through `note_attendee_suppressions`.
-11. Calendar responses and the desktop snapshot preserve `last_error`, `partial`, and `stale`; the view distinguishes syncing, cached, partial, failed, and genuinely empty states.
+11. Calendar responses and the desktop snapshot preserve `last_error`, `partial`, and `stale`. The desktop keeps stale data available without adding cached-data banners, and shows an unavailable/retry state only when a failure leaves no meetings to display.
 12. Organizer display name and email now have separate database columns, backend fields, and desktop fields. The legacy ambiguous column was removed from dev after the rebuilt backend started successfully.
 
 Additional hardening includes bounded provider retries, `Retry-After` handling, pre-expiry token refresh, one safe authorization refresh/retry, per-calendar transactional event/cursor apply, normalized attendee snapshot compatibility, and in-process operational counters for sync duration/outcome, per-calendar failures, refreshes, applied events, affected notes, and retention.
 
 ## Security posture
 
-External Supabase roles are revoked from application tables, and all relevant live tables have forced row-level security with backend-only policies. The final live schema matches the checked-in calendar structures. A post-DDL Supabase advisor run found three uncovered composite foreign keys on new tables; matching column-order indexes were added to dev and `supabase/schema.sql`, and the follow-up advisor run confirmed those findings were cleared.
-
-However, the `orion_backend` policies use `USING (true)` and `WITH CHECK (true)` in `supabase/schema.sql:1086`. RLS therefore limits access to the backend role but does not provide tenant isolation inside that role. Current calendar handlers generally perform ownership checks, but a future missing `user_id` predicate would not be contained by the database.
-
-Tenant isolation inside the backend role remains an application responsibility. Every new synchronization, retention, disconnect, snapshot, link, and attendee operation carries an explicit `user_id`, composite ownership foreign keys prevent cross-account note/event references, and a live rollback-only cross-account rejection test passed. If the product later requires defense within a compromised backend session, bind a validated account identifier to each transaction and replace the backend-wide policies with account-aware RLS.
+External Supabase roles are revoked from application tables. Fifteen calendar,
+connector, link, suppression, and attendee tables have forced row-level security
+that compares each row's tenant-owner column with a transaction-local,
+UUID-validated tenant. The
+narrow `orion_internal.current_tenant_user_id()` helper is executable only by
+`orion_backend`, and an unset tenant fails closed. Composite ownership foreign
+keys additionally prevent cross-account note/event references. A post-DDL
+advisor run found uncovered composite foreign keys on new tables; matching
+column-order indexes were added to the hosted project and canonical schema.
 
 The remaining Supabase security advisor items are platform-wide and outside this calendar implementation: leaked-password protection is disabled, the project PostgreSQL version has security patches available, and two usage-accounting tables intentionally have RLS without client policies. Address these before production launch.
 
@@ -213,6 +217,92 @@ The remaining Supabase security advisor items are platform-wide and outside this
 - Supabase security and performance advisors were rerun after the final DDL. No calendar-specific security warning or unindexed calendar foreign key remains.
 
 The repository’s transaction-heavy paths are primarily guarded by the live rollback invariant suite rather than a disposable local Postgres test container. Before production, automate those same SQL invariants in CI against an isolated Supabase/Postgres instance and add provider sandbox end-to-end tests for delta-token expiry, throttling, and revocation failure.
+
+## 2026-08-27 calendar and future-connector re-review
+
+The second review covered the current Go backend, desktop calendar consumers,
+canonical schema, connector architecture, and hosted Supabase project. Every
+actionable repository and database finding below has been implemented. Two
+managed-project settings remain explicitly tracked because neither the
+Supabase database API nor the available browser surface can change them.
+
+| Finding | Severity | Disposition |
+| --- | --- | --- |
+| Forced OAuth refresh reused the still-valid access token | High | Resolved. Refresh now constructs a refresh-token-only source, so a provider `401` cannot silently reuse the rejected token. A regression test verifies the token endpoint is called. |
+| Provider response bodies and refresh errors could reach logs or persisted sync errors | High | Resolved. Provider API failures now retain only status and a bounded safe code; OAuth failures are redacted. Regression tests inject secret-bearing bodies and assert that they never escape. |
+| The backend database role had permissive `USING (true)` policies | High | Resolved in code, canonical SQL, and hosted Supabase. Calendar, connector, link-snapshot, attendee, and suppression operations bind a UUID-validated tenant to each transaction. Fifteen tables use fail-closed tenant RLS through a narrowly granted stable helper; no permissive legacy policy remains on them. |
+| `ListByNote` read `note_attendees` without binding the tenant, so fail-closed RLS returned an empty list | High | Resolved. The repository now accepts the authenticated owner, starts a read-only tenant transaction, and filters by both note and owner. Both note endpoints propagate repository failures instead of rendering an empty attendee list. |
+| `note_attendees.user_id` mixed tenant ownership with optional matched-attendee identity | High | Resolved. `owner_user_id` is non-null, drives RLS, and is ownership-bound to `(notes.id, notes.user_id)`; nullable `matched_user_id` retains profile matching and API display identity. Existing rows were backfilled from their note owner. |
+| One connection-wide sync status conflated calendar-list and event outcomes | Medium | Resolved. Status, start time, last success, and last error are stored independently for calendar-list and event sync scopes, with historical state backfilled in place. |
+| Stale GET requests could create duplicate goroutines and block on advisory locks | Medium | Resolved. Stale reads enqueue one idempotent durable job per 15-second bucket; active sync metadata suppresses redundant triggers, and the database lock uses non-blocking `pg_try_advisory_lock`. |
+| Home dashboard treated a failed event load as an empty schedule | Medium | Resolved without persistent status banners. If no meetings are available, Home shows an unavailable state and retry; otherwise the last available meetings remain visible silently during stale, partial, or failed refreshes. |
+| Future connectors had no durable capability, job, webhook inbox, subscription, outbox, or delivery-attempt contract | High | Resolved at the shared control-plane layer. Six normalized tables, ownership foreign keys, exact indexes, idempotency keys, leases, bounded attempts, `SKIP LOCKED` claims, payload hashing, outbox enqueue, and immutable delivery attempts are implemented. Raw inbound webhook payloads are not retained. |
+| Background calendar synchronization was process-local and lost on restart | High | Resolved. Non-waiting refreshes now enqueue durable `calendar.sync` jobs. A database-backed worker discovers due tenants through a narrow security-definer function, claims work under tenant RLS, retries with bounded backoff, dead-letters invalid work, and publishes resource invalidations after processing. The explicit `wait=true` diagnostic path remains synchronous. |
+| Existing connections had no explicit capability record and provider identity was calendar-only | Medium | Resolved. Every Google/Microsoft connection is backfilled to `calendar.read`; connection updates maintain that capability. The installation provider constraint now accepts future nonblank providers while calendar handlers remain explicitly Google/Microsoft-only. |
+| Queue and RLS query shapes initially lacked tenant-leading and composite-FK indexes | Medium | Resolved after the post-DDL advisor pass. Tenant due-work indexes and exact covering indexes were added. Tenant resolution uses a stable helper through scalar init-plan subqueries. |
+| Terminal connector-control records had no bounded retention | Medium | Resolved. An hourly worker invokes a backend-only, batched cleanup that removes succeeded/dead jobs, processed/rejected webhook receipts, and delivered/dead outbox records after 30 days. Pending/retry records are never selected, and delivery attempts cascade with their terminal outbox event. |
+| Supabase leaked-password protection is disabled | Platform | Open managed setting. Enable **Auth > Sign In / Providers > Password security > Leaked password protection** before production, following [Supabase password security](https://supabase.com/docs/guides/auth/password-security). The connected database API cannot mutate Auth configuration, and no signed-in browser was available in this run. |
+| Hosted Postgres `supabase-postgres-15.8.1.111` has security patches available | Platform | Open managed operation. Schedule the Supabase infrastructure upgrade from project settings after reviewing the downtime, backup, compatibility, and extension caveats in [Supabase upgrading](https://supabase.com/docs/guides/platform/upgrading). This is not a SQL migration and was not forced without a dashboard control surface. |
+
+### Hosted database evidence
+
+- Applied migrations `20260827000000_harden_calendar_and_connector_control_plane`,
+  `20260827000001_add_integration_job_coordinator`, and
+  `20260827000002_optimize_connector_rls_and_foreign_keys`,
+  `20260827000003_harden_integration_job_coordinator`,
+  `20260827000004_add_connector_control_plane_retention`, and
+  `20260827000005_complete_connector_tenant_isolation`, followed by
+  `20260827000006_fix_note_attendee_tenant_ownership` and
+  `20260827000007_index_note_attendee_ownership_fk`.
+- Hosted verification returned six new control-plane tables, fifteen tenant
+  policies, zero permissive policies on scoped tables, six split sync-state
+  columns, zero legacy sync-state columns, zero missing `calendar.read`
+  capabilities, and executable access to only the narrow worker coordinator.
+- The final policy definitions use
+  `(select orion_internal.current_tenant_user_id())`; the stable helper reads
+  the transaction-local setting once per statement. An unset setting matches
+  no tenant row, and application code validates UUID form before starting the
+  transaction.
+- A rollback-only hosted test temporarily granted the restricted role to the
+  migration session, switched to `orion_backend`, proved that an unset tenant
+  sees zero connection rows, proved that a bound tenant sees exactly its own
+  rows and no foreign rows, then rolled back. A follow-up check confirmed
+  `postgres` did not retain membership in `orion_backend`.
+- A second rollback-only restricted-role test proved job deduplication,
+  non-bypassable retry backoff, terminal-job requeue, webhook receipt
+  deduplication, leased outbox delivery, and immutable successful delivery
+  history. It left no verification rows or role grants behind.
+- A third rollback-only restricted-role test proved that 30-day cleanup removes
+  only terminal jobs, receipts, and outbox events, preserves every nonterminal
+  record, and cascades the deleted outbox event's delivery attempts.
+- A focused attendee rollback probe proved that an owner-bound role sees all
+  three existing attendee rows, nullable and colleague `matched_user_id` values
+  can be inserted, and a cross-owner row still fails with SQLSTATE `42501`.
+  The probe left the three live rows unchanged and retained no temporary role
+  membership.
+- A live durable `calendar.sync` job completed successfully against Microsoft;
+  its event scope and `calendar.read` capability both recorded success. The
+  rebuilt backend then started with the retention-enabled worker and served an
+  authenticated `/api/calendar/upcoming` request successfully.
+- Security advisors report only the two managed settings above plus the two
+  intentionally policy-free usage-accounting tables that are accessible only
+  through their existing narrow security-definer function.
+- The connector/calendar foreign-key advisor findings were cleared. Newly
+  created indexes are naturally reported as unused until production traffic
+  exercises them and are not removal candidates.
+
+### Re-review verification gates
+
+- `go test ./...` passes, including forced-refresh, redaction, tenant-ID,
+  durable-job construction/backoff, repository helper, handler, and existing
+  calendar-provider tests.
+- Desktop Vitest (10 files, 53 tests), ESLint, `tsc --noEmit`, and the
+  development-mode Vite/Electron build pass. Production build configuration
+  correctly requires deployment callback, API, and Supabase values.
+- Backend targeted race tests, `go vet ./...`, and `go build ./cmd/api` pass.
+- Canonical schema and the eight additive hosted migrations contain the same
+  split state, control-plane objects, indexes, grants, coordinator function,
+  and tenant-policy contract.
 
 ## Recommended architecture
 

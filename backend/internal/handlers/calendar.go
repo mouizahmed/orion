@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
+	"github.com/mouizahmed/justscribe-backend/internal/integrationworker"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
@@ -22,6 +23,7 @@ type CalendarHandler struct {
 	preferenceRepo repository.CalendarPreferenceRepository
 	cacheRepo      repository.CalendarCacheRepository
 	syncService    *calendarservice.Service
+	jobRepository  *repository.IntegrationControlPlaneRepository
 	hub            *WsHub
 	events         resourceevents.Publisher
 }
@@ -86,12 +88,13 @@ type calendarCacheMetadata struct {
 	Partial      bool       `json:"partial"`
 }
 
-func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, hub *WsHub, events resourceevents.Publisher) *CalendarHandler {
+func NewCalendarHandler(connectionRepo repository.IntegrationConnectionRepository, preferenceRepo repository.CalendarPreferenceRepository, cacheRepo repository.CalendarCacheRepository, syncService *calendarservice.Service, jobRepository *repository.IntegrationControlPlaneRepository, hub *WsHub, events resourceevents.Publisher) *CalendarHandler {
 	return &CalendarHandler{
 		connectionRepo: connectionRepo,
 		preferenceRepo: preferenceRepo,
 		cacheRepo:      cacheRepo,
 		syncService:    syncService,
+		jobRepository:  jobRepository,
 		hub:            hub,
 		events:         events,
 	}
@@ -110,8 +113,8 @@ func (h *CalendarHandler) GetCalendars(c *gin.Context) {
 		return
 	}
 	metadata := h.getCacheMetadata(c.Request.Context(), userID, calendarservice.SyncScopeCalendars)
-	if metadata.Stale {
-		h.triggerBackgroundSync(userID, calendarservice.SyncScopeCalendars)
+	if metadata.Stale && !metadata.Syncing {
+		_ = h.triggerBackgroundSync(userID, calendarservice.SyncScopeCalendars)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -144,8 +147,8 @@ func (h *CalendarHandler) GetUpcomingEvents(c *gin.Context) {
 		return
 	}
 	metadata := h.getCacheMetadata(c.Request.Context(), userID, calendarservice.SyncScopeEvents)
-	if metadata.Stale {
-		h.triggerBackgroundSync(userID, calendarservice.SyncScopeEvents)
+	if metadata.Stale && !metadata.Syncing {
+		_ = h.triggerBackgroundSync(userID, calendarservice.SyncScopeEvents)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -191,7 +194,11 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 		return
 	}
 
-	h.triggerBackgroundSync(userID, calendarservice.SyncScopeAll)
+	if err := h.triggerBackgroundSync(userID, calendarservice.SyncScopeAll); err != nil {
+		log.Printf("calendar: failed to enqueue manual sync for user %s: %v", userID, err)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "error": "Calendar sync could not be queued"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": true})
 }
 
@@ -333,27 +340,44 @@ func (h *CalendarHandler) getCacheMetadata(ctx context.Context, userID string, s
 		log.Printf("calendar: failed to load connection sync states: %v", err)
 		return metadata
 	}
+	return calendarCacheMetadataFromStates(states, scope, time.Now())
+}
+
+func calendarCacheMetadataFromStates(states []*models.CalendarSyncState, scope calendarservice.SyncScope, now time.Time) calendarCacheMetadata {
 	if len(states) == 0 {
-		metadata.Stale = false
-		return metadata
+		return calendarCacheMetadata{Stale: false}
 	}
 
-	now := time.Now()
+	metadata := calendarCacheMetadata{Stale: false}
 	_, requiredWindowEnd := calendarservice.AnchoredSyncWindow(now)
-	metadata.Stale = false
 	for _, state := range states {
-		if state.Status == "" {
+		status := state.EventsStatus
+		syncStartedAt := state.EventsSyncStartedAt
+		lastError := state.EventsLastError
+		if scope == calendarservice.SyncScopeCalendars {
+			status = state.CalendarStatus
+			syncStartedAt = state.CalendarSyncStartedAt
+			lastError = state.CalendarLastError
+		}
+		if status == "" {
 			metadata.Stale = true
 			continue
 		}
-		if state.Status == "syncing" && state.SyncStartedAt != nil && now.Sub(*state.SyncStartedAt) < 2*time.Minute {
-			metadata.Syncing = true
+		if status == "syncing" {
+			if syncStartedAt != nil && now.Sub(*syncStartedAt) < 2*time.Minute {
+				metadata.Syncing = true
+			} else {
+				metadata.Stale = true
+			}
 		}
-		if state.LastError != nil && metadata.LastError == "" {
-			metadata.LastError = *state.LastError
+		if lastError != nil && metadata.LastError == "" {
+			metadata.LastError = *lastError
 		}
-		if state.Status == "partial" {
+		if status == "partial" {
 			metadata.Partial = true
+			metadata.Stale = true
+		}
+		if status == "error" {
 			metadata.Stale = true
 		}
 		var lastSynced *time.Time
@@ -477,26 +501,19 @@ func (h *CalendarHandler) GetLinkedEvent(c *gin.Context) {
 	})
 }
 
-func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarservice.SyncScope) {
-	if h.syncService == nil {
-		return
+func (h *CalendarHandler) triggerBackgroundSync(userID string, scope calendarservice.SyncScope) error {
+	if h.jobRepository == nil {
+		return errors.New("integration job repository unavailable")
+	}
+	job, err := integrationworker.CalendarSyncJob(userID, scope, time.Now())
+	if err != nil {
+		return err
+	}
+	if _, err := h.jobRepository.EnqueueJob(context.Background(), job); err != nil {
+		return err
 	}
 	h.sendCalendarSyncStatus(userID, true, true, nil)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		changedNoteIDs, err := h.syncService.SyncUser(ctx, userID, scope)
-		if err != nil {
-			log.Printf("calendar: background sync failed for user %s: %v", userID, err)
-			h.sendCalendarSyncMetadata(context.Background(), userID, scope)
-			h.publishSyncChanges(context.Background(), userID, scope)
-			h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
-			return
-		}
-		h.sendCalendarSyncMetadata(context.Background(), userID, scope)
-		h.publishSyncChanges(context.Background(), userID, scope)
-		h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
-	}()
+	return nil
 }
 
 func (h *CalendarHandler) publishChangedNotes(ctx context.Context, userID string, noteIDs []string) {

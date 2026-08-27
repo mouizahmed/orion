@@ -536,10 +536,11 @@ func (h *NotesHandler) GetNote(c *gin.Context) {
 		return
 	}
 
-	attendees, err := h.noteAttendeeRepo.ListByNote(noteID)
+	attendees, err := h.noteAttendeeRepo.ListByNote(c.Request.Context(), userID, noteID)
 	if err != nil {
 		log.Printf("notes: failed to fetch attendees for note %s: %v", noteID, err)
-		attendees = []models.NoteAttendee{}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load note attendees"})
+		return
 	}
 	note.Attendees = attendees
 

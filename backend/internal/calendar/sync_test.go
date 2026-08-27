@@ -2,20 +2,61 @@ package calendar
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mouizahmed/justscribe-backend/internal/models"
+	"golang.org/x/oauth2"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return fn(request)
+}
+
+func TestForceRefreshOAuthTokenDoesNotReuseExistingAccessToken(t *testing.T) {
+	t.Parallel()
+	var refreshRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		refreshRequests++
+		if err := request.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if request.Form.Get("grant_type") != "refresh_token" || request.Form.Get("refresh_token") != "refresh" {
+			t.Fatalf("unexpected refresh form: %v", request.Form)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"access_token": "new-access", "expires_in": 3600, "token_type": "Bearer"})
+	}))
+	defer server.Close()
+
+	token, err := forceRefreshOAuthToken(context.Background(), &oauth2.Config{
+		ClientID: "client", ClientSecret: "secret", Endpoint: oauth2.Endpoint{TokenURL: server.URL},
+	}, "refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshRequests != 1 || token.AccessToken != "new-access" {
+		t.Fatalf("requests=%d token=%+v", refreshRequests, token)
+	}
+}
+
+func TestProviderAPIErrorsDoNotExposeResponsePayload(t *testing.T) {
+	t.Parallel()
+	err := providerAPIError("Google Calendar", http.StatusUnauthorized, []byte(`{"error":{"code":401,"message":"private@example.com secret"}}`))
+	if strings.Contains(err.Error(), "private@example.com") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("provider payload leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Fatalf("status/code missing: %v", err)
+	}
 }
 
 func jsonResponse(body string) *http.Response {

@@ -38,7 +38,7 @@ func NewNoteRepository(db *database.DB) *NoteRepository {
 }
 
 func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
-	tx, err := r.db.BeginTx(context.Background(), nil)
+	tx, err := r.db.BeginTenantTx(context.Background(), note.UserID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin note creation: %w", err)
 	}
@@ -84,12 +84,12 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO note_attendees (note_id, email, user_id, source)
-		SELECT $1, u.email, u.id, 'manual'
+		INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id, source)
+		SELECT $1, $2, u.email, u.id, 'manual'
 		FROM users u
 		WHERE u.id = $2
 		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
-			user_id = EXCLUDED.user_id,
+			matched_user_id = EXCLUDED.matched_user_id,
 			source = 'manual'
 	`, created.ID, note.UserID); err != nil {
 		return nil, fmt.Errorf("failed to add note creator: %w", err)
@@ -173,6 +173,11 @@ func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, 
 }
 
 func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteDetail, error) {
+	tx, err := r.db.BeginTenantTx(context.Background(), userID, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin note detail read: %w", err)
+	}
+	defer tx.Rollback()
 	query := `
 		SELECT
 			n.id, n.folder_id, n.title, n.note_markdown, n.created_at, n.updated_at,
@@ -200,7 +205,7 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 	var evHistorical sql.NullBool
 	var evAttendeesJSON []byte
 
-	err := r.db.QueryRow(query, noteID, userID).Scan(
+	err = tx.QueryRow(query, noteID, userID).Scan(
 		&detail.ID, &folder, &detail.Title, &detail.NoteMarkdown, &detail.CreatedAt, &detail.UpdatedAt,
 		&calEvID, &detail.Revision,
 		&evID, &evProvider, &evConnID, &evCalID, &evProvEventID,
@@ -244,6 +249,9 @@ func (r *NoteRepository) GetNoteDetailByID(userID, noteID string) (*models.NoteD
 		}
 	}
 
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to finish note detail read: %w", err)
+	}
 	return &detail, nil
 }
 

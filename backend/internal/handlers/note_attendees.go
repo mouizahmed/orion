@@ -50,7 +50,7 @@ func (h *NoteAttendeesHandler) ListAttendees(c *gin.Context) {
 		return
 	}
 
-	attendees, err := h.noteAttendeeRepo.ListByNote(noteID)
+	attendees, err := h.noteAttendeeRepo.ListByNote(c.Request.Context(), userID, noteID)
 	if err != nil {
 		log.Printf("note_attendees: failed to list attendees for note %s: %v", noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load attendees"})
@@ -95,7 +95,7 @@ func (h *NoteAttendeesHandler) AddAttendee(c *gin.Context) {
 		return
 	}
 
-	attendee, err := h.noteAttendeeRepo.Add(noteID, req.Email)
+	attendee, err := h.noteAttendeeRepo.Add(userID, noteID, req.Email)
 	if err != nil {
 		log.Printf("note_attendees: failed to add attendee %s to note %s: %v", req.Email, noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add attendee"})
@@ -131,7 +131,7 @@ func (h *NoteAttendeesHandler) RemoveAttendee(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.noteAttendeeRepo.Remove(noteID, email)
+	deleted, err := h.noteAttendeeRepo.Remove(userID, noteID, email)
 	if err != nil {
 		log.Printf("note_attendees: failed to remove attendee %s from note %s: %v", email, noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to remove attendee"})
