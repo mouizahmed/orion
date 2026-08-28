@@ -83,17 +83,23 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 		return nil, fmt.Errorf("failed to create note: %w", err)
 	}
 
-	if _, err := tx.Exec(`
-		INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id, source)
-		SELECT $1, $2, u.email, u.id, 'manual'
+	creator, err := scanNoteAttendee(tx.QueryRow(`
+		INSERT INTO note_attendees (note_id, email, display_name, source)
+		SELECT $1, u.email, COALESCE(u.name, ''), 'manual'
 		FROM users u
 		WHERE u.id = $2
 		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
-			matched_user_id = EXCLUDED.matched_user_id,
+			display_name = CASE
+				WHEN btrim(EXCLUDED.display_name) <> '' THEN EXCLUDED.display_name
+				ELSE note_attendees.display_name
+			END,
 			source = 'manual'
-	`, created.ID, note.UserID); err != nil {
+		RETURNING id, note_id, email, display_name, source, created_at
+	`, created.ID, note.UserID))
+	if err != nil {
 		return nil, fmt.Errorf("failed to add note creator: %w", err)
 	}
+	created.Attendees = []models.NoteAttendee{*creator}
 
 	if created.CalendarEventID != nil {
 		if err := upsertNoteCalendarSnapshot(tx, created.ID, note.UserID, *created.CalendarEventID); err != nil {

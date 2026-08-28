@@ -52,10 +52,8 @@ export type NoteDetail = NoteRecord & {
 export type NoteAttendee = {
   id: string
   noteId: string
-  userId?: string
   email: string
   name: string
-  avatarUrl?: string
   source: 'manual' | 'calendar'
   createdAt: string
 }

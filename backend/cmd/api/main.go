@@ -121,6 +121,7 @@ func main() {
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
+	peopleRepo := repository.NewPersonRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
 	noteAttachmentRepo := repository.NewNoteAttachmentRepository(db)
 	noteAttendeeRepo := repository.NewNoteAttendeeRepository(db)
@@ -227,6 +228,7 @@ func main() {
 	summaryTemplatesHandler := handlers.NewSummaryTemplatesHandler(summaryTemplateRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo, resourceEventPublisher)
+	peopleHandler := handlers.NewPeopleHandler(peopleRepo, resourceEventPublisher)
 	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue, resourceEventPublisher)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo, resourceEventPublisher)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
@@ -347,6 +349,11 @@ func main() {
 		authenticated.POST("/folders", folderHandler.CreateFolder)
 		authenticated.PATCH("/folders/:folderID", folderHandler.RenameFolder)
 		authenticated.DELETE("/folders/:folderID", folderHandler.DeleteFolder)
+
+		// People routes
+		authenticated.GET("/people", peopleHandler.List)
+		authenticated.POST("/people", peopleHandler.Create)
+		authenticated.DELETE("/people/:personID", peopleHandler.Delete)
 
 		// Transcript routes
 		authenticated.POST("/notes/:noteID/transcript/segments", transcriptHandler.SaveSegments)

@@ -34,6 +34,7 @@ $$;
 
 drop table if exists public.note_attendee_suppressions cascade;
 drop table if exists public.note_attendees cascade;
+drop table if exists public.people cascade;
 drop table if exists public.note_calendar_links cascade;
 drop table if exists public.calendar_event_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
@@ -524,6 +525,15 @@ create table public.integration_connections (
   unique (id, user_id)
 );
 
+create table public.people (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.users(id) on delete cascade,
+  name text not null default '' check (name = btrim(name) and length(name) <= 120),
+  email text check (email is null or (email = btrim(email) and email <> '' and length(email) <= 320)),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table public.integration_capabilities (
   user_id uuid not null,
   connection_id uuid not null,
@@ -939,32 +949,22 @@ create table public.note_attachments (
 
 create table public.note_attendees (
   id uuid primary key default gen_random_uuid(),
-  note_id uuid not null,
-  owner_user_id uuid not null,
+  note_id uuid not null references public.notes(id) on delete cascade,
   email text not null,
-  matched_user_id uuid references public.users(id) on delete set null,
+  display_name text not null default '',
   source text not null default 'manual' check (source in ('manual', 'calendar')),
-  created_at timestamptz not null default now(),
-  foreign key (note_id, owner_user_id)
-    references public.notes(id, user_id) on delete cascade
+  created_at timestamptz not null default now()
 );
 create unique index note_attendees_note_email_key on public.note_attendees (note_id, lower(btrim(email)));
-create index note_attendees_note_owner_idx on public.note_attendees (note_id, owner_user_id);
 
 create table public.note_attendee_suppressions (
-  note_id uuid not null,
-  user_id uuid not null,
+  note_id uuid not null references public.notes(id) on delete cascade,
   email text not null check (btrim(email) <> ''),
   created_at timestamptz not null default now(),
-  primary key (note_id, email),
-  foreign key (note_id, user_id) references public.notes(id, user_id) on delete cascade
+  primary key (note_id, email)
 );
 create unique index note_attendee_suppressions_normalized_key
   on public.note_attendee_suppressions (note_id, lower(btrim(email)));
-create index note_attendee_suppressions_owner_idx
-  on public.note_attendee_suppressions (user_id, note_id);
-create index note_attendee_suppressions_note_owner_idx
-  on public.note_attendee_suppressions (note_id, user_id);
 
 create table public.conversations (
   id uuid primary key default gen_random_uuid(),
@@ -999,6 +999,8 @@ alter table public.conversations
 
 create index folders_user_idx on public.folders (user_id) where deleted_at is null;
 create index folders_user_fk_idx on public.folders (user_id);
+create index people_user_name_idx on public.people (user_id, lower(name), id);
+create unique index people_user_email_key on public.people (user_id, lower(btrim(email))) where email is not null;
 create index integration_connections_active_idx on public.integration_connections (user_id, provider) where status = 'active';
 create index calendar_preferences_connection_owner_idx on public.calendar_preferences (connection_id, user_id);
 create index calendar_sources_connection_owner_idx on public.calendar_sources (connection_id, user_id);
@@ -1012,7 +1014,6 @@ create index recording_sessions_note_owner_idx on public.note_recording_sessions
 create index recording_sessions_user_idx on public.note_recording_sessions (user_id);
 create index note_attachments_note_owner_idx on public.note_attachments (note_id, user_id);
 create index note_attachments_user_idx on public.note_attachments (user_id);
-create index note_attendees_matched_user_idx on public.note_attendees (matched_user_id);
 create index conversations_user_idx on public.conversations (user_id);
 create index conversations_note_owner_idx on public.conversations (note_id, user_id);
 create index conversations_folder_owner_idx on public.conversations (folder_id, user_id);
@@ -1030,7 +1031,7 @@ begin
     'account_extract_field_folders','account_summary_templates','account_summary_template_folders',
     'account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
-    'billing_webhook_events','folders','integration_connections','integration_capabilities',
+    'billing_webhook_events','folders','people','integration_connections','integration_capabilities',
     'integration_webhook_subscriptions','integration_jobs','integration_webhook_receipts',
     'integration_outbox_events','integration_delivery_attempts',
     'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
@@ -1484,8 +1485,8 @@ begin
     'integration_connections','integration_capabilities','integration_webhook_subscriptions',
     'integration_jobs','integration_webhook_receipts','integration_outbox_events',
     'integration_delivery_attempts','calendar_preferences','calendar_sources',
-    'calendar_events','calendar_event_attendees','calendar_sync_state',
-    'note_calendar_links','note_attendee_suppressions'
+    'calendar_events','calendar_event_attendees','calendar_sync_state','people',
+    'note_calendar_links'
   ] loop
     execute format('drop policy if exists backend_only on public.%I', table_name);
     execute format(
@@ -1497,8 +1498,29 @@ end $$;
 
 create policy backend_tenant_only on public.note_attendees
   for all to orion_backend
-  using (owner_user_id = (select orion_internal.current_tenant_user_id()))
-  with check (owner_user_id = (select orion_internal.current_tenant_user_id()));
+  using (exists (
+    select 1 from public.notes as note
+    where note.id = note_attendees.note_id
+      and note.user_id = (select orion_internal.current_tenant_user_id())
+  ))
+  with check (exists (
+    select 1 from public.notes as note
+    where note.id = note_attendees.note_id
+      and note.user_id = (select orion_internal.current_tenant_user_id())
+  ));
+
+create policy backend_tenant_only on public.note_attendee_suppressions
+  for all to orion_backend
+  using (exists (
+    select 1 from public.notes as note
+    where note.id = note_attendee_suppressions.note_id
+      and note.user_id = (select orion_internal.current_tenant_user_id())
+  ))
+  with check (exists (
+    select 1 from public.notes as note
+    where note.id = note_attendee_suppressions.note_id
+      and note.user_id = (select orion_internal.current_tenant_user_id())
+  ));
 
 create policy backend_select on public.accounts
   for select to orion_backend using (true);

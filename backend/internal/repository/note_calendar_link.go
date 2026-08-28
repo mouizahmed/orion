@@ -219,20 +219,8 @@ func reconcileCalendarAttendeesTx(tx *sql.Tx, noteID, userID, calendarEventID st
 	}
 
 	if _, err := tx.Exec(`
-		INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id, source)
-		SELECT $1, $2, cea.email, (
-			SELECT candidate.id
-			FROM users candidate
-			WHERE lower(btrim(candidate.email)) = lower(btrim(cea.email))
-			  AND candidate.status = 'active' AND candidate.deleted_at IS NULL
-			  AND NOT EXISTS (
-				SELECT 1 FROM users other
-				WHERE lower(btrim(other.email)) = lower(btrim(candidate.email))
-				  AND other.status = 'active' AND other.deleted_at IS NULL
-				  AND other.id <> candidate.id
-			  )
-			LIMIT 1
-		), 'calendar'
+		INSERT INTO note_attendees (note_id, email, display_name, source)
+		SELECT $1, cea.email, cea.display_name, 'calendar'
 		FROM calendar_event_attendees cea
 		WHERE cea.calendar_event_id = $3
 		  AND cea.user_id = $2
@@ -246,7 +234,12 @@ func reconcileCalendarAttendeesTx(tx *sql.Tx, noteID, userID, calendarEventID st
 			  AND lower(btrim(nas.email)) = lower(btrim(cea.email))
 		  )
 		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
-			matched_user_id = COALESCE(EXCLUDED.matched_user_id, note_attendees.matched_user_id)
+			display_name = CASE
+				WHEN btrim(EXCLUDED.display_name) = '' THEN note_attendees.display_name
+				WHEN note_attendees.source = 'calendar'
+					OR btrim(note_attendees.display_name) = '' THEN EXCLUDED.display_name
+				ELSE note_attendees.display_name
+			END
 	`, noteID, userID, calendarEventID); err != nil {
 		return fmt.Errorf("failed to add calendar attendees: %w", err)
 	}

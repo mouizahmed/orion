@@ -3,16 +3,17 @@ package models
 import "time"
 
 type Note struct {
-	ID              string     `json:"id"`
-	UserID          string     `json:"user_id"`
-	FolderID        *string    `json:"folder_id,omitempty"`
-	Title           string     `json:"title"`
-	NoteMarkdown    string     `json:"note_markdown"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
-	Revision        int64      `json:"revision"`
-	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
-	CalendarEventID *string    `json:"calendar_event_id,omitempty"`
+	ID              string         `json:"id"`
+	UserID          string         `json:"user_id"`
+	FolderID        *string        `json:"folder_id,omitempty"`
+	Title           string         `json:"title"`
+	NoteMarkdown    string         `json:"note_markdown"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	Revision        int64          `json:"revision"`
+	DeletedAt       *time.Time     `json:"deleted_at,omitempty"`
+	CalendarEventID *string        `json:"calendar_event_id,omitempty"`
+	Attendees       []NoteAttendee `json:"attendees,omitempty"`
 }
 
 type NoteSummary struct {
@@ -79,10 +80,8 @@ type NoteVersion struct {
 type NoteAttendee struct {
 	ID        string    `json:"id"`
 	NoteID    string    `json:"note_id"`
-	UserID    *string   `json:"user_id,omitempty"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
-	AvatarURL string    `json:"avatar_url,omitempty"`
 	Source    string    `json:"source"`
 	CreatedAt time.Time `json:"created_at"`
 }

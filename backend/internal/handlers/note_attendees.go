@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"regexp"
@@ -29,6 +30,7 @@ func NewNoteAttendeesHandler(noteRepo *repository.NoteRepository, noteAttendeeRe
 
 type AddAttendeeRequest struct {
 	Email string `json:"email"`
+	Name  string `json:"name"`
 }
 
 // ListAttendees handles GET /notes/:noteID/attendees
@@ -81,6 +83,7 @@ func (h *NoteAttendeesHandler) AddAttendee(c *gin.Context) {
 	}
 
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required"})
 		return
@@ -89,14 +92,22 @@ func (h *NoteAttendeesHandler) AddAttendee(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid email address"})
 		return
 	}
+	if len([]rune(req.Name)) > maxDisplayNameLength {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name is too long"})
+		return
+	}
 
 	if _, err := h.noteRepo.GetNoteByID(userID, noteID); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
 		return
 	}
 
-	attendee, err := h.noteAttendeeRepo.Add(userID, noteID, req.Email)
+	attendee, err := h.noteAttendeeRepo.Add(userID, noteID, req.Email, req.Name)
 	if err != nil {
+		if errors.Is(err, repository.ErrNoteAttendeeExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": "attendee already exists"})
+			return
+		}
 		log.Printf("note_attendees: failed to add attendee %s to note %s: %v", req.Email, noteID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to add attendee"})
 		return

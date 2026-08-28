@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
-import { ChevronDown, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus, MoreHorizontal } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronRight, FilePlus, Folder, FolderOpen, FolderPlus } from 'lucide-react'
 
 import { LoadMoreButton } from '@/components/ui/load-more-button'
-import { SidebarIconButton, SidebarMenuItemButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { RowActionMenu, RowActionMenuTrigger } from '@/components/ui/row-action-menu'
+import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { FolderMenuContent } from '@/features/notes/FolderMenuContent'
 import { NoteMenuContent } from '@/features/notes/NoteMenuContent'
 import { NoteRow } from '@/features/notes/NoteRow'
 import type { FolderRecord } from '@/features/notes/folder-types'
@@ -42,7 +44,7 @@ function QueryNoteRows({
   onShowMoveChange: (open: boolean) => void
   onSelectNote: (note: NoteSummary) => void
   onRenameNote: (id: string, title: string) => void
-  onDeleteNote: (id: string) => void
+  onDeleteNote: (id: string, title: string) => void
   onMoveNote: (id: string, folderID: string | null) => void
 }) {
   const query = useNotesByFolderQuery(accountID, folderID, enabled)
@@ -125,22 +127,15 @@ export function NotesTree({
   onCreateFolder: () => void
   onCreateNote: () => void
   onRenameFolder: (folderID: string, name: string) => Promise<boolean>
-  onDeleteFolder: (folderID: string) => Promise<boolean>
+  onDeleteFolder: (folderID: string, name: string) => void
   onRenameNote: (noteID: string, title: string) => Promise<boolean>
-  onDeleteNote: (noteID: string) => Promise<boolean>
+  onDeleteNote: (noteID: string, title: string) => void
   onMoveNote: (noteID: string, folderID: string | null) => Promise<boolean>
 }) {
   const [treeExpanded, setTreeExpanded] = useState(true)
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({})
-  const [openFolderMenuID, setOpenFolderMenuID] = useState<string | null>(null)
   const [rename, setRename] = useState<RenameState>(null)
   const [showMove, setShowMove] = useState(false)
-  useEffect(() => {
-    if (!openFolderMenuID) return
-    const close = () => setOpenFolderMenuID(null)
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [openFolderMenuID])
 
   const commitRename = async (kind: 'folder' | 'note', id: string) => {
     const value = rename?.id === id ? rename.value.trim() : ''
@@ -167,7 +162,7 @@ export function NotesTree({
         setRename({ id, value: title })
         setShowMove(false)
       }}
-      onDeleteNote={(id) => void onDeleteNote(id)}
+      onDeleteNote={onDeleteNote}
       onMoveNote={(id, nextFolderID) => void onMoveNote(id, nextFolderID)}
     />
   )
@@ -206,79 +201,65 @@ export function NotesTree({
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((folder) => {
                   const expanded = Boolean(expandedFolders[folder.id])
-                  const menuOpen = openFolderMenuID === folder.id
                   return (
-                    <div key={folder.id} className="relative">
-                      <div
-                        className={cn(
-                          'group/row flex items-center rounded-full',
-                          'hover:bg-neutral-100 dark:hover:bg-white/8',
+                    <div key={folder.id}>
+                      <RowActionMenu
+                        className="group/row"
+                        placement="row-end"
+                        menuContent={(close) => (
+                          <FolderMenuContent
+                            folderId={folder.id}
+                            folderName={folder.name}
+                            onRename={(id, name) => setRename({ id, value: name })}
+                            onDelete={onDeleteFolder}
+                            close={close}
+                          />
                         )}
                       >
-                        <SidebarRowButton
-                          embedded
-                          className="min-w-0 flex-1 rounded-none pl-0 pr-2"
-                          onClick={() => setExpandedFolders((current) => ({ ...current, [folder.id]: !expanded }))}
-                        >
-                          <span className="flex h-8 w-8 items-center justify-center">
-                            {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                          </span>
-                          {expanded ? (
-                            <FolderOpen size={14} className="text-violet-500" />
-                          ) : (
-                            <Folder size={14} className="text-violet-500" />
-                          )}
-                          {rename?.id === folder.id ? (
-                            <input
-                              autoFocus
-                              value={rename.value}
-                              onChange={(event) => setRename({ id: folder.id, value: event.target.value })}
-                              onClick={(event) => event.stopPropagation()}
-                              onBlur={() => void commitRename('folder', folder.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') void commitRename('folder', folder.id)
-                                if (event.key === 'Escape') setRename(null)
-                              }}
-                              className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-                            />
-                          ) : (
-                            <span className="truncate">{folder.name}</span>
-                          )}
-                        </SidebarRowButton>
-                        <SidebarIconButton
-                          revealOnRowHover
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setOpenFolderMenuID(menuOpen ? null : folder.id)
-                          }}
-                        >
-                          <MoreHorizontal size={14} />
-                        </SidebarIconButton>
-                      </div>
-                      {menuOpen ? (
                         <div
-                          onMouseDown={(event) => event.stopPropagation()}
-                          className="absolute right-0 top-8 z-50 min-w-[140px] rounded-xl border border-neutral-200 bg-white/95 p-1 shadow-xl dark:border-white/10 dark:bg-[#171417]/95"
+                          className={cn(
+                            'flex items-center rounded-full',
+                            'hover:bg-neutral-100 dark:hover:bg-white/8',
+                          )}
                         >
-                          <SidebarMenuItemButton
-                            onClick={() => {
-                              setRename({ id: folder.id, value: folder.name })
-                              setOpenFolderMenuID(null)
-                            }}
+                          <SidebarRowButton
+                            embedded
+                            className="min-w-0 flex-1 rounded-none pl-0 pr-2"
+                            onClick={() => setExpandedFolders((current) => ({ ...current, [folder.id]: !expanded }))}
                           >
-                            Rename
-                          </SidebarMenuItemButton>
-                          <SidebarMenuItemButton
-                            destructive
-                            onClick={() => {
-                              void onDeleteFolder(folder.id)
-                              setOpenFolderMenuID(null)
-                            }}
-                          >
-                            Delete
-                          </SidebarMenuItemButton>
+                            <span className="flex h-8 w-8 items-center justify-center">
+                              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            </span>
+                            {expanded ? (
+                              <FolderOpen size={14} className="text-violet-500" />
+                            ) : (
+                              <Folder size={14} className="text-violet-500" />
+                            )}
+                            {rename?.id === folder.id ? (
+                              <input
+                                autoFocus
+                                value={rename.value}
+                                onChange={(event) => setRename({ id: folder.id, value: event.target.value })}
+                                onClick={(event) => event.stopPropagation()}
+                                onBlur={() => void commitRename('folder', folder.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') void commitRename('folder', folder.id)
+                                  if (event.key === 'Escape') setRename(null)
+                                }}
+                                className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                              />
+                            ) : (
+                              <span className="truncate">{folder.name}</span>
+                            )}
+                          </SidebarRowButton>
+                          {rename?.id === folder.id ? null : (
+                            <RowActionMenuTrigger
+                              variant="sidebar"
+                              aria-label={`More actions for ${folder.name}`}
+                            />
+                          )}
                         </div>
-                      ) : null}
+                      </RowActionMenu>
                       {expanded ? <div className="mt-1">{noteRows(folder.id, true)}</div> : null}
                     </div>
                   )

@@ -3,11 +3,14 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 )
+
+var ErrNoteAttendeeExists = errors.New("note attendee already exists")
 
 type NoteAttendeeRepository struct {
 	db *database.DB
@@ -21,15 +24,9 @@ func scanNoteAttendee(row interface {
 	Scan(dest ...interface{}) error
 }) (*models.NoteAttendee, error) {
 	var a models.NoteAttendee
-	var userID sql.NullString
-	var name sql.NullString
-	var avatarURL sql.NullString
-	if err := row.Scan(&a.ID, &a.NoteID, &a.Email, &userID, &name, &avatarURL, &a.Source, &a.CreatedAt); err != nil {
+	if err := row.Scan(&a.ID, &a.NoteID, &a.Email, &a.Name, &a.Source, &a.CreatedAt); err != nil {
 		return nil, err
 	}
-	a.UserID = fromNullString(userID)
-	a.Name = name.String
-	a.AvatarURL = avatarURL.String
 	return &a, nil
 }
 
@@ -40,14 +37,13 @@ func (r *NoteAttendeeRepository) ListByNote(ctx context.Context, userID, noteID 
 	}
 	defer tx.Rollback()
 	query := `
-		SELECT na.id, na.note_id, na.email, na.matched_user_id, COALESCE(u.name, '') AS name, COALESCE(u.avatar_url, '') AS avatar_url, na.source, na.created_at
+		SELECT na.id, na.note_id, na.email, na.display_name, na.source, na.created_at
 		FROM note_attendees na
-		LEFT JOIN users u ON u.id = na.matched_user_id
-		WHERE na.note_id = $1 AND na.owner_user_id = $2
+		WHERE na.note_id = $1
 		ORDER BY na.created_at ASC
 	`
 
-	rows, err := tx.QueryContext(ctx, query, noteID, userID)
+	rows, err := tx.QueryContext(ctx, query, noteID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list note attendees: %w", err)
 	}
@@ -72,7 +68,7 @@ func (r *NoteAttendeeRepository) ListByNote(ctx context.Context, userID, noteID 
 	return attendees, nil
 }
 
-func (r *NoteAttendeeRepository) Add(userID, noteID, email string) (*models.NoteAttendee, error) {
+func (r *NoteAttendeeRepository) Add(userID, noteID, email, name string) (*models.NoteAttendee, error) {
 	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin attendee add: %w", err)
@@ -82,34 +78,18 @@ func (r *NoteAttendeeRepository) Add(userID, noteID, email string) (*models.Note
 		return nil, fmt.Errorf("failed to clear attendee suppression: %w", err)
 	}
 	query := `
-		WITH inserted AS (
-			INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id, source)
-			VALUES ($1, $3, $2, (
-				SELECT candidate.id
-				FROM users candidate
-				WHERE lower(btrim(candidate.email)) = lower(btrim($2))
-				  AND candidate.status = 'active' AND candidate.deleted_at IS NULL
-				  AND NOT EXISTS (
-					SELECT 1 FROM users other
-					WHERE lower(btrim(other.email)) = lower(btrim(candidate.email))
-					  AND other.status = 'active' AND other.deleted_at IS NULL
-					  AND other.id <> candidate.id
-				  )
-				LIMIT 1
-			), 'manual')
-			ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET
-				matched_user_id = COALESCE(EXCLUDED.matched_user_id, note_attendees.matched_user_id),
-				source = 'manual'
-			RETURNING id, note_id, email, matched_user_id, source, created_at
-		)
-		SELECT i.id, i.note_id, i.email, i.matched_user_id, COALESCE(u.name, '') AS name, COALESCE(u.avatar_url, '') AS avatar_url, i.source, i.created_at
-		FROM inserted i
-		LEFT JOIN users u ON u.id = i.matched_user_id
+		INSERT INTO note_attendees (note_id, email, display_name, source)
+		VALUES ($1, $2, $3, 'manual')
+		ON CONFLICT (note_id, lower(btrim(email))) DO NOTHING
+		RETURNING id, note_id, email, display_name, source, created_at
 	`
 
-	row := tx.QueryRow(query, noteID, email, userID)
+	row := tx.QueryRow(query, noteID, email, name)
 	a, err := scanNoteAttendee(row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNoteAttendeeExists
+		}
 		return nil, fmt.Errorf("failed to add note attendee: %w", err)
 	}
 
@@ -117,27 +97,6 @@ func (r *NoteAttendeeRepository) Add(userID, noteID, email string) (*models.Note
 		return nil, fmt.Errorf("failed to commit attendee add: %w", err)
 	}
 	return a, nil
-}
-
-func (r *NoteAttendeeRepository) AddByUserID(noteID, userID string) error {
-	query := `
-		INSERT INTO note_attendees (note_id, owner_user_id, email, matched_user_id)
-		SELECT $1, $2, u.email, u.id FROM users u WHERE u.id = $2
-		ON CONFLICT (note_id, lower(btrim(email))) DO UPDATE SET matched_user_id = COALESCE(EXCLUDED.matched_user_id, note_attendees.matched_user_id)
-	`
-	tx, err := r.db.BeginTenantTx(context.Background(), userID, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin creator attendee add: %w", err)
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(query, noteID, userID); err != nil {
-		return fmt.Errorf("failed to add creator attendee: %w", err)
-	}
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to add creator attendee: %w", err)
-	}
-	return nil
 }
 
 // SyncNoteFromEvent adds calendar event attendees to the note and removes any
@@ -211,10 +170,10 @@ func (r *NoteAttendeeRepository) Remove(userID, noteID, email string) (bool, err
 	}
 	if source == "calendar" {
 		if _, err := tx.Exec(`
-			INSERT INTO note_attendee_suppressions (note_id, user_id, email)
-			VALUES ($1, $2, lower(btrim($3)))
+			INSERT INTO note_attendee_suppressions (note_id, email)
+			VALUES ($1, lower(btrim($2)))
 			ON CONFLICT (note_id, lower(btrim(email))) DO NOTHING
-		`, noteID, userID, email); err != nil {
+		`, noteID, email); err != nil {
 			return false, fmt.Errorf("failed to suppress calendar attendee: %w", err)
 		}
 	}

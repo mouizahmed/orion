@@ -10,7 +10,9 @@ import {
 } from '@/components/ui/dashboard-panel'
 import { DashboardIconTile, DashboardRow } from '@/components/ui/dashboard-row'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
+import { RowActionMenu, RowActionMenuTrigger } from '@/components/ui/row-action-menu'
 import { CreateFolderDialog } from '@/features/notes/dialogs/CreateFolderDialog'
+import { FolderMenuContent } from '@/features/notes/FolderMenuContent'
 import { useAuth } from '@/features/auth/AuthContext'
 import { NoteMenuContent } from '@/features/notes/NoteMenuContent'
 import { NoteRow } from '@/features/notes/NoteRow'
@@ -41,13 +43,17 @@ export default function NotesLibraryView() {
     selectNote,
     openCreateNoteDialog,
     createFolder,
-    deleteById,
+    renameFolder,
+    requestDeleteFolder,
+    requestDeleteNote,
     renameNote,
     moveNote,
   } = useDashboardNotes()
   const [showCreateFolderDialog, setShowCreateFolderDialog] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
+  const [folderRenameValue, setFolderRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
   const notesQuery = useNotesByFolderQuery(user?.id, selectedFolderId)
 
@@ -78,6 +84,23 @@ export default function NotesLibraryView() {
     if (title) await renameNote(noteId, title)
   }
 
+  const startFolderRename = (folderId: string, currentName: string) => {
+    setRenamingFolderId(folderId)
+    setFolderRenameValue(currentName)
+  }
+
+  const commitFolderRename = async (folderId: string) => {
+    const name = folderRenameValue.trim()
+    setRenamingFolderId(null)
+    setFolderRenameValue('')
+    if (!name) return
+    const renamed = await renameFolder(folderId, name)
+    if (!renamed) {
+      setRenamingFolderId(folderId)
+      setFolderRenameValue(name)
+    }
+  }
+
   const renderNote = (note: NoteSummary) => {
     return (
       <NoteRow
@@ -100,7 +123,7 @@ export default function NotesLibraryView() {
             showMove={showMove}
             onShowMoveChange={setShowMove}
             onRename={startRename}
-            onDelete={(id) => void deleteById(id)}
+            onDelete={(id, title) => requestDeleteNote(id, title)}
             onMove={(id, folderId) => void moveNote(id, folderId)}
             close={close}
           />
@@ -184,30 +207,68 @@ export default function NotesLibraryView() {
                 <h3 className="px-2.5 pb-1.5 text-xs font-semibold text-neutral-400">Folders</h3>
                 {folders.length > 0 ? (
                   <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
-                    {folders.map((folder) => (
-                      <DashboardRow
-                        key={folder.id}
-                        interactive
-                        className="items-center"
-                        onClick={() => selectFolder(folder.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter' || event.key === ' ') {
-                            event.preventDefault()
-                            selectFolder(folder.id)
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <DashboardIconTile className="h-9 w-9 text-violet-600 dark:text-violet-400">
-                          <Folder className="h-4 w-4" />
-                        </DashboardIconTile>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">{folder.name}</div>
-                        </div>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-neutral-400" />
-                      </DashboardRow>
-                    ))}
+                    {folders.map((folder) => {
+                      const isRenaming = renamingFolderId === folder.id
+                      return (
+                        <RowActionMenu
+                          key={folder.id}
+                          menuContent={(close) => (
+                            <FolderMenuContent
+                              folderId={folder.id}
+                              folderName={folder.name}
+                              onRename={startFolderRename}
+                              onDelete={requestDeleteFolder}
+                              close={close}
+                            />
+                          )}
+                        >
+                          <DashboardRow
+                            interactive={!isRenaming}
+                            className="items-center"
+                            onClick={() => { if (!isRenaming) selectFolder(folder.id) }}
+                            onKeyDown={(event) => {
+                              if (!isRenaming && (event.key === 'Enter' || event.key === ' ')) {
+                                event.preventDefault()
+                                selectFolder(folder.id)
+                              }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                          >
+                            <DashboardIconTile className="h-9 w-9 text-violet-600 dark:text-violet-400">
+                              <Folder className="h-4 w-4" />
+                            </DashboardIconTile>
+                            <div className="min-w-0 flex-1">
+                              {isRenaming ? (
+                                <input
+                                  autoFocus
+                                  value={folderRenameValue}
+                                  onChange={(event) => setFolderRenameValue(event.target.value)}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onBlur={() => void commitFolderRename(folder.id)}
+                                  onKeyDown={(event) => {
+                                    event.stopPropagation()
+                                    if (event.key === 'Enter') void commitFolderRename(folder.id)
+                                    if (event.key === 'Escape') {
+                                      setRenamingFolderId(null)
+                                      setFolderRenameValue('')
+                                    }
+                                  }}
+                                  className="block w-full border-b border-violet-400 bg-transparent text-xs font-medium leading-4 text-neutral-800 outline-none dark:text-neutral-200"
+                                />
+                              ) : (
+                                <div className="truncate text-xs font-medium text-neutral-800 dark:text-neutral-200">{folder.name}</div>
+                              )}
+                            </div>
+                            {!isRenaming ? (
+                              <RowActionMenuTrigger
+                                aria-label={`More actions for ${folder.name}`}
+                              />
+                            ) : null}
+                          </DashboardRow>
+                        </RowActionMenu>
+                      )
+                    })}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-neutral-200 px-4 py-6 text-center text-xs text-neutral-500 dark:border-white/10">

@@ -54,7 +54,7 @@ function DashboardContent() {
   const { user, isLoading } = useAuth()
   const { isOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
-  const [viewMode, setViewMode] = useState<'home' | 'notes' | 'calendar' | 'settings'>('home')
+  const [viewMode, setViewMode] = useState<'home' | 'notes' | 'calendar' | 'people' | 'settings'>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
   const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
 
@@ -108,6 +108,7 @@ function DashboardContent() {
               onOpenHome={() => setViewMode('home')}
               onOpenNotes={() => setViewMode('notes')}
               onOpenCalendar={handleOpenCalendar}
+              onOpenPeople={() => setViewMode('people')}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
               onCloseSettings={() => setViewMode('home')}
               onSelectSettingsSection={setSettingsSection}

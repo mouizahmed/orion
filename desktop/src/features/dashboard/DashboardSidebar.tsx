@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Home, MessageCircle, Notebook, Settings } from 'lucide-react'
+import { CalendarDays, Home, MessageCircle, Notebook, Settings, UsersRound } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -17,15 +17,17 @@ export default function DashboardSidebar({
   onOpenHome,
   onOpenNotes,
   onOpenCalendar,
+  onOpenPeople,
   onOpenSettings,
   onCloseSettings,
   onSelectSettingsSection,
 }: {
-  mode?: 'home' | 'notes' | 'calendar' | 'settings'
+  mode?: 'home' | 'notes' | 'calendar' | 'people' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenHome?: () => void
   onOpenNotes?: () => void
   onOpenCalendar?: () => void
+  onOpenPeople?: () => void
   onOpenSettings?: () => void
   onCloseSettings?: () => void
   onSelectSettingsSection?: (section: DashboardSettingsSection) => void
@@ -36,12 +38,12 @@ export default function DashboardSidebar({
     folders,
     selectFolder,
     createFolder,
-    deleteFolder,
+    requestDeleteFolder,
     renameFolder,
     selectedId,
     selectNote,
     openCreateNoteDialog,
-    deleteById,
+    requestDeleteNote,
     renameNote,
     moveNote,
   } = useDashboardNotes()
@@ -172,6 +174,16 @@ export default function DashboardSidebar({
               isActive={mode === 'notes'}
             />
             <NavButton
+              icon={UsersRound}
+              label="People"
+              onClick={() => {
+                onOpenPeople?.()
+                selectFolder(null)
+                selectNote(null)
+              }}
+              isActive={mode === 'people'}
+            />
+            <NavButton
               icon={MessageCircle}
               label="Chat"
               onClick={() => undefined}
@@ -214,9 +226,9 @@ export default function DashboardSidebar({
                 selectNote(note.id)
               }}
               onRenameFolder={(id, name) => renameFolder(id, name)}
-              onDeleteFolder={(id) => deleteFolder(id)}
+              onDeleteFolder={(id, name) => requestDeleteFolder(id, name)}
               onRenameNote={(id, title) => renameNote(id, title)}
-              onDeleteNote={(id) => deleteById(id)}
+              onDeleteNote={(id, title) => requestDeleteNote(id, title)}
               onMoveNote={(id, folderId) => moveNote(id, folderId)}
             />
           </div>

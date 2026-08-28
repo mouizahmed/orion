@@ -192,7 +192,7 @@ function Set-WebhookSecret([string]$Secret) {
 function Start-LocalDev {
     $existingState = Read-State
     if ($null -ne $existingState) {
-        $running = @($existingState.services) | Where-Object { $null -ne (Get-StateProcess $_) }
+        $running = @(@($existingState.services) | Where-Object { $null -ne (Get-StateProcess $_) })
         if ($running.Count -gt 0) {
             Show-Status
             throw "Local development is already running. Use 'scripts\local-dev.ps1 stop' first."

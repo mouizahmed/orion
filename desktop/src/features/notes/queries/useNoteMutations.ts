@@ -124,11 +124,7 @@ export function useCreateNoteMutation(accountID: string) {
       seedCanonicalNote(queryClient, accountID, created)
       const folderID = created.folderId ?? null
       const summary = summaryFromRecord(created)
-      queryClient.setQueryData(queryKeys.note(accountID, created.id), {
-        ...created,
-        linkedEvent: null,
-        attendees: [],
-      } satisfies NoteDetail)
+      queryClient.setQueryData<NoteDetail>(queryKeys.note(accountID, created.id), created)
       queryClient.setQueryData<FolderRecord[]>(queryKeys.folders(accountID), (folders) =>
         folders?.map((folder) => (folder.id === folderID ? { ...folder, noteCount: folder.noteCount + 1 } : folder)),
       )
@@ -310,7 +306,8 @@ export function useDeleteNoteMutation(accountID: string) {
 export function useAddNoteAttendeeMutation(accountID: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ noteID, email }: { noteID: string; email: string }) => addNoteAttendee(noteID, email),
+    mutationFn: ({ noteID, email, name }: { noteID: string; email: string; name?: string }) =>
+      addNoteAttendee(noteID, email, name),
     onSuccess: (attendee, { noteID }) => {
       if (!isActiveServerStateAccount(accountID)) return
       queryClient.setQueryData<NoteDetail | null>(queryKeys.note(accountID, noteID), (current) =>
@@ -338,16 +335,26 @@ export function useRemoveNoteAttendeeMutation(accountID: string) {
       await removeNoteAttendee(noteID, email)
       return { noteID, email }
     },
-    onSuccess: ({ noteID, email }) => {
-      if (!isActiveServerStateAccount(accountID)) return
-      queryClient.setQueryData<NoteDetail | null>(queryKeys.note(accountID, noteID), (current) =>
+    onMutate: async ({ noteID, email }) => {
+      if (!isActiveServerStateAccount(accountID)) return undefined
+      const queryKey = queryKeys.note(accountID, noteID)
+      await queryClient.cancelQueries({ queryKey })
+      const previous = queryClient.getQueryData<NoteDetail | null>(queryKey)
+      const normalizedEmail = email.trim().toLowerCase()
+      queryClient.setQueryData<NoteDetail | null>(queryKey, (current) =>
         current
           ? {
               ...current,
-              attendees: current.attendees.filter((item) => item.email !== email),
+              attendees: current.attendees.filter(
+                (item) => item.email.trim().toLowerCase() !== normalizedEmail,
+              ),
             }
           : current,
       )
+      return { queryKey, previous }
+    },
+    onError: (_error, _variables, context) => {
+      if (context) queryClient.setQueryData(context.queryKey, context.previous)
     },
     onSettled: (_data, _error, { noteID }) => {
       if (isActiveServerStateAccount(accountID))

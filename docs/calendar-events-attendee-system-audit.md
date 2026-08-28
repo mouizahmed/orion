@@ -231,8 +231,8 @@ Supabase database API nor the available browser surface can change them.
 | Forced OAuth refresh reused the still-valid access token | High | Resolved. Refresh now constructs a refresh-token-only source, so a provider `401` cannot silently reuse the rejected token. A regression test verifies the token endpoint is called. |
 | Provider response bodies and refresh errors could reach logs or persisted sync errors | High | Resolved. Provider API failures now retain only status and a bounded safe code; OAuth failures are redacted. Regression tests inject secret-bearing bodies and assert that they never escape. |
 | The backend database role had permissive `USING (true)` policies | High | Resolved in code, canonical SQL, and hosted Supabase. Calendar, connector, link-snapshot, attendee, and suppression operations bind a UUID-validated tenant to each transaction. Fifteen tables use fail-closed tenant RLS through a narrowly granted stable helper; no permissive legacy policy remains on them. |
-| `ListByNote` read `note_attendees` without binding the tenant, so fail-closed RLS returned an empty list | High | Resolved. The repository now accepts the authenticated owner, starts a read-only tenant transaction, and filters by both note and owner. Both note endpoints propagate repository failures instead of rendering an empty attendee list. |
-| `note_attendees.user_id` mixed tenant ownership with optional matched-attendee identity | High | Resolved. `owner_user_id` is non-null, drives RLS, and is ownership-bound to `(notes.id, notes.user_id)`; nullable `matched_user_id` retains profile matching and API display identity. Existing rows were backfilled from their note owner. |
+| `ListByNote` read `note_attendees` without binding the tenant, so fail-closed RLS returned an empty list | High | Resolved. The repository accepts the authenticated owner and starts a read-only tenant transaction. Attendee and suppression RLS now derives ownership through the parent note, so no duplicate owner column or caller-supplied ownership filter is needed. Both note endpoints propagate repository failures instead of rendering an empty attendee list. |
+| `note_attendees.user_id` mixed tenant ownership with optional matched-attendee identity | High | Resolved. Attendee identity matching was removed entirely. `note_attendees` and its suppression table derive tenant ownership through `note_id`; calendar-provider display names are persisted, and attendee avatars are deterministic initials only. |
 | One connection-wide sync status conflated calendar-list and event outcomes | Medium | Resolved. Status, start time, last success, and last error are stored independently for calendar-list and event sync scopes, with historical state backfilled in place. |
 | Stale GET requests could create duplicate goroutines and block on advisory locks | Medium | Resolved. Stale reads enqueue one idempotent durable job per 15-second bucket; active sync metadata suppresses redundant triggers, and the database lock uses non-blocking `pg_try_advisory_lock`. |
 | Home dashboard treated a failed event load as an empty schedule | Medium | Resolved without persistent status banners. If no meetings are available, Home shows an unavailable state and retry; otherwise the last available meetings remain visible silently during stale, partial, or failed refreshes. |
@@ -254,6 +254,22 @@ Supabase database API nor the available browser surface can change them.
   `20260827000005_complete_connector_tenant_isolation`, followed by
   `20260827000006_fix_note_attendee_tenant_ownership` and
   `20260827000007_index_note_attendee_ownership_fk`.
+- The attendee identity migrations were applied to hosted Orion through the
+  Supabase MCP as remote migrations `20260828044816_persist_calendar_attendee_names`
+  and `20260828044835_remove_attendee_identity_contract`. Post-apply checks
+  confirmed zero legacy identity columns, both validated parent-note foreign
+  keys, parent-note tenant RLS, three retained attendee rows, and no retained
+  legacy creator rows.
+- The attendee identity removal is an expand/contract deployment, not a rolling
+  migration. Stop and drain all API and worker processes first, apply
+  `20260828041911_persist_calendar_attendee_names`, then apply
+  `20260828043400_remove_attendee_identity_contract`, and only then deploy/start
+  the new binary. Old processes require and write the columns removed by the
+  contract migration.
+- A rollback-only probe using the real `orion_backend` database role verified
+  that the owning tenant sees all three retained attendees, wrong and unset
+  tenants see none, owner attendee and suppression writes pass, and a
+  cross-tenant attendee write is denied.
 - Hosted verification returned six new control-plane tables, fifteen tenant
   policies, zero permissive policies on scoped tables, six split sync-state
   columns, zero legacy sync-state columns, zero missing `calendar.read`
@@ -275,11 +291,10 @@ Supabase database API nor the available browser surface can change them.
 - A third rollback-only restricted-role test proved that 30-day cleanup removes
   only terminal jobs, receipts, and outbox events, preserves every nonterminal
   record, and cascades the deleted outbox event's delivery attempts.
-- A focused attendee rollback probe proved that an owner-bound role sees all
-  three existing attendee rows, nullable and colleague `matched_user_id` values
-  can be inserted, and a cross-owner row still fails with SQLSTATE `42501`.
-  The probe left the three live rows unchanged and retained no temporary role
-  membership.
+- A focused attendee rollback probe against the then-current `00007` schema
+  proved its owner-bound policy behavior. That historical probe predates the
+  local migration that removes attendee-to-user matching and derives tenant
+  access through the parent note.
 - A live durable `calendar.sync` job completed successfully against Microsoft;
   its event scope and `calendar.read` capability both recorded success. The
   rebuilt backend then started with the retention-enabled worker and served an

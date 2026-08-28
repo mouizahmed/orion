@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { FileText, MoreHorizontal } from 'lucide-react'
+import React, { type ReactNode } from 'react'
+import { FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { SidebarRowButton } from '@/components/ui/sidebar-button'
 import { DashboardRow, DashboardIconTile } from '@/components/ui/dashboard-row'
+import { RowActionMenu, RowActionMenuTrigger } from '@/components/ui/row-action-menu'
 
 type NoteRowProps = {
   title: string
@@ -42,33 +43,16 @@ export function NoteRow({
   menuContent,
   onMenuClose,
 }: NoteRowProps) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-
-  const closeMenu = useCallback(() => {
-    setIsMenuOpen(false)
-    onMenuClose?.()
-  }, [onMenuClose])
-
-  useEffect(() => {
-    if (!isMenuOpen) return
-    document.addEventListener('mousedown', closeMenu)
-    return () => document.removeEventListener('mousedown', closeMenu)
-  }, [isMenuOpen, closeMenu])
-
-  const toggleMenu = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (isMenuOpen) closeMenu()
-    else setIsMenuOpen(true)
-  }
-
   if (variant === 'card') {
     return (
-      <div className="relative">
+      <RowActionMenu
+        menuContent={menuContent}
+        onClose={onMenuClose}
+      >
         <DashboardRow
           onClick={onClick}
           interactive={Boolean(onClick)}
           className="items-center"
-          onContextMenu={menuContent ? (e) => { e.preventDefault(); setIsMenuOpen((prev) => !prev) } : undefined}
         >
           <DashboardIconTile className="h-8 w-8">
             <FileText className="h-4 w-4" />
@@ -111,13 +95,7 @@ export function NoteRow({
                 ) : null}
                 {menuContent ? (
                   <div className={cn(timestamp ? 'hidden group-hover:flex' : 'flex', 'items-center')}>
-                    <button
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onClick={toggleMenu}
-                      className="flex h-6 w-6 items-center justify-center rounded-full hover:bg-neutral-200 dark:hover:bg-white/10"
-                    >
-                      <MoreHorizontal size={14} className="text-neutral-500 dark:text-neutral-400" />
-                    </button>
+                    <RowActionMenuTrigger aria-label={`More actions for ${title || 'Untitled'}`} />
                   </div>
                 ) : actions ? (
                   <div className={cn(timestamp ? 'hidden group-hover:flex' : 'flex', 'items-center')}>
@@ -128,24 +106,18 @@ export function NoteRow({
             </div>
           </div>
         </DashboardRow>
-        {isMenuOpen && menuContent && (
-          <div
-            onMouseDown={(e) => e.stopPropagation()}
-            className="absolute right-0 top-full z-50 min-w-[140px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
-          >
-            {menuContent(closeMenu)}
-          </div>
-        )}
-      </div>
+      </RowActionMenu>
     )
   }
 
   // sidebar variant
   return (
-    <div
-      className="relative group/row min-w-0"
+    <RowActionMenu
+      className="group/row min-w-0"
       style={indented ? { paddingLeft: '8px' } : undefined}
-      onContextMenu={menuContent ? (e) => { e.preventDefault(); setIsMenuOpen((prev) => !prev) } : undefined}
+      placement="row-end"
+      menuContent={menuContent}
+      onClose={onMenuClose}
     >
       <div
         className={cn(
@@ -187,27 +159,16 @@ export function NoteRow({
           )}
         </SidebarRowButton>
         {!isRenaming && menuContent ? (
-          <SidebarIconButton
-            revealOnRowHover
+          <RowActionMenuTrigger
+            variant="sidebar"
             suppressHoverBackground={selected}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={toggleMenu}
-          >
-            <MoreHorizontal size={14} />
-          </SidebarIconButton>
+            aria-label={`More actions for ${title || 'Untitled'}`}
+          />
         ) : !isRenaming && actions ? (
           <div className="opacity-0 group-hover/row:opacity-100">{actions}</div>
         ) : null}
       </div>
-      {isMenuOpen && menuContent && (
-        <div
-          onMouseDown={(e) => e.stopPropagation()}
-          className="absolute right-0 top-8 z-50 min-w-[160px] rounded-xl border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
-        >
-          {menuContent(closeMenu)}
-        </div>
-      )}
-    </div>
+    </RowActionMenu>
   )
 }

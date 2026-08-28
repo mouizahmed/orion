@@ -130,6 +130,7 @@ async function fetchJson<T>(input: RequestInfo, init?: RequestInit): Promise<T> 
     }
     throw new Error(payload.error || 'Request failed')
   }
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
@@ -205,7 +206,7 @@ export async function createNote(
     noteMarkdown?: string
     calendarEventId?: string
   },
-): Promise<NoteRecord> {
+): Promise<NoteDetail> {
   void userId
   const accessToken = await getAccessToken()
   const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes`, {
@@ -223,7 +224,7 @@ export async function createNote(
     }),
   })
   if (!payload.note) throw new Error('Failed to create note')
-  return toNoteRecord(payload.note)
+  return toNoteDetail(payload.note)
 }
 
 export async function updateNote(
@@ -393,10 +394,8 @@ export async function deleteNote(userId: string | undefined, noteId: string): Pr
 type ApiNoteAttendee = {
   id: string
   note_id: string
-  user_id?: string
   email: string
   name: string
-  avatar_url?: string
   source: 'manual' | 'calendar'
   created_at: string
 }
@@ -405,10 +404,8 @@ function toNoteAttendee(a: ApiNoteAttendee): NoteAttendee {
   return {
     id: a.id,
     noteId: a.note_id,
-    userId: a.user_id,
     email: a.email,
     name: a.name,
-    avatarUrl: a.avatar_url || undefined,
     source: a.source,
     createdAt: a.created_at,
   }
@@ -425,7 +422,7 @@ export async function listNoteAttendees(noteId: string): Promise<NoteAttendee[]>
   return (payload.attendees ?? []).map(toNoteAttendee)
 }
 
-export async function addNoteAttendee(noteId: string, email: string): Promise<NoteAttendee> {
+export async function addNoteAttendee(noteId: string, email: string, name?: string): Promise<NoteAttendee> {
   const accessToken = await getAccessToken()
   const payload = await fetchJson<{ attendee: ApiNoteAttendee }>(`${API_BASE_URL}/notes/${noteId}/attendees`, {
     method: 'POST',
@@ -434,7 +431,7 @@ export async function addNoteAttendee(noteId: string, email: string): Promise<No
       Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, name: name?.trim() || undefined }),
   })
   return toNoteAttendee(payload.attendee)
 }

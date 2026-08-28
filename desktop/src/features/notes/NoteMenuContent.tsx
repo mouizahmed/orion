@@ -22,7 +22,7 @@ export function NoteMenuContent({
   showMove: boolean
   onShowMoveChange: (show: boolean) => void
   onRename: (noteId: string, currentTitle: string) => void
-  onDelete: (noteId: string) => void
+  onDelete: (noteId: string, noteTitle: string) => void
   onMove: (noteId: string, folderId: string | null) => void
   close: () => void
 }) {
@@ -37,7 +37,7 @@ export function NoteMenuContent({
           <ChevronRight size={14} />
         </SidebarMenuItemButton>
         <div className="my-1 border-t border-neutral-200 dark:border-white/10" />
-        <SidebarMenuItemButton destructive onClick={() => { onDelete(noteId); close() }}>
+        <SidebarMenuItemButton destructive onClick={() => { onDelete(noteId, noteTitle); close() }}>
           Delete
         </SidebarMenuItemButton>
       </>

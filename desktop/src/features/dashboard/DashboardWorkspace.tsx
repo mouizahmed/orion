@@ -4,11 +4,12 @@ import HomeView from '@/features/home/HomeView'
 import NoteEditorView from '@/features/notes/NoteEditorView'
 import NotesLibraryView from '@/features/notes/NotesLibraryView'
 import SettingsView from '@/features/settings/SettingsView'
+import PeopleView from '@/features/people/PeopleView'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
 
 type DashboardWorkspaceProps = {
   userId?: string
-  mode?: 'home' | 'notes' | 'calendar' | 'settings'
+  mode?: 'home' | 'notes' | 'calendar' | 'people' | 'settings'
   selectedSettingsSection?: DashboardSettingsSection
   onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
@@ -62,6 +63,10 @@ export default function DashboardWorkspace({
         />
       </div>
     )
+  }
+
+  if (mode === 'people') {
+    return <div className="h-full"><PeopleView /></div>
   }
 
   if (isLoading) return <NotesLoadingView />

@@ -16,51 +16,44 @@ type Props = {
   note: NoteDetail
 }
 
-function initials(name: string, email: string): string {
-  const src = name.trim() || email
-  return src[0]?.toUpperCase() ?? '?'
+export function attendeeInitials(name: string, email: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length > 0) {
+    const selected = words.length === 1 ? words : [words[0], words[words.length - 1]]
+    return selected.map((word) => word[0]).join('').toUpperCase()
+  }
+  return email.trim()[0]?.toUpperCase() ?? '?'
 }
 
-function Avatar({ name, email, avatarUrl, size = 'sm' }: { name: string; email: string; avatarUrl?: string; size?: 'sm' | 'md' }) {
-  const dim = size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-7 w-7 text-[11px]'
-  const [imgError, setImgError] = useState(false)
+export function isCurrentUserAttendee(attendeeEmail: string, userEmail?: string): boolean {
+  if (!userEmail) return false
+  return attendeeEmail.trim().toLowerCase() === userEmail.trim().toLowerCase()
+}
 
-  const fallback = (
+function Avatar({ name, email, size = 'sm' }: { name: string; email: string; size?: 'sm' | 'md' }) {
+  const dim = size === 'sm' ? 'h-6 w-6 text-[10px]' : 'h-7 w-7 text-[11px]'
+  return (
     <span
       className={`${dim} inline-flex shrink-0 items-center justify-center rounded-full bg-violet-100 font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300`}
       title={name || email}
     >
-      {initials(name, email)}
+      {attendeeInitials(name, email)}
     </span>
   )
-
-  if (avatarUrl && !imgError) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={name || email}
-        title={name || email}
-        className={`${dim} shrink-0 rounded-full object-cover`}
-        onError={() => setImgError(true)}
-      />
-    )
-  }
-  return fallback
 }
 
 export default function NoteAttendeesDropdown({ note }: Props) {
   const { user } = useAuth()
-  const currentUserEmail = user?.email ?? ''
   const { mutateAsync: addAttendee } = useAddNoteAttendeeMutation(user?.id ?? '')
   const { mutateAsync: removeAttendee } = useRemoveNoteAttendeeMutation(user?.id ?? '')
   const [open, setOpen] = useState(false)
+  const [nameInput, setNameInput] = useState('')
   const [emailInput, setEmailInput] = useState('')
   const [adding, setAdding] = useState(false)
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const inputRef = useRef<HTMLInputElement | null>(null)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
 
   const attendees = note.attendees
-
 
   // Close on outside click
   useEffect(() => {
@@ -74,29 +67,46 @@ export default function NoteAttendeesDropdown({ note }: Props) {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Focus input when dropdown opens
+  // Focus the first field when the dropdown opens.
   useEffect(() => {
     if (open) {
-      setTimeout(() => inputRef.current?.focus(), 0)
+      setTimeout(() => nameInputRef.current?.focus(), 0)
     } else {
+      setNameInput('')
       setEmailInput('')
     }
   }, [open])
 
   const handleAdd = async () => {
     const email = emailInput.trim().toLowerCase()
+    const name = nameInput.trim()
     if (!email || adding) return
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { toast.error('Please enter a valid email address'); return }
-    const alreadyIn = attendees.some((a) => a.email.toLowerCase() === email)
-    if (alreadyIn) { setEmailInput(''); return }
+    if (attendees.some((attendee) => isCurrentUserAttendee(attendee.email, email))) {
+      toast.error('That email is already an attendee')
+      return
+    }
     setAdding(true)
-    await addAttendee({ noteID: note.id, email })
-    setAdding(false)
-    setEmailInput('')
+    try {
+      await addAttendee({ noteID: note.id, email, name: name || undefined })
+      setNameInput('')
+      setEmailInput('')
+      nameInputRef.current?.focus()
+    } catch (error) {
+      toast.error(error instanceof Error && error.message === 'attendee already exists'
+        ? 'That email is already an attendee'
+        : 'Could not add attendee')
+    } finally {
+      setAdding(false)
+    }
   }
 
   const handleRemove = async (email: string) => {
-    await removeAttendee({ noteID: note.id, email })
+    try {
+      await removeAttendee({ noteID: note.id, email })
+    } catch {
+      toast.error('Could not remove attendee')
+    }
   }
 
   // Stacked avatars — show up to 3, then +N badge
@@ -118,7 +128,7 @@ export default function NoteAttendeesDropdown({ note }: Props) {
           <span className="flex items-center">
             {visibleAvatars.map((a, i) => (
               <span key={a.email} className={i > 0 ? '-ml-1.5' : ''}>
-                <Avatar name={a.name} email={a.email} avatarUrl={a.avatarUrl} />
+                <Avatar name={a.name} email={a.email} />
               </span>
             ))}
             {overflow > 0 && (
@@ -132,16 +142,28 @@ export default function NoteAttendeesDropdown({ note }: Props) {
 
       {open && (
         <DropdownPopover width="lg" align="end">
-          <DropdownLabel>
+          <DropdownLabel className="space-y-1.5">
             <input
-              ref={inputRef}
+              ref={nameInputRef}
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false)
+              }}
+              placeholder="Name (optional)"
+              className="w-full bg-transparent outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
+              maxLength={120}
+              disabled={adding}
+            />
+            <div className="border-t border-neutral-200/40 dark:border-white/5" aria-hidden="true" />
+            <input
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') { e.preventDefault(); void handleAdd() }
                 if (e.key === 'Escape') setOpen(false)
               }}
-              placeholder="Add by email…"
+              placeholder="Email address"
               className="w-full bg-transparent outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-500"
               disabled={adding}
             />
@@ -152,30 +174,34 @@ export default function NoteAttendeesDropdown({ note }: Props) {
           ) : (
             <div className="max-h-56 overflow-y-auto">
               {attendees.map((a) => {
-                const isCreator = a.email.toLowerCase() === currentUserEmail.toLowerCase()
+                const isYou = isCurrentUserAttendee(a.email, user?.email)
+                const removeLabel = isYou ? 'Remove yourself from attendees' : 'Remove attendee'
                 return (
                   <div key={a.email} className={dropdownItemClassName({ layout: 'multiline', className: 'group cursor-default' })}>
-                    <Avatar name={a.name} email={a.email} avatarUrl={a.avatarUrl} size="md" />
+                    <Avatar name={a.name} email={a.email} size="md" />
                     <span className="min-w-0 flex-1 text-left">
                       {a.name ? (
                         <>
-                          <span className="block truncate leading-4">{a.name}</span>
+                          <span className="block truncate leading-4">
+                            {a.name}{isYou ? <span className="text-neutral-400 dark:text-neutral-500"> (You)</span> : null}
+                          </span>
                           <span className="block truncate text-[11px] text-neutral-400 dark:text-neutral-500">{a.email}</span>
                         </>
                       ) : (
-                        <span className="block truncate leading-4">{a.email}</span>
+                        <span className="block truncate leading-4">
+                          {a.email}{isYou ? <span className="text-neutral-400 dark:text-neutral-500"> (You)</span> : null}
+                        </span>
                       )}
                     </span>
-                    {!isCreator && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); void handleRemove(a.email) }}
-                        className="ml-auto shrink-0 rounded-full p-0.5 text-neutral-400 opacity-0 transition-opacity hover:text-neutral-700 group-hover:opacity-100 dark:text-neutral-500 dark:hover:text-neutral-200"
-                        title="Remove attendee"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); void handleRemove(a.email) }}
+                      className="ml-auto shrink-0 rounded-full p-0.5 text-neutral-400 opacity-0 transition-opacity hover:text-neutral-700 group-hover:opacity-100 dark:text-neutral-500 dark:hover:text-neutral-200"
+                      title={removeLabel}
+                      aria-label={removeLabel}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
                   </div>
                 )
               })}

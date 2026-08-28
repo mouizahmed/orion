@@ -77,7 +77,7 @@ export default function HomeView({
   onOpenCalendarSettings?: () => void
 }) {
   const { user } = useAuth()
-  const { selectNote, openCreateNoteDialog, deleteById, renameNote, moveNote, folders } = useDashboardNotes()
+  const { selectNote, openCreateNoteDialog, requestDeleteNote, renameNote, moveNote, folders } = useDashboardNotes()
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
   const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
@@ -282,7 +282,7 @@ export default function HomeView({
                             showMove={showMove}
                             onShowMoveChange={setShowMove}
                             onRename={startRename}
-                            onDelete={(id) => void deleteById(id)}
+                            onDelete={(id, title) => requestDeleteNote(id, title)}
                             onMove={(id, folderId) => void moveNote(id, folderId)}
                             close={close}
                           />

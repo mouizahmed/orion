@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState } fro
 import { useQueryClient } from '@tanstack/react-query'
 
 import { CreateNoteDialog } from '@/features/notes/dialogs/CreateNoteDialog'
+import { DeleteConfirmationDialog } from '@/features/notes/dialogs/DeleteConfirmationDialog'
 import type { FolderRecord } from '@/features/notes/folder-types'
 import {
   useCreateFolderMutation,
@@ -28,6 +29,7 @@ type DashboardNotesContextType = {
   selectNote: (id: string | null) => void
   createFolder: (name: string) => Promise<FolderRecord | null>
   deleteFolder: (folderID: string) => Promise<boolean>
+  requestDeleteFolder: (folderID: string, name?: string) => void
   renameFolder: (folderID: string, name: string) => Promise<boolean>
   renameNote: (noteID: string, title: string) => Promise<boolean>
   moveNote: (noteID: string, folderID: string | null) => Promise<boolean>
@@ -39,6 +41,13 @@ type DashboardNotesContextType = {
     calendarEventId?: string
   }) => Promise<NoteRecord | null>
   deleteById: (noteID: string) => Promise<boolean>
+  requestDeleteNote: (noteID: string, title?: string) => void
+}
+
+type PendingDeletion = {
+  kind: 'note' | 'folder'
+  id: string
+  name: string
 }
 
 const DashboardNotesContext = createContext<DashboardNotesContextType | null>(null)
@@ -49,6 +58,9 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null)
   const [showCreateNoteDialog, setShowCreateNoteDialog] = useState(false)
+  const [pendingDeletion, setPendingDeletion] = useState<PendingDeletion | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const createInFlightRef = useRef(false)
 
   const foldersQuery = useFoldersQuery(userId)
@@ -169,6 +181,48 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
     [deleteNoteAsync],
   )
 
+  const requestDeleteFolder = useCallback((folderID: string, name?: string) => {
+    setDeleteError(null)
+    setPendingDeletion({
+      kind: 'folder',
+      id: folderID,
+      name: name?.trim() || folders.find((folder) => folder.id === folderID)?.name || 'this folder',
+    })
+  }, [folders])
+
+  const requestDeleteNote = useCallback((noteID: string, title?: string) => {
+    setDeleteError(null)
+    setPendingDeletion({ kind: 'note', id: noteID, name: title?.trim() || 'this note' })
+  }, [])
+
+  const closeDeleteDialog = useCallback(() => {
+    if (deleting) return
+    setPendingDeletion(null)
+    setDeleteError(null)
+  }, [deleting])
+
+  const confirmDeletion = useCallback(async () => {
+    if (!pendingDeletion || deleting) return
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      const deleted = pendingDeletion.kind === 'note'
+        ? await deleteNoteAsync(pendingDeletion.id)
+        : await deleteFolderAsync(pendingDeletion.id)
+      if (!deleted) throw new Error(`Could not delete ${pendingDeletion.kind}`)
+      if (pendingDeletion.kind === 'note') {
+        setSelectedId((current) => (current === pendingDeletion.id ? null : current))
+      } else {
+        setSelectedFolderId((current) => (current === pendingDeletion.id ? null : current))
+      }
+      setPendingDeletion(null)
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : `Could not delete ${pendingDeletion.kind}`)
+    } finally {
+      setDeleting(false)
+    }
+  }, [deleteFolderAsync, deleteNoteAsync, deleting, pendingDeletion])
+
   const value = useMemo<DashboardNotesContextType>(
     () => ({
       isLoading: foldersQuery.isLoading,
@@ -182,6 +236,7 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
       selectNote,
       createFolder,
       deleteFolder,
+      requestDeleteFolder,
       renameFolder,
       renameNote,
       moveNote,
@@ -189,6 +244,7 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
       refresh,
       createNewNote,
       deleteById,
+      requestDeleteNote,
     }),
     [
       createFolder,
@@ -201,6 +257,8 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
       moveNote,
       openCreateNoteDialog,
       refresh,
+      requestDeleteFolder,
+      requestDeleteNote,
       renameFolder,
       renameNote,
       selectFolder,
@@ -221,6 +279,18 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
         defaultFolderId={selectedFolderId}
         onClose={() => setShowCreateNoteDialog(false)}
         onCreate={async ({ title, folderId }) => Boolean(await createNewNote({ title, folderId }))}
+      />
+      <DeleteConfirmationDialog
+        open={Boolean(pendingDeletion)}
+        title={pendingDeletion ? `Delete ${pendingDeletion.name}?` : 'Delete item?'}
+        description={pendingDeletion?.kind === 'note'
+          ? 'The note, recording, and transcript are deleted with it. This cannot be undone.'
+          : 'The folder will be removed from your sidebar. This cannot be undone.'}
+        confirmLabel={pendingDeletion?.kind === 'folder' ? 'Delete folder' : 'Delete note'}
+        deleting={deleting}
+        error={deleteError}
+        onClose={closeDeleteDialog}
+        onConfirm={() => void confirmDeletion()}
       />
     </DashboardNotesContext.Provider>
   )
