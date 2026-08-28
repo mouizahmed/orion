@@ -18,3 +18,4 @@ database_schema.sql
 /backend/cmd/url-extractor
 
 .claude/
+.runtime-logs/

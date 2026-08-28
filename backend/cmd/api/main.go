@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -378,10 +379,15 @@ func main() {
 	if port == "" {
 		port = "8080" // Default port if not specified
 	}
-	log.Printf("Starting server on port %s", port)
+	host := strings.TrimSpace(os.Getenv("API_HOST"))
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	address := net.JoinHostPort(host, port)
+	log.Printf("Starting server on %s", address)
 
 	server := &http.Server{
-		Addr:              ":" + port,
+		Addr:              address,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
