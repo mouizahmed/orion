@@ -35,6 +35,21 @@ type NoteEditorViewProps = {
   userId?: string
 }
 
+function NoteLoadingIndicator() {
+  return (
+    <div
+      className="flex h-full min-h-40 items-center justify-center"
+      role="status"
+      aria-live="polite"
+    >
+      <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        <span>Loading note…</span>
+      </div>
+    </div>
+  )
+}
+
 export default function NoteEditorView({
   userId,
 }: NoteEditorViewProps) {
@@ -268,6 +283,7 @@ export default function NoteEditorView({
   }, [handleEnhance])
 
   if (!selectedId) return null
+  const noteIsLoading = selectedNoteLoading || hydratedNoteId !== selectedId
 
   return (
     <div className="flex h-full min-h-0">
@@ -277,7 +293,16 @@ export default function NoteEditorView({
 
         {/* Title row */}
         <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
-          <input
+          {noteIsLoading ? (
+            <div className="flex h-8 w-full items-center gap-2" aria-hidden="true">
+              <div className="h-3 w-28 animate-pulse rounded bg-neutral-200/80 dark:bg-white/10" />
+              <div className="ml-auto h-8 w-24 animate-pulse rounded-full bg-neutral-200/70 dark:bg-white/8" />
+              <div className="h-8 w-32 animate-pulse rounded-full bg-neutral-200/70 dark:bg-white/8" />
+              <div className="h-8 w-24 animate-pulse rounded-full bg-neutral-200/70 dark:bg-white/8" />
+            </div>
+          ) : (
+            <>
+              <input
             value={draftTitle}
             onChange={(e) => setDraftTitle(e.target.value)}
             onKeyDown={(e) => {
@@ -422,7 +447,9 @@ export default function NoteEditorView({
           >
             <FileText className="h-3.5 w-3.5" />
             Transcript
-          </Button>
+              </Button>
+            </>
+          )}
         </div>
 
         {enhanceError ? (
@@ -433,15 +460,8 @@ export default function NoteEditorView({
 
         {/* Editor */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          {selectedNoteLoading || hydratedNoteId !== selectedId ? (
-            <div className="flex-1 space-y-3 p-5">
-              <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-              <div className="h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-              <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-              <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-              <div className="mt-6 h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-              <div className="h-3 w-4/5 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-            </div>
+          {noteIsLoading ? (
+            <NoteLoadingIndicator />
           ) : (
             <MarkdownEditor
               markdown={draftNote}
