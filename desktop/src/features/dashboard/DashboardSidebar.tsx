@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Home, Notebook, Settings } from 'lucide-react'
+import { CalendarDays, Home, MessageCircle, Notebook, Settings } from 'lucide-react'
 
 import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
@@ -170,6 +170,11 @@ export default function DashboardSidebar({
               label="My Notes"
               onClick={openNotesRoot}
               isActive={mode === 'notes'}
+            />
+            <NavButton
+              icon={MessageCircle}
+              label="Chat"
+              onClick={() => undefined}
             />
           </div>
         )}

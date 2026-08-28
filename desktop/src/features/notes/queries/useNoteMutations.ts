@@ -15,12 +15,14 @@ import type { FolderRecord } from '@/features/notes/folder-types'
 import type { NoteDetail, NoteRecord, NoteSummary } from '@/features/notes/types'
 import {
   patchNoteEverywhere,
+  prependNoteToPages,
   relocateNote,
   removeNoteEverywhere,
   restoreSnapshot,
   seedCanonicalNote,
   snapshotAccountNotes,
   summaryFromRecord,
+  type NotesInfiniteData,
   type QuerySnapshot,
 } from '@/features/notes/queries/note-cache-transforms'
 import { resolveNoteRevision } from '@/features/notes/queries/note-revision'
@@ -129,6 +131,9 @@ export function useCreateNoteMutation(accountID: string) {
       } satisfies NoteDetail)
       queryClient.setQueryData<FolderRecord[]>(queryKeys.folders(accountID), (folders) =>
         folders?.map((folder) => (folder.id === folderID ? { ...folder, noteCount: folder.noteCount + 1 } : folder)),
+      )
+      queryClient.setQueryData<NotesInfiniteData>(queryKeys.notesByFolder(accountID, folderID), (current) =>
+        prependNoteToPages(current, summary),
       )
       void queryClient.invalidateQueries({
         queryKey: queryKeys.notesByFolder(accountID, folderID),
