@@ -5,7 +5,6 @@ import { Toaster } from 'sonner'
 import { SidebarProvider } from '@/components/ui/sidebar'
 import { DashboardAuthRoot } from '@/features/auth/AuthContext'
 import CalendarQueryEvents from '@/features/calendar/CalendarQueryEvents'
-import { ChatProvider } from '@/features/chat/ChatContext'
 import { BillingProvider } from '@/features/settings/sections/billing/BillingContext'
 import { dashboardQueryClient } from '@/lib/query-client'
 import ServerStateInvalidationBridge from '@/app/providers/ServerStateInvalidationBridge'
@@ -19,9 +18,7 @@ export function DashboardProviders({ children }: { children: ReactNode }) {
           <CalendarQueryEvents />
           <ServerStateInvalidationBridge />
           <BillingProvider>
-            <ChatProvider>
-              <SidebarProvider defaultOpen>{children}</SidebarProvider>
-            </ChatProvider>
+            <SidebarProvider defaultOpen>{children}</SidebarProvider>
           </BillingProvider>
           <Toaster
             position="bottom-center"

@@ -130,7 +130,6 @@ function DashboardContent() {
           </div>
         </div>
       </div>
-      {/* {viewMode === 'notes' ? <ChatWidget variant="dashboard" /> : null} */}
     </DashboardNotesProvider>
   )
 }

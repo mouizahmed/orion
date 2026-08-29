@@ -4,7 +4,6 @@ export const SESSION_EXPIRED_MESSAGE_KEY = 'orion:session-expired-message'
 const LOGOUT_STORAGE_KEYS = [
   'dashboard:selectedNoteId',
   'dashboard:selectedFolderId',
-  'chat:activeConversationId',
   'orion:cached-user',
   'orion.billing.pending-checkout',
 ]
