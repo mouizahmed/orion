@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,10 +21,14 @@ const CalendarSyncJobKind = "calendar.sync"
 
 type calendarSyncer interface {
 	SyncUser(context.Context, string, calendarservice.SyncScope) ([]string, error)
+	SyncConnection(context.Context, string, string, calendarservice.SyncScope) ([]string, error)
+	ForceFullSyncConnection(context.Context, string, string) ([]string, error)
 }
 
 type controlPlane interface {
 	ListDueJobTenants(context.Context, int) ([]string, error)
+	ListDueCalendarSyncConnections(context.Context, time.Duration, time.Duration, int) ([]models.DueCalendarConnection, error)
+	EnqueueJob(context.Context, *models.IntegrationJob) (string, error)
 	ClaimJobs(context.Context, string, string, int, time.Duration) ([]models.IntegrationJob, error)
 	CompleteJob(context.Context, string, string, string) error
 	FailJob(context.Context, string, string, string, string, time.Time) error
@@ -29,24 +36,40 @@ type controlPlane interface {
 	PurgeExpiredControlPlane(context.Context, int) (int64, int64, int64, error)
 }
 
+type subscriptionLifecycle interface {
+	ReconcileConnection(context.Context, string, string) error
+}
+
 type Worker struct {
-	repository controlPlane
-	calendar   calendarSyncer
-	events     resourceevents.Publisher
-	notify     func(userID string, syncing, stale bool)
-	workerID   string
-	parallel   *semaphore.Weighted
-	lastPurge  time.Time
+	repository                 controlPlane
+	calendar                   calendarSyncer
+	events                     resourceevents.Publisher
+	notify                     func(userID string, syncing, stale bool)
+	workerID                   string
+	parallel                   *semaphore.Weighted
+	lastPurge                  time.Time
+	lastSchedule               time.Time
+	reconciliationInterval     time.Duration
+	fullReconciliationInterval time.Duration
+	schedulerInterval          time.Duration
+	subscriptions              subscriptionLifecycle
+}
+
+func (w *Worker) SetSubscriptionLifecycle(lifecycle subscriptionLifecycle) {
+	w.subscriptions = lifecycle
 }
 
 func New(repository controlPlane, calendar calendarSyncer, events resourceevents.Publisher, notify func(userID string, syncing, stale bool)) *Worker {
 	return &Worker{
-		repository: repository,
-		calendar:   calendar,
-		events:     events,
-		notify:     notify,
-		workerID:   "integration-" + uuid.NewString(),
-		parallel:   semaphore.NewWeighted(4),
+		repository:                 repository,
+		calendar:                   calendar,
+		events:                     events,
+		notify:                     notify,
+		workerID:                   "integration-" + uuid.NewString(),
+		parallel:                   semaphore.NewWeighted(4),
+		reconciliationInterval:     durationFromEnv("CALENDAR_RECONCILIATION_INTERVAL", 5*time.Minute, time.Minute, 24*time.Hour),
+		fullReconciliationInterval: durationFromEnv("CALENDAR_FULL_RECONCILIATION_INTERVAL", 7*24*time.Hour, 24*time.Hour, 30*24*time.Hour),
+		schedulerInterval:          durationFromEnv("CALENDAR_SCHEDULER_INTERVAL", 30*time.Second, 10*time.Second, 5*time.Minute),
 	}
 }
 
@@ -55,10 +78,12 @@ func (w *Worker) Start(ctx context.Context) {
 		log.Println("integration worker: dependencies unavailable, worker disabled")
 		return
 	}
-	log.Println("integration worker: started")
+	log.Printf("integration worker: started calendar_reconciliation=%s calendar_full_reconciliation=%s calendar_scheduler=%s",
+		w.reconciliationInterval, w.fullReconciliationInterval, w.schedulerInterval)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
+		w.enqueueScheduledSyncs(ctx)
 		w.dispatchDue(ctx)
 		w.purgeExpired(ctx)
 		select {
@@ -66,6 +91,33 @@ func (w *Worker) Start(ctx context.Context) {
 			log.Println("integration worker: shutting down")
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+func (w *Worker) enqueueScheduledSyncs(ctx context.Context) {
+	if !w.lastSchedule.IsZero() && time.Since(w.lastSchedule) < w.schedulerInterval {
+		return
+	}
+	w.lastSchedule = time.Now()
+	due, err := w.repository.ListDueCalendarSyncConnections(ctx, w.reconciliationInterval, w.fullReconciliationInterval, 250)
+	if err != nil {
+		log.Printf("integration worker: calendar schedule discovery failed: %v", err)
+		return
+	}
+	for _, item := range due {
+		var job *models.IntegrationJob
+		if item.ForceFull {
+			job, err = CalendarConnectionFullSyncJob(item.UserID, item.ConnectionID, time.Now())
+		} else {
+			job, err = CalendarConnectionSyncJob(item.UserID, item.ConnectionID, calendarservice.SyncScopeAll, time.Now(), w.reconciliationInterval)
+		}
+		if err != nil {
+			log.Printf("integration worker: invalid scheduled calendar connection: %v", err)
+			continue
+		}
+		if _, err := w.repository.EnqueueJob(ctx, job); err != nil {
+			log.Printf("integration worker: failed to enqueue scheduled calendar sync: %v", err)
 		}
 	}
 }
@@ -124,13 +176,27 @@ func (w *Worker) process(parent context.Context, job models.IntegrationJob) {
 		return
 	}
 	var payload struct {
-		Scope calendarservice.SyncScope `json:"scope"`
+		Scope        calendarservice.SyncScope `json:"scope"`
+		ConnectionID string                    `json:"connection_id,omitempty"`
+		ForceFull    bool                      `json:"force_full,omitempty"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil || !validCalendarScope(payload.Scope) {
 		_ = w.repository.DeadLetterJob(ctx, job.UserID, job.ID, w.workerID, "invalid_job_payload")
 		return
 	}
-	noteIDs, err := w.calendar.SyncUser(ctx, job.UserID, payload.Scope)
+	connectionID := strings.TrimSpace(payload.ConnectionID)
+	if connectionID == "" && job.ConnectionID != nil {
+		connectionID = strings.TrimSpace(*job.ConnectionID)
+	}
+	var noteIDs []string
+	var err error
+	if connectionID != "" && payload.ForceFull {
+		noteIDs, err = w.calendar.ForceFullSyncConnection(ctx, job.UserID, connectionID)
+	} else if connectionID != "" {
+		noteIDs, err = w.calendar.SyncConnection(ctx, job.UserID, connectionID, payload.Scope)
+	} else {
+		noteIDs, err = w.calendar.SyncUser(ctx, job.UserID, payload.Scope)
+	}
 	if err != nil {
 		log.Printf("integration worker: calendar sync failed for user %s: %v", job.UserID, err)
 		if failErr := w.repository.FailJob(context.Background(), job.UserID, job.ID, w.workerID, "calendar_sync_failed", time.Now().Add(retryDelay(job.Attempts))); failErr != nil {
@@ -139,6 +205,16 @@ func (w *Worker) process(parent context.Context, job models.IntegrationJob) {
 		w.publish(job.UserID, payload.Scope, noteIDs)
 		return
 	}
+	if connectionID != "" && w.subscriptions != nil {
+		if lifecycleErr := w.subscriptions.ReconcileConnection(ctx, job.UserID, connectionID); lifecycleErr != nil {
+			log.Printf("integration worker: calendar subscription reconciliation failed for user %s: %v", job.UserID, lifecycleErr)
+			if failErr := w.repository.FailJob(context.Background(), job.UserID, job.ID, w.workerID, "calendar_subscription_reconcile_failed", time.Now().Add(retryDelay(job.Attempts))); failErr != nil {
+				log.Printf("integration worker: failed to reschedule calendar subscription job: %v", failErr)
+			}
+			w.publish(job.UserID, payload.Scope, noteIDs)
+			return
+		}
+	}
 	if err := w.repository.CompleteJob(context.Background(), job.UserID, job.ID, w.workerID); err != nil {
 		log.Printf("integration worker: failed to complete calendar job: %v", err)
 		w.publish(job.UserID, payload.Scope, noteIDs)
@@ -146,6 +222,20 @@ func (w *Worker) process(parent context.Context, job models.IntegrationJob) {
 	}
 	stale = false
 	w.publish(job.UserID, payload.Scope, noteIDs)
+}
+
+func CalendarConnectionFullSyncJob(userID, connectionID string, now time.Time) (*models.IntegrationJob, error) {
+	job, err := CalendarConnectionSyncJob(userID, connectionID, calendarservice.SyncScopeAll, now, 15*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	job.IdempotencyKey = fmt.Sprintf("calendar:%s:full:%d", connectionID, now.UTC().Truncate(15*time.Second).Unix())
+	job.Payload, err = json.Marshal(struct {
+		Scope        calendarservice.SyncScope `json:"scope"`
+		ConnectionID string                    `json:"connection_id"`
+		ForceFull    bool                      `json:"force_full"`
+	}{Scope: calendarservice.SyncScopeAll, ConnectionID: connectionID, ForceFull: true})
+	return job, err
 }
 
 func (w *Worker) publish(userID string, scope calendarservice.SyncScope, noteIDs []string) {
@@ -203,4 +293,45 @@ func CalendarSyncJob(userID string, scope calendarservice.SyncScope, now time.Ti
 		MaxAttempts:    8,
 		AvailableAt:    now.UTC(),
 	}, nil
+}
+
+func CalendarConnectionSyncJob(userID, connectionID string, scope calendarservice.SyncScope, now time.Time, bucketSize time.Duration) (*models.IntegrationJob, error) {
+	if _, err := uuid.Parse(userID); err != nil || !validCalendarScope(scope) {
+		return nil, fmt.Errorf("invalid calendar sync job")
+	}
+	if _, err := uuid.Parse(connectionID); err != nil {
+		return nil, fmt.Errorf("invalid calendar connection sync job")
+	}
+	if bucketSize < 15*time.Second {
+		bucketSize = 15 * time.Second
+	}
+	payload, err := json.Marshal(struct {
+		Scope        calendarservice.SyncScope `json:"scope"`
+		ConnectionID string                    `json:"connection_id"`
+	}{Scope: scope, ConnectionID: connectionID})
+	if err != nil {
+		return nil, err
+	}
+	bucket := now.UTC().Truncate(bucketSize).Unix()
+	return &models.IntegrationJob{
+		UserID: userID, ConnectionID: &connectionID, CapabilityKey: "calendar.read",
+		Kind:           CalendarSyncJobKind,
+		IdempotencyKey: fmt.Sprintf("calendar:%s:%s:%d", connectionID, scope, bucket),
+		Payload:        payload, MaxAttempts: 8, AvailableAt: now.UTC(),
+	}, nil
+}
+
+func durationFromEnv(name string, fallback, minimum, maximum time.Duration) time.Duration {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	if seconds, err := strconv.Atoi(raw); err == nil {
+		raw = fmt.Sprintf("%ds", seconds)
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil || value < minimum || value > maximum {
+		return fallback
+	}
+	return value
 }

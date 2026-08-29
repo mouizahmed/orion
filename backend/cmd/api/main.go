@@ -19,6 +19,7 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/auth"
 	"github.com/mouizahmed/justscribe-backend/internal/billing"
 	calendarservice "github.com/mouizahmed/justscribe-backend/internal/calendar"
+	"github.com/mouizahmed/justscribe-backend/internal/calendarpush"
 	"github.com/mouizahmed/justscribe-backend/internal/database"
 	"github.com/mouizahmed/justscribe-backend/internal/email"
 	"github.com/mouizahmed/justscribe-backend/internal/handlers"
@@ -118,6 +119,12 @@ func main() {
 	calendarCacheRepo := repository.NewCalendarCacheRepository(db)
 	integrationControlPlaneRepo := repository.NewIntegrationControlPlaneRepository(db)
 	calendarSyncService := calendarservice.NewService(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo)
+	calendarPushConfig := calendarpush.LoadConfig()
+	if err := calendarPushConfig.Validate(); err != nil {
+		log.Fatalf("Invalid calendar push configuration: %v", err)
+	}
+	calendarPushService := calendarpush.NewService(calendarPushConfig, integrationConnectionRepo, calendarCacheRepo, integrationControlPlaneRepo)
+	log.Printf("calendar push: enabled=%t", calendarPushConfig.Enabled)
 	noteRepo := repository.NewNoteRepository(db)
 	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
@@ -200,6 +207,7 @@ func main() {
 			"data": map[string]any{"syncing": syncing, "stale": stale},
 		})
 	})
+	integrationWorker.SetSubscriptionLifecycle(calendarPushService)
 	workerCtx, cancelWorker := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelWorker()
 	go w.Start(workerCtx)
@@ -220,7 +228,8 @@ func main() {
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(principalService, supabaseAuth, emailSvc, wsHub)
-	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient, resourceEventPublisher)
+	integrationOAuthHandler := handlers.NewIntegrationOAuthHandler(integrationConnectionRepo, redisClient, resourceEventPublisher, integrationControlPlaneRepo, calendarPushService)
+	calendarPushHandler := calendarpush.NewHandler(integrationControlPlaneRepo)
 	userHandler := handlers.NewUserHandler(userRepo, avatarService)
 	vocabularyHandler := handlers.NewVocabularyHandler(accountVocabularyRepo, resourceEventPublisher)
 	emailDraftSettingsHandler := handlers.NewEmailDraftSettingsHandler(emailDraftSettingsRepo, resourceEventPublisher)
@@ -274,6 +283,8 @@ func main() {
 
 	// Stripe authenticates this endpoint with its request signature, not a user session.
 	router.POST("/webhooks/stripe", billingHandler.ReceiveStripeWebhook)
+	router.POST("/webhooks/calendar/google", calendarPushHandler.Google)
+	router.POST("/webhooks/calendar/microsoft", calendarPushHandler.Microsoft)
 
 	// Authenticated API routes
 	authenticated := api.Group("/")

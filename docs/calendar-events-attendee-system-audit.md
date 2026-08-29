@@ -9,6 +9,99 @@ The audit originally found five high-severity and seven medium-severity correctn
 
 The application is still in development, so the canonical schema and live dev database were updated directly without adding a migration. The desktop, web, Stripe CLI, and rebuilt backend remain running as monitorable background processes for this session.
 
+## 2026-08-29 robustness follow-up
+
+A source and test re-review found three regressions or incomplete edge cases in the otherwise hardened event-sync path. They were resolved without a schema migration:
+
+| Finding | Resolution |
+| --- | --- |
+| An `all` sync marked calendar-list and event scopes as `syncing`, but an event-stage failure completed only the event scope and could leave the stored calendar-list status at `syncing`. | Calendar-list reconciliation now records `calendars` success before event synchronization begins. Event completion records only the `events` scope, so each phase has a truthful terminal state even when the other phase fails. |
+| Advisory-lock contention returned `nil`, allowing a durable job that performed no work to be marked successful. | Lock contention now remains the typed `ErrCalendarSyncInProgress` result. Workers reschedule it through the existing bounded retry path, while the synchronous diagnostic endpoint reports that its request coalesced with an active sync instead of returning a provider failure. |
+| A React Query background-refresh error retained cached events but `CalendarView` rendered a blocking unavailable state before considering those events. | A blocking error is now limited to the no-cache case. When cached events exist, the agenda remains visible and the header exposes a non-blocking refresh-failed status and retry control. |
+
+Regression coverage records independent `calendars`/`events` terminal transitions, preserves lock contention for worker retry, and verifies blocking versus inline calendar error presentation.
+
+Verification after the follow-up:
+
+- `go test ./...`, `go vet ./...`, and `go build ./cmd/api` pass.
+- Desktop Vitest passes with 15 files and 69 tests; ESLint and `tsc --noEmit` pass.
+- A read-only hosted-state check found no calendar-list or event sync left in `syncing` beyond the two-minute active-sync window.
+
+## 2026-08-29 autonomous synchronization and provider push
+
+The remaining new-event discovery gap is implemented with the standard hybrid model: provider push
+notifications reduce latency, while autonomous per-connection reconciliation remains the correctness
+backstop. A provider notification is never treated as event data; it is authenticated, deduplicated,
+recorded with a SHA-256 digest, and atomically paired with a durable `calendar.sync` job. The existing
+Google sync token or Microsoft delta link then retrieves authoritative changes.
+
+Implemented behavior:
+
+- The worker discovers stale Google/Microsoft connections through a narrow backend-only coordinator,
+  applies deterministic jitter, and enqueues one durable job per connection every configured
+  reconciliation interval. One connection cannot make another appear fresh.
+- OAuth completion and calendar visibility changes enqueue immediate connection-scoped full-scope
+  jobs. Calendar-list reconciliation discovers new/removed sources before subscription reconciliation.
+- Google uses one CalendarList channel per connection and one Events channel per visible calendar.
+  A pending row exists before `watch`, replacements overlap safely, and retiring channels are stopped
+  with both channel ID and provider resource ID.
+- Microsoft uses one basic `me/events` subscription per connection. The webhook implements the plain
+  text validation challenge, constant-time `clientState` verification, batched notification handling,
+  expiration renewal, `reauthorizationRequired`, `subscriptionRemoved`, and `missed` recovery.
+- Notification receipt, subscription timestamp, and durable job enqueue commit in one tenant-scoped
+  transaction. Database failure returns a retryable webhook response instead of acknowledging lost work.
+- Initial sync, a shifted UTC sync window, Google `410`, an invalid Microsoft delta link, a provider
+  missed-notification lifecycle event, a persisted weekly safety deadline, or an authenticated
+  `force_full` repair clears/bypasses cursors and performs a bounded full reconciliation. The normal
+  cache window remains 30 days back and 90 days ahead. `last_full_synced_at` advances only after the
+  connection-wide full sync succeeds; `CALENDAR_FULL_RECONCILIATION_INTERVAL` defaults to seven days.
+- Events moved outside either side of the cache window are removed while linked-note snapshots survive.
+  Microsoft descriptions now use the full event body rather than only `bodyPreview`.
+- Provider throttling and transient subscription failures use bounded retries. Revoked authorization is
+  represented by the existing `needs_reconnect` state. Remote channel deletion remains best-effort and
+  occurs only after the locally authoritative disconnect commits.
+
+Concrete release acceptance cases are: create; title/description/location/time update; calendar move;
+delete; cancellation; recurring series and exceptions; attendee add/remove/response; timezone and
+all-day boundaries; multi-page list/delta responses; expired cursors; events entering/leaving the
+−30/+90-day window; dropped/duplicated/replayed webhook notifications; renewal overlap; lifecycle
+recovery; multi-worker claiming; worker restart; provider throttling/revocation; and database/queue
+failure during webhook acceptance.
+
+Measurable acceptance criteria:
+
+| Case | Pass condition |
+| --- | --- |
+| Create/update/attendees/timezone/all-day | The next incremental job commits the normalized in-scope event and attendee set, advances the cursor only with that commit, and publishes calendar/note invalidation. |
+| Move/delete/cancel/leave-window | The old cache row is removed in the same reconciliation cycle; a linked note retains its event snapshot and remains readable. |
+| Recurrence and pagination | Every provider page is consumed; expanded occurrences and exceptions have stable provider IDs with no duplicates. |
+| Expired/invalid cursor or weekly safety deadline | The connection performs one bounded −30/+90-day full scan, reconciles missing rows, and advances `last_full_synced_at` only after success. |
+| Duplicate/replayed notification | One receipt/idempotency identity produces at most one pending job; a later distinct provider signal remains eligible. |
+| Webhook authenticity and limits | Wrong Google channel token/resource ID or Microsoft `clientState` cannot enqueue; Google headers are singular and bounded; Microsoft bodies are at most 1 MiB and 100 notifications. |
+| Provider acknowledgement | Microsoft validation returns decoded `text/plain`; accepted notifications return promptly without provider I/O; persistence failure returns `503` so delivery can retry. |
+| Renewal/lifecycle | A replacement becomes active before its predecessor retires; `missed`, `subscriptionRemoved`, and `reauthorizationRequired` persist recovery state and enqueue durable repair. |
+| Worker/queue/database failure | A job is leased by one worker, retries with bounded backoff after failure/restart, and neither cursor nor webhook acknowledgement claims success before its transaction commits. |
+
+The documented product scope remains meeting-like events in visible calendars. The intentional
+`isMeeting` filter excludes other calendar entries; unsupported provider resources and fields not
+represented by the normalized event model are not claimed as synchronized. After the fixture,
+database/RLS, and live-provider acceptance cases pass, the production statement is: no known
+synchronization defects remain for documented in-scope event types. Remaining limitations are provider
+behavior/outages, temporary infrastructure failures, unsupported resources, and intentionally excluded
+fields.
+
+Operational alerts must treat overdue event/full-sync timestamps, expiring or failed subscriptions,
+dead `calendar.sync` jobs, repeated throttling, `needs_reconnect`, and webhook `503` rates as actionable.
+Malformed provider items are bounded/skipped or fail their page without advancing its cursor; database
+or queue unavailability degrades to retry, never silent acknowledgement. Unsupported resources and the
+meeting-like product filter remain explicit scope exclusions.
+
+Hosted schema verification after migrations `complete_calendar_push_sync` and
+`calendar_periodic_full_reconciliation` confirmed the subscription lifecycle columns, the persisted
+full-sync watermark, the owner-bound supersession foreign key, and both narrow security-definer
+functions. `orion_backend` can execute the scheduler/resolver functions; `anon` and `authenticated`
+cannot. A rollback-only tenant probe confirmed that a non-owning tenant cannot read a subscription.
+
 ## Implementation outcome
 
 | Area | Outcome |

@@ -42,3 +42,33 @@ type IntegrationDeliveryAttempt struct {
 	ResponseStatus *int
 	ErrorCode      *string
 }
+
+type DueCalendarConnection struct {
+	UserID       string
+	ConnectionID string
+	ForceFull    bool
+}
+
+// IntegrationWebhookSubscription stores only webhook control-plane metadata.
+// Provider credentials remain on IntegrationConnection and webhook secrets are
+// persisted as one-way hashes.
+type IntegrationWebhookSubscription struct {
+	ID                     string
+	UserID                 string
+	ConnectionID           string
+	Provider               string
+	CapabilityKey          string
+	ProviderSubscriptionID string
+	WatchedResourceID      string
+	ProviderResourceID     string
+	SupersedesID           *string
+	Generation             int
+	CallbackURL            string
+	VerificationSecretHash string
+	Status                 string
+	ExpiresAt              *time.Time
+	RenewalAttemptedAt     *time.Time
+	NextAttemptAt          *time.Time
+	LastNotificationAt     *time.Time
+	LastErrorCode          *string
+}

@@ -21,6 +21,11 @@ The manual commands below are the fallback for interactive debugging.
 - Go is installed and available as `go` in PowerShell.
 - Node.js/npm are installed. Install each package's dependencies (`npm install` or the repository's documented equivalent) in `web` and `desktop` before the first run.
 - Backend dependencies and configuration are present. The API reads `backend\cmd\api\.env` and billing values from `backend\cmd\api\.env.billing` (or the corresponding ignored local files expected by the backend).
+- Provider push testing requires a public HTTPS tunnel to the backend. Set
+  `CALENDAR_WEBHOOK_BASE_URL` to the tunnel origin and `CALENDAR_PUSH_ENABLED=true`; never use a
+  production callback URL against a local process. `CALENDAR_RECONCILIATION_INTERVAL` defaults to five
+  minutes and `CALENDAR_FULL_RECONCILIATION_INTERVAL` defaults to `168h`; shorten the latter only in an
+  isolated test environment because it clears provider cursors and performs a bounded full scan.
 - Stripe CLI is installed and authenticated. Verify authentication without exposing local configuration:
 
   ```powershell
@@ -85,6 +90,11 @@ Open four PowerShell terminals from the repository root, then run:
 - Web: open `http://localhost:3000` and confirm the page loads.
 - Desktop: confirm Vite reports port `5173` and an Electron window opens.
 - Stripe: leave `stripe listen` running and create a test subscription event; confirm the listener reports a forwarded `2xx` response from `localhost:8080`.
+- Calendar push: after connecting a provider, confirm active rows exist in
+  `integration_webhook_subscriptions`, create/update/delete a meeting in that provider, and verify a
+  webhook receipt, a connection-scoped `calendar.sync` job, the normalized Postgres change, and the
+  desktop invalidation. Repeat with webhook forwarding stopped to verify periodic recovery within
+  `CALENDAR_RECONCILIATION_INTERVAL`.
 
 ## Clean shutdown
 
@@ -96,5 +106,13 @@ Press `Ctrl+C` in each terminal (Stripe listener, desktop, web, and backend). St
 - **Webhook signature failures after rotating the listener:** copy the newly printed development signing secret to `backend\cmd\api\.env.billing` as `STRIPE_WEBHOOK_SECRET`, then stop and restart the backend. Do not reuse a stale listener secret.
 - **`stripe whoami` fails:** authenticate the Stripe CLI for the current account, then rerun `stripe whoami --format json`; do not print or share the CLI config.
 - **Missing modules or packages:** install dependencies in the failing directory and rerun its start command.
+- **Calendar push stays disabled:** `CALENDAR_WEBHOOK_BASE_URL` must be an absolute HTTPS URL without a
+  query or fragment, and `CALENDAR_PUSH_ENABLED` must be true. Restart the backend after changing either.
+- **Google channel does not renew:** check subscription expiration/status/`last_error_code`, provider
+  authorization, queue dead letters, and that autonomous connection sync is running. Do not print the
+  channel token.
+- **Microsoft validation fails:** the public proxy must preserve the decoded `validationToken` query
+  and allow the backend to return it as `text/plain` quickly. Do not add user-session middleware to the
+  provider webhook routes.
 
 Future agents should run `scripts\local-dev.ps1 start` instead of rediscovering the local process setup. Keep this document free of secrets, account IDs, credentials, and process/session IDs.

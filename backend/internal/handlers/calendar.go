@@ -173,12 +173,43 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Calendar sync is unavailable"})
 		return
 	}
+	connectionID := strings.TrimSpace(c.Query("connection_id"))
+	forceFull := c.Query("force_full") == "true"
+	if forceFull && connectionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "force_full requires connection_id"})
+		return
+	}
+	if connectionID != "" {
+		connection, loadErr := h.connectionRepo.GetByID(userID, connectionID)
+		if loadErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to load calendar connection"})
+			return
+		}
+		if connection == nil || connection.Status != models.IntegrationConnectionStatusActive {
+			c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "Calendar connection not found"})
+			return
+		}
+	}
 
 	if c.Query("wait") == "true" {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
 		defer cancel()
-		changedNoteIDs, err := h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll)
+		var changedNoteIDs []string
+		if forceFull {
+			changedNoteIDs, err = h.syncService.ForceFullSyncConnection(ctx, userID, connectionID)
+		} else if connectionID != "" {
+			changedNoteIDs, err = h.syncService.SyncConnection(ctx, userID, connectionID, calendarservice.SyncScopeAll)
+		} else {
+			changedNoteIDs, err = h.syncService.SyncUser(ctx, userID, calendarservice.SyncScopeAll)
+		}
 		if err != nil {
+			if calendarservice.IsOnlySyncInProgress(err) {
+				h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
+				h.publishSyncChanges(context.Background(), userID, calendarservice.SyncScopeAll)
+				h.publishChangedNotes(context.Background(), userID, changedNoteIDs)
+				c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": true, "coalesced": true})
+				return
+			}
 			log.Printf("calendar: manual sync failed for user %s: %v", userID, err)
 			h.sendCalendarSyncMetadata(context.Background(), userID, calendarservice.SyncScopeEvents)
 			h.publishSyncChanges(context.Background(), userID, calendarservice.SyncScopeAll)
@@ -194,12 +225,35 @@ func (h *CalendarHandler) Sync(c *gin.Context) {
 		return
 	}
 
-	if err := h.triggerBackgroundSync(userID, calendarservice.SyncScopeAll); err != nil {
+	if err := h.triggerRequestedBackgroundSync(userID, connectionID, forceFull); err != nil {
 		log.Printf("calendar: failed to enqueue manual sync for user %s: %v", userID, err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "error": "Calendar sync could not be queued"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "success", "syncing": true})
+}
+
+func (h *CalendarHandler) triggerRequestedBackgroundSync(userID, connectionID string, forceFull bool) error {
+	if h.jobRepository == nil {
+		return errors.New("integration job repository unavailable")
+	}
+	var job *models.IntegrationJob
+	var err error
+	if forceFull {
+		job, err = integrationworker.CalendarConnectionFullSyncJob(userID, connectionID, time.Now())
+	} else if connectionID != "" {
+		job, err = integrationworker.CalendarConnectionSyncJob(userID, connectionID, calendarservice.SyncScopeAll, time.Now(), 15*time.Second)
+	} else {
+		job, err = integrationworker.CalendarSyncJob(userID, calendarservice.SyncScopeAll, time.Now())
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := h.jobRepository.EnqueueJob(context.Background(), job); err != nil {
+		return err
+	}
+	h.sendCalendarSyncStatus(userID, true, true, nil)
+	return nil
 }
 
 func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
@@ -256,6 +310,14 @@ func (h *CalendarHandler) UpdateCalendarVisibility(c *gin.Context) {
 	if !previouslyVisible && *request.Visible {
 		if err := h.cacheRepo.ClearCalendarSyncToken(c.Request.Context(), userID, connectionID, calendarID); err != nil {
 			log.Printf("calendar: failed to clear sync token for connection %s calendar %s: %v", connectionID, calendarID, err)
+		}
+	}
+	if h.jobRepository != nil {
+		job, jobErr := integrationworker.CalendarConnectionSyncJob(userID, connectionID, calendarservice.SyncScopeAll, time.Now(), 15*time.Second)
+		if jobErr == nil {
+			if _, enqueueErr := h.jobRepository.EnqueueJob(c.Request.Context(), job); enqueueErr != nil {
+				log.Printf("calendar: failed to enqueue visibility reconciliation for connection %s: %v", connectionID, enqueueErr)
+			}
 		}
 	}
 	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceCalendarSettings, nil)

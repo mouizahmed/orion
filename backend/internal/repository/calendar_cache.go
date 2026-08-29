@@ -23,11 +23,13 @@ type CalendarCacheRepository interface {
 	ClearCalendarSyncToken(ctx context.Context, userID, connectionID, calendarID string) error
 	MarkSyncStarted(ctx context.Context, userID, connectionID, scope string) error
 	MarkSyncSuccess(ctx context.Context, userID, connectionID, scope string, windowStart, windowEnd *time.Time) error
+	MarkFullSyncSuccess(ctx context.Context, userID, connectionID string) error
 	MarkSyncPartial(ctx context.Context, userID, connectionID, scope string, syncErr error) error
 	MarkSyncError(ctx context.Context, userID, connectionID, scope string, syncErr error) error
 	ReconcileCalendarSources(ctx context.Context, userID string, connection *models.IntegrationConnection, sources []*models.CachedCalendarSource) ([]string, error)
 	ApplyCalendarEventSync(ctx context.Context, userID string, connection *models.IntegrationConnection, calendarID string, batch models.CalendarEventSyncBatch) ([]string, error)
 	DeleteEventsBefore(ctx context.Context, userID, connectionID string, cutoff time.Time) ([]string, error)
+	DeleteEventsOutsideWindow(ctx context.Context, userID, connectionID string, windowStart, windowEnd time.Time) ([]string, error)
 	AcquireSyncLock(ctx context.Context, userID, connectionID string) (func(), error)
 }
 
@@ -414,6 +416,14 @@ func (r *calendarCacheRepository) MarkSyncSuccess(ctx context.Context, userID, c
 			updated_at = now()
 	`, userID, connectionID, calendarScope, eventsScope, windowStart, windowEnd)
 	return err
+}
+
+func (r *calendarCacheRepository) MarkFullSyncSuccess(ctx context.Context, userID, connectionID string) error {
+	return r.execTenantWithCapability(ctx, userID, connectionID, "active", "", true, `
+		UPDATE calendar_sync_state
+		SET last_full_synced_at = now(), updated_at = now()
+		WHERE user_id = $1 AND connection_id = $2
+	`, userID, connectionID)
 }
 
 func (r *calendarCacheRepository) MarkSyncError(ctx context.Context, userID, connectionID, scope string, syncErr error) error {

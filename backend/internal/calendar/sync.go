@@ -45,6 +45,31 @@ type PartialSyncError struct {
 func (e *PartialSyncError) Error() string { return e.Err.Error() }
 func (e *PartialSyncError) Unwrap() error { return e.Err }
 
+// IsOnlySyncInProgress reports whether every terminal cause is advisory-lock
+// contention. It lets synchronous callers coalesce with active work without
+// hiding an unrelated provider or persistence failure joined into the result.
+func IsOnlySyncInProgress(err error) bool {
+	if err == nil {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		causes := joined.Unwrap()
+		if len(causes) == 0 {
+			return false
+		}
+		for _, cause := range causes {
+			if !IsOnlySyncInProgress(cause) {
+				return false
+			}
+		}
+		return true
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return IsOnlySyncInProgress(wrapped.Unwrap())
+	}
+	return errors.Is(err, repository.ErrCalendarSyncInProgress)
+}
+
 type calendarFetchResult struct {
 	Events      []*models.CachedCalendarEvent
 	Deleted     []string
@@ -107,7 +132,11 @@ type microsoftEventItem struct {
 	Location struct {
 		DisplayName string `json:"displayName"`
 	} `json:"location"`
-	BodyPreview      string `json:"bodyPreview"`
+	BodyPreview string `json:"bodyPreview"`
+	Body        struct {
+		ContentType string `json:"contentType"`
+		Content     string `json:"content"`
+	} `json:"body"`
 	OnlineMeetingURL string `json:"onlineMeetingUrl"`
 	OnlineMeeting    struct {
 		JoinURL string `json:"joinUrl"`
@@ -231,12 +260,68 @@ func (s *Service) SyncUser(ctx context.Context, userID string, scope SyncScope) 
 	return noteIDs, joined
 }
 
+// SyncConnection performs the same reconciliation as SyncUser but confines
+// provider work to the connection that emitted a webhook or became stale.
+// Ownership is enforced by the tenant-scoped repository lookup.
+func (s *Service) SyncConnection(ctx context.Context, userID, connectionID string, scope SyncScope) ([]string, error) {
+	started := time.Now()
+	if s.metrics != nil {
+		s.metrics.Attempts.Add(1)
+		defer s.metrics.addDuration(started)
+	}
+	connection, err := s.connections.GetByID(userID, connectionID)
+	if err != nil {
+		if s.metrics != nil {
+			s.metrics.Failures.Add(1)
+		}
+		return nil, err
+	}
+	if connection == nil || connection.Status != models.IntegrationConnectionStatusActive ||
+		(connection.Provider != models.IntegrationProviderGoogle && connection.Provider != models.IntegrationProviderMicrosoft) {
+		if s.metrics != nil {
+			s.metrics.Failures.Add(1)
+		}
+		return nil, fmt.Errorf("active calendar connection not found")
+	}
+	noteIDs, err := s.syncConnection(ctx, userID, connection, scope)
+	if s.metrics != nil {
+		if err != nil {
+			s.metrics.Failures.Add(1)
+		} else {
+			s.metrics.Successes.Add(1)
+		}
+	}
+	return noteIDs, err
+}
+
+// ForceFullSyncConnection invalidates every per-calendar incremental cursor
+// before reconciliation. It is reserved for provider cursor invalidation,
+// missed-notification recovery, and explicit corruption repair.
+func (s *Service) ForceFullSyncConnection(ctx context.Context, userID, connectionID string) ([]string, error) {
+	sources, err := s.cache.ListCalendarSources(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
+		if source.ConnectionID == connectionID {
+			if err := s.cache.ClearCalendarSyncToken(ctx, userID, connectionID, source.ID); err != nil {
+				return nil, fmt.Errorf("clear calendar cursor %s: %w", source.ID, err)
+			}
+		}
+	}
+	noteIDs, err := s.SyncConnection(ctx, userID, connectionID, SyncScopeAll)
+	if err != nil {
+		return noteIDs, err
+	}
+	if err := s.cache.MarkFullSyncSuccess(ctx, userID, connectionID); err != nil {
+		return noteIDs, fmt.Errorf("mark full calendar sync success: %w", err)
+	}
+	return noteIDs, nil
+}
+
 func (s *Service) syncConnection(ctx context.Context, userID string, connection *models.IntegrationConnection, scope SyncScope) ([]string, error) {
 	release, err := s.cache.AcquireSyncLock(ctx, userID, connection.ID)
 	if err != nil {
-		if errors.Is(err, repository.ErrCalendarSyncInProgress) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	defer release()
@@ -277,6 +362,12 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 			s.metrics.AffectedNotes.Add(uint64(len(noteIDs)))
 		}
 		fetchedCalendars = calendars
+		if scope == SyncScopeAll {
+			if err := s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(SyncScopeCalendars), nil, nil); err != nil {
+				s.recordSyncError(ctx, userID, connection.ID, SyncScopeCalendars, errors.New("failed to persist calendar-list sync completion"))
+				return changedNoteIDs, err
+			}
+		}
 	}
 
 	if scope == SyncScopeAll || scope == SyncScopeEvents {
@@ -294,7 +385,7 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 		if s.metrics != nil {
 			s.metrics.RetentionRuns.Add(1)
 		}
-		retainedNoteIDs, retentionErr := s.cache.DeleteEventsBefore(ctx, userID, connection.ID, windowStart)
+		retainedNoteIDs, retentionErr := s.cache.DeleteEventsOutsideWindow(ctx, userID, connection.ID, windowStart, windowEnd)
 		changedNoteIDs = append(changedNoteIDs, retainedNoteIDs...)
 		if retentionErr != nil {
 			if s.metrics != nil {
@@ -316,8 +407,12 @@ func (s *Service) syncConnection(ctx context.Context, userID string, connection 
 			}
 			return changedNoteIDs, outcome.err
 		}
-		if err := s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(scope), &windowStart, &windowEnd); err != nil {
-			s.recordSyncError(ctx, userID, connection.ID, scope, errors.New("failed to persist sync completion"))
+		completionScope := scope
+		if completionScope == SyncScopeAll {
+			completionScope = SyncScopeEvents
+		}
+		if err := s.cache.MarkSyncSuccess(ctx, userID, connection.ID, string(completionScope), &windowStart, &windowEnd); err != nil {
+			s.recordSyncError(ctx, userID, connection.ID, completionScope, errors.New("failed to persist sync completion"))
 			return changedNoteIDs, err
 		}
 		return changedNoteIDs, nil
@@ -829,7 +924,7 @@ func (s *Service) fetchMicrosoftEventsFull(ctx context.Context, connection *mode
 	values := url.Values{}
 	values.Set("startDateTime", start.Format(time.RFC3339))
 	values.Set("endDateTime", end.Format(time.RFC3339))
-	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
+	values.Set("$select", "id,subject,start,end,isAllDay,location,bodyPreview,body,onlineMeetingUrl,onlineMeeting,organizer,attendees,webLink")
 	requestURL := fmt.Sprintf("https://graph.microsoft.com/v1.0/me/calendars/%s/calendarView/delta?%s", url.PathEscape(calendar.ID), values.Encode())
 
 	var allItems []microsoftEventItem
@@ -946,7 +1041,7 @@ func (s *Service) buildMicrosoftEvents(items []microsoftEventItem, connection *m
 			End:            eventEnd,
 			AllDay:         item.IsAllDay,
 			Location:       item.Location.DisplayName,
-			Description:    item.BodyPreview,
+			Description:    firstNonEmpty(item.Body.Content, item.BodyPreview),
 			MeetingLink:    meetingLink,
 			EventLink:      item.WebLink,
 			OrganizerName:  item.Organizer.EmailAddress.Name,

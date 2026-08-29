@@ -16,7 +16,7 @@ import { NoteRow } from '@/features/notes/NoteRow'
 import { LoadMoreButton } from '@/components/ui/load-more-button'
 import { CalendarEventRow } from '@/features/calendar/CalendarEventRow'
 import { cn } from '@/lib/utils'
-import { dateKey, formatTime } from '@/features/calendar/calendar-utils'
+import { calendarErrorPresentation, dateKey, formatTime } from '@/features/calendar/calendar-utils'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useNotesByEventQuery } from '@/features/notes/queries/useNotesQueries'
 
@@ -344,6 +344,7 @@ export function CalendarView({
   }, [initialSelectedEventId, events])
 
   const visibleEvents = events
+  const errorPresentation = calendarErrorPresentation(error, visibleEvents.length)
   const eventsByDay = useMemo(() => groupEventsByDay(visibleEvents), [visibleEvents])
   const visibleAgendaDays = useMemo(() => {
     const today = startOfDay(new Date())
@@ -384,9 +385,24 @@ export function CalendarView({
                 </div>
               ) : null}
               {!syncing && partial ? <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Partial sync</span> : null}
+              {errorPresentation === 'inline' ? (
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400" title={error ?? undefined}>Refresh failed</span>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
+            {errorPresentation === 'inline' ? (
+              <Button
+                type="button"
+                onClick={() => void refresh()}
+                variant="secondary"
+                size="icon-sm"
+                aria-label="Retry calendar refresh"
+                title="Retry calendar refresh"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+            ) : null}
             <Button
               type="button"
               onClick={onOpenCalendarSettings}
@@ -419,7 +435,7 @@ export function CalendarView({
                 </div>
               ))}
             </div>
-          ) : error ? (
+          ) : errorPresentation === 'blocking' ? (
             <div className="flex h-full flex-col items-center justify-center px-6 text-center">
               <CalendarDays className="mb-2 h-5 w-5 text-red-500" />
               <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Calendar unavailable</p>

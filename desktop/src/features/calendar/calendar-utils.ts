@@ -17,3 +17,10 @@ export function formatTime(value: string): string {
     hour12: true,
   })
 }
+
+export type CalendarErrorPresentation = 'none' | 'blocking' | 'inline'
+
+export function calendarErrorPresentation(error: string | null, eventCount: number): CalendarErrorPresentation {
+  if (!error) return 'none'
+  return eventCount > 0 ? 'inline' : 'blocking'
+}

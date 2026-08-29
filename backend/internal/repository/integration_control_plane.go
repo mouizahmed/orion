@@ -47,6 +47,205 @@ func (r *IntegrationControlPlaneRepository) ListDueJobTenants(ctx context.Contex
 	return tenants, rows.Err()
 }
 
+func (r *IntegrationControlPlaneRepository) ListDueCalendarSyncConnections(ctx context.Context, staleAfter, fullAfter time.Duration, limit int) ([]models.DueCalendarConnection, error) {
+	if staleAfter < time.Minute || fullAfter < 24*time.Hour || limit < 1 || limit > 1000 {
+		return nil, fmt.Errorf("invalid due calendar connection query")
+	}
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT user_id::text, connection_id::text, force_full
+		FROM orion_internal.calendar_sync_connections_due($1::interval, $2::interval, $3)
+	`, intervalString(staleAfter), intervalString(fullAfter), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list due calendar sync connections: %w", err)
+	}
+	defer rows.Close()
+	result := []models.DueCalendarConnection{}
+	for rows.Next() {
+		var item models.DueCalendarConnection
+		if err := rows.Scan(&item.UserID, &item.ConnectionID, &item.ForceFull); err != nil {
+			return nil, fmt.Errorf("scan due calendar sync connection: %w", err)
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (r *IntegrationControlPlaneRepository) ResolveCalendarWebhookSubscription(ctx context.Context, provider, providerSubscriptionID string) (*models.IntegrationWebhookSubscription, error) {
+	var subscription models.IntegrationWebhookSubscription
+	var expiresAt sql.NullTime
+	err := r.db.QueryRowContext(ctx, `
+		SELECT subscription_id::text, user_id::text, connection_id::text,
+			capability_key, COALESCE(watched_resource_id, ''), COALESCE(provider_resource_id, ''),
+			COALESCE(verification_secret_hash, ''), status, expires_at
+		FROM orion_internal.resolve_calendar_webhook_subscription($1, $2)
+	`, provider, providerSubscriptionID).Scan(
+		&subscription.ID, &subscription.UserID, &subscription.ConnectionID,
+		&subscription.CapabilityKey, &subscription.WatchedResourceID, &subscription.ProviderResourceID,
+		&subscription.VerificationSecretHash, &subscription.Status, &expiresAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	subscription.Provider = provider
+	if expiresAt.Valid {
+		subscription.ExpiresAt = &expiresAt.Time
+	}
+	return &subscription, nil
+}
+
+func (r *IntegrationControlPlaneRepository) ListCalendarWebhookSubscriptions(ctx context.Context, userID, connectionID string) ([]models.IntegrationWebhookSubscription, error) {
+	tx, err := r.db.BeginTenantTx(ctx, userID, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin webhook subscription list: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id::text, user_id::text, connection_id::text, provider, capability_key,
+			COALESCE(provider_subscription_id, ''), COALESCE(watched_resource_id, ''),
+			COALESCE(provider_resource_id, ''), supersedes_subscription_id::text,
+			generation, COALESCE(callback_url, ''), COALESCE(verification_secret_hash, ''),
+			status, expires_at, renewal_attempted_at, next_attempt_at,
+			last_notification_at, last_error_code
+		FROM integration_webhook_subscriptions
+		WHERE user_id = $1 AND connection_id = $2 AND direction = 'inbound'
+		ORDER BY watched_resource_id, generation DESC
+	`, userID, connectionID)
+	if err != nil {
+		return nil, fmt.Errorf("list webhook subscriptions: %w", err)
+	}
+	defer rows.Close()
+	result := []models.IntegrationWebhookSubscription{}
+	for rows.Next() {
+		item, err := scanWebhookSubscription(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return result, tx.Commit()
+}
+
+func (r *IntegrationControlPlaneRepository) CreatePendingCalendarWebhookSubscription(ctx context.Context, subscription *models.IntegrationWebhookSubscription) (string, error) {
+	if subscription == nil || subscription.UserID == "" || subscription.ConnectionID == "" || subscription.Provider == "" || subscription.ProviderSubscriptionID == "" || subscription.WatchedResourceID == "" || subscription.VerificationSecretHash == "" {
+		return "", fmt.Errorf("invalid pending calendar webhook subscription")
+	}
+	tx, err := r.db.BeginTenantTx(ctx, subscription.UserID, nil)
+	if err != nil {
+		return "", fmt.Errorf("begin webhook subscription create: %w", err)
+	}
+	defer tx.Rollback()
+	var id string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO integration_webhook_subscriptions (
+			user_id, connection_id, provider, capability_key, direction,
+			provider_subscription_id, watched_resource_id, supersedes_subscription_id,
+			generation, callback_url, verification_secret_hash, status, next_attempt_at
+		) VALUES ($1,$2,$3,'calendar.read','inbound',$4,$5,$6,
+			COALESCE((SELECT max(generation) + 1 FROM integration_webhook_subscriptions
+			 WHERE user_id = $1 AND connection_id = $2 AND watched_resource_id = $5), 1),
+			$7,$8,'pending',now())
+		RETURNING id::text, generation
+	`, subscription.UserID, subscription.ConnectionID, subscription.Provider,
+		subscription.ProviderSubscriptionID, subscription.WatchedResourceID,
+		subscription.SupersedesID, subscription.CallbackURL,
+		subscription.VerificationSecretHash).Scan(&id, &subscription.Generation)
+	if err != nil {
+		return "", fmt.Errorf("create pending webhook subscription: %w", err)
+	}
+	return id, tx.Commit()
+}
+
+func (r *IntegrationControlPlaneRepository) ActivateCalendarWebhookSubscription(ctx context.Context, userID, id, providerResourceID string, expiresAt time.Time) error {
+	return r.execTenant(ctx, userID, `
+		UPDATE integration_webhook_subscriptions
+		SET provider_resource_id = NULLIF($3, ''), expires_at = $4, status = 'active',
+			next_attempt_at = NULL, last_error_code = NULL, updated_at = now()
+		WHERE id = $1 AND user_id = $2 AND status IN ('pending', 'renewing')
+	`, "activate calendar webhook subscription", id, userID, providerResourceID, expiresAt)
+}
+
+func (r *IntegrationControlPlaneRepository) UpdateCalendarWebhookSubscriptionState(ctx context.Context, userID, id, status, errorCode string, nextAttemptAt *time.Time) error {
+	return r.execTenant(ctx, userID, `
+		UPDATE integration_webhook_subscriptions
+		SET status = $3, last_error_code = NULLIF($4, ''), next_attempt_at = $5,
+			renewal_attempted_at = CASE WHEN $3 IN ('renewing', 'failed') THEN now() ELSE renewal_attempted_at END,
+			updated_at = now()
+		WHERE id = $1 AND user_id = $2
+	`, "update calendar webhook subscription", id, userID, status, safeOperationalCode(errorCode), nextAttemptAt)
+}
+
+func (r *IntegrationControlPlaneRepository) TouchCalendarWebhookSubscription(ctx context.Context, userID, id string) error {
+	return r.execTenant(ctx, userID, `
+		UPDATE integration_webhook_subscriptions
+		SET last_notification_at = now(), updated_at = now()
+		WHERE id = $1 AND user_id = $2
+	`, "touch calendar webhook subscription", id, userID)
+}
+
+func (r *IntegrationControlPlaneRepository) RenewCalendarWebhookSubscription(ctx context.Context, userID, id string, expiresAt time.Time) error {
+	return r.execTenant(ctx, userID, `
+		UPDATE integration_webhook_subscriptions
+		SET expires_at = $3, status = 'active', renewal_attempted_at = now(),
+			next_attempt_at = NULL, last_error_code = NULL, updated_at = now()
+		WHERE id = $1 AND user_id = $2
+	`, "renew calendar webhook subscription", id, userID, expiresAt)
+}
+
+func (r *IntegrationControlPlaneRepository) AcceptCalendarWebhook(ctx context.Context, subscription *models.IntegrationWebhookSubscription, providerEventID string, payload []byte, job *models.IntegrationJob) (bool, error) {
+	if subscription == nil || job == nil || subscription.UserID != job.UserID || providerEventID == "" {
+		return false, fmt.Errorf("invalid calendar webhook acceptance")
+	}
+	digest := sha256.Sum256(payload)
+	tx, err := r.db.BeginTenantTx(ctx, subscription.UserID, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin calendar webhook acceptance: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO integration_webhook_receipts (
+			user_id, connection_id, provider, capability_key, provider_event_id, payload_sha256,
+			status, processed_at
+		) VALUES ($1,$2,$3,$4,$5,$6,'processed',now())
+		ON CONFLICT (user_id, provider, capability_key, provider_event_id) DO NOTHING
+	`, subscription.UserID, subscription.ConnectionID, subscription.Provider,
+		subscription.CapabilityKey, providerEventID, hex.EncodeToString(digest[:]))
+	if err != nil {
+		return false, fmt.Errorf("record calendar webhook receipt: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if rows == 0 {
+		return false, tx.Commit()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE integration_webhook_subscriptions
+		SET last_notification_at = now(), updated_at = now()
+		WHERE id = $1 AND user_id = $2
+	`, subscription.ID, subscription.UserID); err != nil {
+		return false, fmt.Errorf("touch accepted webhook subscription: %w", err)
+	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO integration_jobs (
+			user_id, connection_id, capability_key, provider_resource_key,
+			job_kind, idempotency_key, payload, max_attempts, available_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (user_id, job_kind, idempotency_key) DO UPDATE SET updated_at = now()
+	`, job.UserID, job.ConnectionID, job.CapabilityKey, job.ProviderResourceKey,
+		job.Kind, job.IdempotencyKey, normalizedJSON(job.Payload), job.MaxAttempts, job.AvailableAt)
+	if err != nil {
+		return false, fmt.Errorf("enqueue accepted webhook reconciliation: %w", err)
+	}
+	return true, tx.Commit()
+}
+
 func (r *IntegrationControlPlaneRepository) PurgeExpiredControlPlane(ctx context.Context, limit int) (jobs, receipts, outbox int64, err error) {
 	if limit < 1 || limit > 10000 {
 		return 0, 0, 0, fmt.Errorf("invalid integration retention limit")
@@ -427,4 +626,42 @@ func scanIntegrationOutboxEvents(rows *sql.Rows) ([]models.IntegrationOutboxEven
 		events = append(events, event)
 	}
 	return events, rows.Err()
+}
+
+type rowScanner interface {
+	Scan(...interface{}) error
+}
+
+func scanWebhookSubscription(row rowScanner) (models.IntegrationWebhookSubscription, error) {
+	var item models.IntegrationWebhookSubscription
+	var supersedesID, lastError sql.NullString
+	var expiresAt, renewalAttemptedAt, nextAttemptAt, lastNotificationAt sql.NullTime
+	if err := row.Scan(
+		&item.ID, &item.UserID, &item.ConnectionID, &item.Provider, &item.CapabilityKey,
+		&item.ProviderSubscriptionID, &item.WatchedResourceID, &item.ProviderResourceID,
+		&supersedesID, &item.Generation, &item.CallbackURL, &item.VerificationSecretHash,
+		&item.Status, &expiresAt, &renewalAttemptedAt, &nextAttemptAt,
+		&lastNotificationAt, &lastError,
+	); err != nil {
+		return item, fmt.Errorf("scan calendar webhook subscription: %w", err)
+	}
+	if supersedesID.Valid {
+		item.SupersedesID = &supersedesID.String
+	}
+	if expiresAt.Valid {
+		item.ExpiresAt = &expiresAt.Time
+	}
+	if renewalAttemptedAt.Valid {
+		item.RenewalAttemptedAt = &renewalAttemptedAt.Time
+	}
+	if nextAttemptAt.Valid {
+		item.NextAttemptAt = &nextAttemptAt.Time
+	}
+	if lastNotificationAt.Valid {
+		item.LastNotificationAt = &lastNotificationAt.Time
+	}
+	if lastError.Valid {
+		item.LastErrorCode = &lastError.String
+	}
+	return item, nil
 }

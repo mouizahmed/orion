@@ -373,8 +373,36 @@ Implemented fields:
 - callback destination for outbound integrations such as Zapier;
 - status and expiration;
 - renewal attempt and last delivery timestamps.
+- separate stable watched-resource and provider resource identifiers;
+- replacement generation and supersession metadata for overlapping channel renewal;
+- next retry and bounded operational error metadata;
+- pending, active, renewing, retiring, failed, and disabled lifecycle states.
 
 Secrets must not be included in generic connection responses or logs.
+
+For Calendar, the implementation uses Google CalendarList plus per-visible-calendar Events channels and
+one Microsoft `me/events` subscription per connection. Google channel tokens and Microsoft
+`clientState` values are stored only as one-way SHA-256 hashes. Inbound routing crosses tenant RLS only
+through `orion_internal.resolve_calendar_webhook_subscription`, which returns the minimum tenant,
+connection, resource, and verification fields and is executable only by `orion_backend`.
+
+### Calendar synchronization trigger contract
+
+All triggers converge on the same durable, connection-scoped `calendar.sync` job:
+
+1. OAuth completion and visibility/configuration changes enqueue immediately.
+2. Google or Microsoft push signals enqueue after verification and receipt deduplication.
+3. The autonomous scheduler enqueues stale connections at the configured cadence with deterministic
+   jitter. Its database result is per connection and also carries a persisted `force_full` decision
+   when `last_full_synced_at` is absent or older than the configured seven-day safety interval.
+4. Authenticated manual recovery can target a connection and request cursor-clearing full
+   reconciliation.
+
+Push is a latency optimization, not the source of truth. Incremental reconciliation remains permanently
+enabled because Google notifications can be dropped and Microsoft lifecycle notifications can report
+missed or removed subscriptions. A bounded periodic full reconciliation additionally repairs silent
+cursor/cache drift. Provider calls run outside database transactions; receipt/job writes,
+cursor/event application, and subscription state changes use short tenant-scoped transactions.
 
 ### `integration_webhook_receipts`
 

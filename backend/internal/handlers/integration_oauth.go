@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mouizahmed/justscribe-backend/internal/integrationworker"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
@@ -69,6 +70,12 @@ type IntegrationOAuthHandler struct {
 	googleConfig    *oauth2.Config
 	microsoftConfig *oauth2.Config
 	events          resourceevents.Publisher
+	jobRepository   *repository.IntegrationControlPlaneRepository
+	subscriptions   calendarSubscriptionLifecycle
+}
+
+type calendarSubscriptionLifecycle interface {
+	PrepareConnectionCleanup(context.Context, *models.IntegrationConnection) (func(context.Context) error, error)
 }
 
 type IntegrationOAuthState struct {
@@ -95,11 +102,13 @@ type integrationConnectionResponse struct {
 	ConnectedAt   time.Time                          `json:"connected_at"`
 }
 
-func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionRepository, redisClient *redis.Client, events resourceevents.Publisher) *IntegrationOAuthHandler {
+func NewIntegrationOAuthHandler(connectionRepo repository.IntegrationConnectionRepository, redisClient *redis.Client, events resourceevents.Publisher, jobRepository *repository.IntegrationControlPlaneRepository, subscriptions calendarSubscriptionLifecycle) *IntegrationOAuthHandler {
 	return &IntegrationOAuthHandler{
 		connectionRepo: connectionRepo,
 		redisClient:    redisClient,
 		events:         events,
+		jobRepository:  jobRepository,
+		subscriptions:  subscriptions,
 		googleConfig: &oauth2.Config{
 			ClientID:     os.Getenv("GOOGLE_INTEGRATION_CLIENT_ID"),
 			ClientSecret: os.Getenv("GOOGLE_INTEGRATION_CLIENT_SECRET"),
@@ -266,6 +275,14 @@ func (h *IntegrationOAuthHandler) HandleCallback(c *gin.Context) {
 	}
 
 	log.Printf("Integration OAuth completed (provider: %s, feature: %s)", statePayload.Provider, statePayload.Feature)
+	if h.jobRepository != nil {
+		job, jobErr := integrationworker.CalendarConnectionFullSyncJob(connection.UserID, connection.ID, time.Now())
+		if jobErr == nil {
+			if _, enqueueErr := h.jobRepository.EnqueueJob(c.Request.Context(), job); enqueueErr != nil {
+				log.Printf("Failed to enqueue initial calendar sync: %v", enqueueErr)
+			}
+		}
+	}
 	resourceevents.PublishBestEffort(c.Request.Context(), h.events, statePayload.UserID, resourceevents.ResourceCalendarSettings, nil)
 	h.redirectIntegrationCallback(c, true, statePayload.Provider, statePayload.Feature, statePayload.Platform, "", "")
 }
@@ -326,11 +343,25 @@ func (h *IntegrationOAuthHandler) DisconnectConnection(c *gin.Context) {
 		return
 	}
 
+	var cleanupSubscriptions func(context.Context) error
+	if h.subscriptions != nil {
+		cleanupSubscriptions, err = h.subscriptions.PrepareConnectionCleanup(c.Request.Context(), connection)
+		if err != nil {
+			log.Printf("Failed to snapshot provider subscriptions before disconnect for integration %s: %v", connectionID, err)
+		}
+	}
 	affectedNoteIDs, err := h.connectionRepo.DisconnectLocal(c.Request.Context(), userID, connectionID)
 	if err != nil {
 		log.Printf("Failed to erase integration connection %s: %v", connectionID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "error": "Failed to disconnect calendar account"})
 		return
+	}
+	if cleanupSubscriptions != nil {
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 12*time.Second)
+		if cleanupErr := cleanupSubscriptions(cleanupCtx); cleanupErr != nil {
+			log.Printf("Provider subscription cleanup failed after local disconnect for integration %s: %v", connectionID, cleanupErr)
+		}
+		cancelCleanup()
 	}
 
 	if err := revokeIntegrationToken(c.Request.Context(), connection); err != nil {

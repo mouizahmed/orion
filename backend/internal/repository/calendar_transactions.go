@@ -218,6 +218,38 @@ func (r *calendarCacheRepository) DeleteEventsBefore(ctx context.Context, userID
 	return noteIDs, nil
 }
 
+func (r *calendarCacheRepository) DeleteEventsOutsideWindow(ctx context.Context, userID, connectionID string, windowStart, windowEnd time.Time) ([]string, error) {
+	tx, err := r.db.BeginTenantTx(ctx, userID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin calendar window cleanup: %w", err)
+	}
+	defer tx.Rollback()
+	noteIDs, err := listAffectedNoteIDs(ctx, tx, `
+		SELECT DISTINCT l.note_id::text
+		FROM note_calendar_links l
+		JOIN calendar_events e ON e.id = l.calendar_event_id AND e.user_id = l.user_id
+		WHERE e.user_id = $1 AND e.connection_id = $2
+		  AND (e.end_at <= $3 OR e.start_at >= $4)
+	`, userID, connectionID, windowStart, windowEnd)
+	if err != nil {
+		return nil, err
+	}
+	if err := clearCalendarAttendeesForNotes(ctx, tx, noteIDs); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM calendar_events
+		WHERE user_id = $1 AND connection_id = $2
+		  AND (end_at <= $3 OR start_at >= $4)
+	`, userID, connectionID, windowStart, windowEnd); err != nil {
+		return nil, fmt.Errorf("failed to delete events outside sync window: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit calendar window cleanup: %w", err)
+	}
+	return noteIDs, nil
+}
+
 func upsertCalendarEventTx(ctx context.Context, tx *sql.Tx, userID string, connection *models.IntegrationConnection, event *models.CachedCalendarEvent) (string, error) {
 	attendees, err := json.Marshal(event.Attendees)
 	if err != nil {

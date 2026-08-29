@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, RefreshCw, Sparkles, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, RefreshCw, Share2, Sparkles, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -18,6 +18,7 @@ import MarkdownEditor from '@/features/notes/MarkdownEditor'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
 import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
+import ShareNoteDialog from '@/features/notes/dialogs/ShareNoteDialog'
 import { useNoteTranscriptQuery } from '@/features/notes/queries/useNotesQueries'
 import { useEnhanceNoteMutation, useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
 import { useCalendarEventSearchQuery } from '@/features/calendar/useCalendarEventSearchQuery'
@@ -88,6 +89,7 @@ export default function NoteEditorView({
   const [draftNote, setDraftNote] = useState('')
   const [hydratedNoteId, setHydratedNoteId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<NoteView>('notes')
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceError, setEnhanceError] = useState<string | null>(null)
 
@@ -347,6 +349,22 @@ export default function NoteEditorView({
             disabled={!selectedId}
             className="h-8 min-w-0 flex-1 truncate bg-transparent text-xs font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-50 dark:placeholder:text-neutral-500"
           />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setShareDialogOpen(true)}
+            title="Share note"
+            aria-label="Share note"
+            className="h-8 w-8 rounded-full p-0"
+            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          >
+            <Share2 className="h-3.5 w-3.5" />
+          </Button>
+          {/* Attendees */}
+          {selectedNote && (
+            <NoteAttendeesDropdown note={selectedNote} />
+          )}
           <div ref={folderPickerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Button
               type="button"
@@ -457,11 +475,6 @@ export default function NoteEditorView({
             )}
           </div>
 
-          {/* Attendees */}
-          {selectedNote && (
-            <NoteAttendeesDropdown note={selectedNote} />
-          )}
-
           {/* Enhance */}
           <Button
             type="button"
@@ -500,7 +513,8 @@ export default function NoteEditorView({
           >
             <FileText className="h-3.5 w-3.5" />
             Transcript
-              </Button>
+          </Button>
+
             </>
           )}
         </div>
@@ -586,6 +600,14 @@ export default function NoteEditorView({
       </div>
 
       </div>
+
+      {selectedNote ? (
+        <ShareNoteDialog
+          note={selectedNote}
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+        />
+      ) : null}
     </Tabs>
   )
 }
