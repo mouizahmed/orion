@@ -529,6 +529,7 @@ h1 {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .mdx-editor-root.dashboard-editor .mdx-content-editable {
@@ -546,7 +547,7 @@ h1 {
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.4rem;
   align-items: center;
   padding: 0.45rem 0.5rem;
@@ -556,6 +557,78 @@ h1 {
   flex: 0 0 auto;
   overflow: visible;
   border-radius: 0 !important;
+}
+
+.mdx-editor-root.dashboard-editor .dashboard-toolbar-layout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.5rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.mdx-editor-root.dashboard-editor .dashboard-toolbar-leading {
+  display: flex;
+  align-items: flex-start;
+  align-self: stretch;
+  margin-block: -0.45rem;
+  padding-block: 0.45rem;
+  padding-right: 0.5rem;
+  border-right: 1px solid rgb(229 229 229 / 0.9);
+}
+
+.dark .mdx-editor-root.dashboard-editor .dashboard-toolbar-leading {
+  border-right-color: rgb(255 255 255 / 0.1);
+}
+
+.mdx-editor-root.dashboard-editor .dashboard-toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.4rem;
+  min-width: 0;
+}
+
+.mdx-editor-root.dashboard-editor .dashboard-toolbar-controls:first-child {
+  grid-column: 1 / -1;
+}
+
+@container (max-width: 58rem) {
+  .mdx-editor-root.dashboard-editor .dashboard-toolbar-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.45rem;
+  }
+
+  .mdx-editor-root.dashboard-editor .dashboard-toolbar-leading {
+    margin: -0.45rem -0.5rem 0;
+    padding: 0.45rem 0.5rem;
+    border-right: 0;
+    border-bottom: 1px solid rgb(229 229 229 / 0.9);
+  }
+
+  .dark .mdx-editor-root.dashboard-editor .dashboard-toolbar-leading {
+    border-bottom-color: rgb(255 255 255 / 0.1);
+  }
+
+}
+
+@container (max-width: 50rem) {
+  .mdx-editor-root.dashboard-editor .dashboard-toolbar-controls {
+    row-gap: 0.225rem;
+  }
+
+  .mdx-editor-root.dashboard-editor
+    .dashboard-toolbar-controls
+    > [role="separator"].dashboard-toolbar-responsive-break {
+    flex-basis: 100% !important;
+    width: 100% !important;
+    min-width: 100% !important;
+    height: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
 }
 
 .dark .mdx-editor-root.dashboard-editor [role="toolbar"] {
@@ -769,6 +842,54 @@ h1 {
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] .dashboard-block-type-trigger span {
   line-height: 1rem !important;
+}
+
+.mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"] {
+  margin: 0 !important;
+  height: 26px !important;
+  min-height: 26px !important;
+  max-height: 26px !important;
+  padding: 0 0.75rem !important;
+  border: 0 !important;
+  border-radius: 9999px !important;
+  background: transparent !important;
+  color: rgb(115 115 115 / 1) !important;
+  box-shadow: none !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+}
+
+.mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"] + [data-slot="tabs-trigger"] {
+  margin-left: 0 !important;
+}
+
+.mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"]:hover {
+  border: 0 !important;
+  background: rgb(255 255 255 / 0.55) !important;
+  color: rgb(38 38 38 / 1) !important;
+}
+
+.mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"][data-state="active"] {
+  background: rgb(255 255 255 / 1) !important;
+  color: rgb(23 23 23 / 1) !important;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08) !important;
+}
+
+.dark .mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"] {
+  border: 0 !important;
+  background: transparent !important;
+  color: rgb(163 163 163 / 1) !important;
+}
+
+.dark .mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"]:hover {
+  background: rgb(255 255 255 / 0.08) !important;
+  color: rgb(229 229 229 / 1) !important;
+}
+
+.dark .mdx-editor-root.dashboard-editor [role="toolbar"] .note-view-tabs [data-slot="tabs-trigger"][data-state="active"] {
+  background: rgb(255 255 255 / 0.12) !important;
+  color: rgb(255 255 255 / 1) !important;
+  box-shadow: none !important;
 }
 
 /* Sonner toast overrides — light mode */

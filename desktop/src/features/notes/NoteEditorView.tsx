@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { cn } from '@/lib/utils'
-import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Folder, Loader2, FileText, RefreshCw, Sparkles, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -11,6 +11,7 @@ import {
   DropdownSeparator,
 } from '@/components/ui/dropdown-list'
 import { InfoBanner } from '@/components/ui/info-banner'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import SavedTranscriptView from '@/features/notes/SavedTranscriptView'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
@@ -33,6 +34,27 @@ type MeetingOption = {
 
 type NoteEditorViewProps = {
   userId?: string
+}
+
+type NoteView = 'notes' | 'summary'
+
+function NoteViewSwitch() {
+  return (
+    <TabsList className="note-view-tabs h-8 shrink-0 rounded-full border border-neutral-200 bg-neutral-100/80 p-0.5 text-neutral-500 shadow-none dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
+      <TabsTrigger
+        value="notes"
+        className="h-full rounded-full px-3 py-0 text-xs shadow-none data-[state=active]:bg-white data-[state=active]:text-neutral-950 dark:data-[state=active]:border-0 dark:data-[state=active]:bg-white/12 dark:data-[state=active]:text-white"
+      >
+        Notes
+      </TabsTrigger>
+      <TabsTrigger
+        value="summary"
+        className="h-full rounded-full px-3 py-0 text-xs shadow-none data-[state=active]:bg-white data-[state=active]:text-neutral-950 dark:data-[state=active]:border-0 dark:data-[state=active]:bg-white/12 dark:data-[state=active]:text-white"
+      >
+        Summary
+      </TabsTrigger>
+    </TabsList>
+  )
 }
 
 function NoteLoadingIndicator() {
@@ -65,6 +87,7 @@ export default function NoteEditorView({
   const [draftFolderId, setDraftFolderId] = useState('')
   const [draftNote, setDraftNote] = useState('')
   const [hydratedNoteId, setHydratedNoteId] = useState<string | null>(null)
+  const [activeView, setActiveView] = useState<NoteView>('notes')
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhanceError, setEnhanceError] = useState<string | null>(null)
 
@@ -115,6 +138,10 @@ export default function NoteEditorView({
 
     setHydratedNoteId(selectedNote.id)
   }, [selectedNote])
+
+  useEffect(() => {
+    setActiveView('notes')
+  }, [selectedId])
 
   // Folder moves can also originate from the sidebar while this editor stays open.
   useEffect(() => {
@@ -286,7 +313,12 @@ export default function NoteEditorView({
   const noteIsLoading = selectedNoteLoading || hydratedNoteId !== selectedId
 
   return (
-    <div className="flex h-full min-h-0">
+    <Tabs
+      value={activeView}
+      onValueChange={(value) => setActiveView(value === 'summary' ? 'summary' : 'notes')}
+      className="h-full min-h-0 gap-0"
+    >
+      <div className="flex h-full min-h-0">
 
       {/* ── Main panel ── */}
       <div className="relative flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none">
@@ -430,6 +462,27 @@ export default function NoteEditorView({
             <NoteAttendeesDropdown note={selectedNote} />
           )}
 
+          {/* Enhance */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={activeView === 'notes' ? handleEditorEnhance : undefined}
+            disabled={activeView === 'summary' || isEnhancing || !draftNote.trim()}
+            title={activeView === 'notes' ? 'Enhance note with AI' : 'Summary regeneration is not available yet'}
+            className="h-8 rounded-full border-violet-500/25 bg-violet-500/10 px-3 text-violet-700 hover:border-violet-500/35 hover:bg-violet-500/15 hover:text-violet-800 dark:border-violet-400/25 dark:bg-violet-400/10 dark:text-violet-200 dark:hover:border-violet-400/35 dark:hover:bg-violet-400/15 dark:hover:text-violet-100"
+            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+          >
+            {activeView === 'summary' ? (
+              <RefreshCw className="h-3.5 w-3.5" />
+            ) : isEnhancing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {activeView === 'summary' ? 'Regenerate' : 'Enhance'}
+          </Button>
+
           {/* Transcript toggle */}
           <Button
             type="button"
@@ -459,11 +512,13 @@ export default function NoteEditorView({
         ) : null}
 
         {/* Editor */}
-        <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="relative flex-1 min-h-0 overflow-hidden">
           {noteIsLoading ? (
             <NoteLoadingIndicator />
           ) : (
-            <MarkdownEditor
+            <>
+              <TabsContent value="notes" className="h-full min-h-0">
+                <MarkdownEditor
               markdown={draftNote}
               onChange={setDraftNote}
               placeholder="Markdown notes…"
@@ -471,10 +526,29 @@ export default function NoteEditorView({
               showToolbar
               className="h-full dashboard-editor"
               noteId={selectedId}
-              onEnhance={handleEditorEnhance}
-              isEnhancing={isEnhancing}
-              canEnhance={Boolean(draftNote.trim())}
+              toolbarLeading={<NoteViewSwitch />}
             />
+              </TabsContent>
+
+              <TabsContent value="summary" className="h-full min-h-0">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex min-h-[47px] shrink-0 items-start border-b border-neutral-200/80 bg-white p-[7px_8px] dark:border-white/10 dark:bg-[#171417]">
+                    <NoteViewSwitch />
+                  </div>
+                  <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+                    <div className="max-w-xs">
+                      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-100 text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
+                        <Sparkles className="h-4 w-4" />
+                      </div>
+                      <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No summary yet</p>
+                      <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                        A summary generated from the transcript will appear here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </>
           )}
         </div>
 
@@ -511,6 +585,7 @@ export default function NoteEditorView({
         </div>
       </div>
 
-    </div>
+      </div>
+    </Tabs>
   )
 }

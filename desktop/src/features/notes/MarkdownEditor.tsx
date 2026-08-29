@@ -11,6 +11,8 @@ import {
   type DragEvent as ReactDragEvent,
   type CSSProperties,
   type ForwardedRef,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react'
 import { Camera, Loader2, Sparkles } from 'lucide-react'
 import AISelectionPopover from './AISelectionPopover'
@@ -68,6 +70,7 @@ type MarkdownEditorProps = {
   onEnhance?: () => void
   isEnhancing?: boolean
   canEnhance?: boolean
+  toolbarLeading?: ReactNode
 }
 
 export type MarkdownEditorHandle = {
@@ -80,6 +83,7 @@ type ToolbarContentsProps = {
   onEnhance?: () => void
   isEnhancing?: boolean
   canEnhance?: boolean
+  leading?: ReactNode
 }
 
 type BlockTypeOption = {
@@ -141,43 +145,46 @@ function DashboardBlockTypeSelect() {
   )
 }
 
-function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true }: ToolbarContentsProps) {
+function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true, leading }: ToolbarContentsProps) {
   return (
-    <>
-      <UndoRedo />
-      <Separator />
-      <BoldItalicUnderlineToggles />
-      <CodeToggle />
-      <Separator />
-      <StrikeThroughSupSubToggles />
-      <Separator />
-      <ListsToggle />
-      <Separator />
-      <DashboardBlockTypeSelect />
-      <Separator />
-      <div role="group" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-        <CreateLink />
-        <InsertTable />
-        <InsertThematicBreak />
+    <div className="dashboard-toolbar-layout">
+      {leading ? <div className="dashboard-toolbar-leading">{leading}</div> : null}
+      <div className="dashboard-toolbar-controls">
+        <UndoRedo />
+        <Separator />
+        <BoldItalicUnderlineToggles />
+        <CodeToggle />
+        <Separator />
+        <StrikeThroughSupSubToggles />
+        <Separator className="dashboard-toolbar-responsive-break" />
+        <ListsToggle />
+        <Separator />
+        <DashboardBlockTypeSelect />
+        <Separator />
+        <div role="group" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <CreateLink />
+          <InsertTable />
+          <InsertThematicBreak />
+        </div>
+        {onEnhance ? (
+          <>
+            <Separator />
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onEnhance}
+              disabled={isEnhancing || !canEnhance}
+              title="Enhance note with AI"
+              className="mdx-editor-enhance-button inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-medium leading-none outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              {isEnhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Enhance
+            </button>
+          </>
+        ) : null}
       </div>
-      {onEnhance ? (
-        <>
-          <Separator />
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onEnhance}
-            disabled={isEnhancing || !canEnhance}
-            title="Enhance note with AI"
-            className="mdx-editor-enhance-button inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-medium leading-none outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-          >
-            {isEnhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            Enhance
-          </button>
-        </>
-      ) : null}
-    </>
+    </div>
   )
 }
 
@@ -217,6 +224,7 @@ function MarkdownEditorInner(
     onEnhance,
     isEnhancing = false,
     canEnhance = true,
+    toolbarLeading,
   }: MarkdownEditorProps,
   ref: ForwardedRef<MarkdownEditorHandle>,
 ) {
@@ -255,13 +263,14 @@ function MarkdownEditorInner(
               onEnhance={onEnhance}
               isEnhancing={isEnhancing}
               canEnhance={canEnhance}
+              leading={toolbarLeading}
             />
           ),
         }),
       )
     }
     return base
-  }, [canEnhance, isEnhancing, onEnhance, showToolbar])
+  }, [canEnhance, isEnhancing, onEnhance, showToolbar, toolbarLeading])
 
   const handleImageFiles = useCallback(async (files: File[]) => {
     const currentNoteId = noteIdRef.current
@@ -323,6 +332,30 @@ function MarkdownEditorInner(
     void handleImageFiles(images)
   }, [handleImageFiles])
 
+  const focusEditorEnd = useCallback(() => {
+    editorRef.current?.focus(undefined, {
+      defaultSelection: 'rootEnd',
+      preventScroll: true,
+    })
+  }, [])
+
+  const handleEditorCanvasMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.defaultPrevented) return
+
+    const target = event.target
+    if (!(target instanceof Element)) return
+    if (target.closest('button, input, textarea, select, a, [role="dialog"], [role="menu"]')) return
+
+    const editable = containerRef.current?.querySelector<HTMLElement>('.mdx-content-editable')
+    if (!editable) return
+
+    const lastBlock = editable.lastElementChild
+    if (lastBlock instanceof HTMLElement && event.clientY < lastBlock.getBoundingClientRect().bottom) return
+
+    event.preventDefault()
+    focusEditorEnd()
+  }, [focusEditorEnd])
+
   // Sync external markdown changes (e.g. note switch) into the editor
   useEffect(() => {
     if (!editorRef.current) return
@@ -351,12 +384,7 @@ function MarkdownEditorInner(
   }, [])
 
   useImperativeHandle(ref, () => ({
-    focus: () => {
-      editorRef.current?.focus(undefined, {
-        defaultSelection: 'rootEnd',
-        preventScroll: true,
-      })
-    },
+    focus: focusEditorEnd,
     blur: () => {
       const activeElement = document.activeElement
       if (activeElement instanceof HTMLElement && containerRef.current?.contains(activeElement)) {
@@ -367,7 +395,7 @@ function MarkdownEditorInner(
       const activeElement = document.activeElement
       return Boolean(activeElement && containerRef.current?.contains(activeElement))
     },
-  }), [])
+  }), [focusEditorEnd])
 
   return (
     <div
@@ -377,6 +405,7 @@ function MarkdownEditorInner(
       onDrop={noteId ? handleDrop : undefined}
       onDragOver={noteId ? handleDragOver : undefined}
       onPaste={noteId ? handlePaste : undefined}
+      onMouseDown={handleEditorCanvasMouseDown}
       className="relative h-full"
     >
       <MDXEditor
