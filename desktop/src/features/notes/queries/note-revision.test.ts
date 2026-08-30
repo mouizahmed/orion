@@ -12,7 +12,6 @@ vi.mock('@/features/notes/api/notes-client', () => ({
   getNote: getNoteMock,
   listNotesByEvent: vi.fn(),
   listNotesPage: vi.fn(),
-  listVersions: vi.fn(),
 }))
 
 import { resolveNoteRevision } from '@/features/notes/queries/note-revision'

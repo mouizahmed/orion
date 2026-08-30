@@ -15,7 +15,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/mouizahmed/justscribe-backend/internal/ai"
 	"github.com/mouizahmed/justscribe-backend/internal/models"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
@@ -33,13 +32,11 @@ func backendBaseURL() string {
 
 type NotesHandler struct {
 	noteRepo         *repository.NoteRepository
-	noteVersionRepo  *repository.NoteVersionRepository
 	folderRepo       *repository.FolderRepository
 	recordingRepo    *repository.RecordingSessionRepository
 	b2Client         *storage.B2Client
 	attachmentRepo   *repository.NoteAttachmentRepository
 	noteAttendeeRepo *repository.NoteAttendeeRepository
-	aiClient         *ai.Client
 	queue            *queue.Queue
 	events           resourceevents.Publisher
 }
@@ -87,213 +84,17 @@ type SearchSectionMeta struct {
 	HasMore    bool `json:"has_more"`
 }
 
-func NewNotesHandler(noteRepo *repository.NoteRepository, noteVersionRepo *repository.NoteVersionRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, aiClient *ai.Client, q *queue.Queue, events resourceevents.Publisher) *NotesHandler {
+func NewNotesHandler(noteRepo *repository.NoteRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, q *queue.Queue, events resourceevents.Publisher) *NotesHandler {
 	return &NotesHandler{
 		noteRepo:         noteRepo,
-		noteVersionRepo:  noteVersionRepo,
 		folderRepo:       folderRepo,
 		recordingRepo:    recordingRepo,
 		b2Client:         b2Client,
 		attachmentRepo:   attachmentRepo,
 		noteAttendeeRepo: noteAttendeeRepo,
-		aiClient:         aiClient,
 		queue:            q,
 		events:           events,
 	}
-}
-
-type EnhanceNoteRequest struct {
-	ExpectedRevision *int64 `json:"expected_revision"`
-}
-
-type RevertNoteRequest struct {
-	ExpectedRevision *int64 `json:"expected_revision"`
-}
-
-// EnhanceNote saves a version of the current note, then overwrites note_markdown with the enhanced result.
-func (h *NotesHandler) EnhanceNote(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	noteID := strings.TrimSpace(c.Param("noteID"))
-	if noteID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
-		return
-	}
-
-	var req EnhanceNoteRequest
-	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	note, err := h.noteRepo.GetNoteByID(userID, noteID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-	if req.ExpectedRevision != nil && note.Revision != *req.ExpectedRevision {
-		c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
-		return
-	}
-
-	if strings.TrimSpace(note.NoteMarkdown) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note has no content to enhance"})
-		return
-	}
-
-	// Save current content as a version before enhancing
-	version, err := h.noteVersionRepo.CreateVersion(noteID, note.NoteMarkdown)
-	if err != nil {
-		log.Printf("notes: failed to save version before enhance for note %s: %v", noteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save version"})
-		return
-	}
-
-	systemPrompt := `You are an expert note enhancer. Given raw meeting notes or rough notes, produce a clean, well-structured markdown document that:
-- Organizes content with clear headings and sections
-- Fixes grammar and spelling
-- Preserves all important information and details
-- Uses bullet points and numbered lists where appropriate
-- Highlights key decisions, action items, and important points
-- Adds a brief summary at the top if the content is substantial
-- Maintains the original meaning and tone
-
-Output only the enhanced markdown, no preamble or explanation.`
-
-	userContent := fmt.Sprintf("Title: %s\n\nNotes:\n%s", note.Title, note.NoteMarkdown)
-
-	enhanced, err := h.aiClient.Generate(c.Request.Context(), systemPrompt, userContent)
-	if err != nil {
-		log.Printf("notes: failed to enhance note %s: %v", noteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enhance note"})
-		return
-	}
-
-	// Overwrite note_markdown with enhanced content
-	note.NoteMarkdown = enhanced
-	updated, err := h.noteRepo.UpdateNoteWithRevision(note, req.ExpectedRevision)
-	if err != nil {
-		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
-			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
-				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
-				return
-			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-			return
-		}
-		log.Printf("notes: failed to update note %s after enhance: %v", noteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save enhanced note"})
-		return
-	}
-	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
-
-	c.JSON(http.StatusOK, gin.H{"note": updated, "version_id": version.ID})
-}
-
-// ListVersions returns the version history for a note.
-func (h *NotesHandler) ListVersions(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	noteID := strings.TrimSpace(c.Param("noteID"))
-	if noteID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
-		return
-	}
-
-	// Verify note belongs to user
-	if _, err := h.noteRepo.GetNoteByID(userID, noteID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-
-	versions, err := h.noteVersionRepo.ListVersions(noteID)
-	if err != nil {
-		log.Printf("notes: failed to list versions for note %s: %v", noteID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list versions"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"versions": versions})
-}
-
-// RevertToVersion restores a note to a previous version's content.
-func (h *NotesHandler) RevertToVersion(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	noteID := strings.TrimSpace(c.Param("noteID"))
-	if noteID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
-		return
-	}
-
-	versionID := strings.TrimSpace(c.Param("versionID"))
-	if versionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "version id is required"})
-		return
-	}
-
-	var req RevertNoteRequest
-	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
-		return
-	}
-
-	note, err := h.noteRepo.GetNoteByID(userID, noteID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-	if req.ExpectedRevision != nil && note.Revision != *req.ExpectedRevision {
-		c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
-		return
-	}
-
-	version, err := h.noteVersionRepo.GetVersion(versionID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "version not found"})
-		return
-	}
-
-	if version.NoteID != noteID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "version does not belong to this note"})
-		return
-	}
-
-	// Save current content as a version before reverting
-	if _, err := h.noteVersionRepo.CreateVersion(noteID, note.NoteMarkdown); err != nil {
-		log.Printf("notes: failed to save version before revert for note %s: %v", noteID, err)
-	}
-
-	note.NoteMarkdown = version.NoteMarkdown
-	updated, err := h.noteRepo.UpdateNoteWithRevision(note, req.ExpectedRevision)
-	if err != nil {
-		if req.ExpectedRevision != nil && strings.Contains(err.Error(), "note not found") {
-			if _, readErr := h.noteRepo.GetNoteByID(userID, noteID); readErr == nil {
-				c.JSON(http.StatusConflict, gin.H{"error": "note has changed", "code": "revision_conflict"})
-				return
-			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-			return
-		}
-		log.Printf("notes: failed to revert note %s to version %s: %v", noteID, versionID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revert note"})
-		return
-	}
-	resourceevents.PublishBestEffort(c.Request.Context(), h.events, userID, resourceevents.ResourceNotes, &noteID)
-
-	c.JSON(http.StatusOK, gin.H{"note": updated})
 }
 
 func (h *NotesHandler) ListNotes(c *gin.Context) {

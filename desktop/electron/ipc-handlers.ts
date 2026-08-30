@@ -155,6 +155,14 @@ function ensureWritableDirectory(dirPath: string) {
 }
 
 export function setupIpcHandlers() {
+  ipcMain.on('editor:run-command', (event, command: unknown) => {
+    if (!isKnownRendererSender(event.sender)) return
+    if (command === 'cut') event.sender.cut()
+    else if (command === 'copy') event.sender.copy()
+    else if (command === 'paste') event.sender.paste()
+    else if (command === 'selectAll') event.sender.selectAll()
+  })
+
   // Window control IPC handlers
   ipcMain.on('window-drag-start', (event, { mouseX, mouseY }) => {
     if (!isKnownRendererSender(event.sender)) return

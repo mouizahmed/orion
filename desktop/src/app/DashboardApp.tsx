@@ -2,6 +2,7 @@ import { useAuth } from '@/features/auth/AuthContext'
 import DashboardWorkspace from '@/features/dashboard/DashboardWorkspace'
 import DashboardTopBar from '@/features/dashboard/DashboardTopBar'
 import DashboardSidebar from '@/features/dashboard/DashboardSidebar'
+import type { DashboardViewMode } from '@/features/dashboard/types'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
 import { useSidebar } from '@/components/ui/sidebar'
 import { DashboardNotesProvider } from '@/features/notes/DashboardNotesContext'
@@ -54,7 +55,7 @@ function DashboardContent() {
   const { user, isLoading } = useAuth()
   const { isOpen } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
-  const [viewMode, setViewMode] = useState<'home' | 'notes' | 'calendar' | 'people' | 'settings'>('home')
+  const [viewMode, setViewMode] = useState<DashboardViewMode>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
   const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
 
@@ -109,6 +110,7 @@ function DashboardContent() {
               onOpenNotes={() => setViewMode('notes')}
               onOpenCalendar={handleOpenCalendar}
               onOpenPeople={() => setViewMode('people')}
+              onOpenChat={() => setViewMode('chat')}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
               onCloseSettings={() => setViewMode('home')}
               onSelectSettingsSection={setSettingsSection}

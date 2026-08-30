@@ -121,6 +121,12 @@ body {
   height: 8px;
 }
 
+.sidebar-scrollbar::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 .sidebar-scrollbar::-webkit-scrollbar-track {
   background: transparent;
   border-radius: 999px;
@@ -584,10 +590,16 @@ h1 {
 
 .mdx-editor-root.dashboard-editor .dashboard-toolbar-controls {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.45rem 0.4rem;
+  gap: 0.4rem;
   min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mdx-editor-root.dashboard-editor .dashboard-toolbar-controls::-webkit-scrollbar {
+  display: none;
 }
 
 .mdx-editor-root.dashboard-editor .dashboard-toolbar-controls:first-child {
@@ -611,24 +623,6 @@ h1 {
     border-bottom-color: rgb(255 255 255 / 0.1);
   }
 
-}
-
-@container (max-width: 50rem) {
-  .mdx-editor-root.dashboard-editor .dashboard-toolbar-controls {
-    row-gap: 0.225rem;
-  }
-
-  .mdx-editor-root.dashboard-editor
-    .dashboard-toolbar-controls
-    > [role="separator"].dashboard-toolbar-responsive-break {
-    flex-basis: 100% !important;
-    width: 100% !important;
-    min-width: 100% !important;
-    height: 0 !important;
-    margin: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-  }
 }
 
 .dark .mdx-editor-root.dashboard-editor [role="toolbar"] {
@@ -807,31 +801,6 @@ h1 {
 .mdx-editor-root.dashboard-editor [role="toolbar"] select:disabled {
   cursor: not-allowed !important;
   opacity: 0.45 !important;
-}
-
-.mdx-editor-root.dashboard-editor [role="toolbar"] .mdx-editor-enhance-button {
-  gap: 0.5rem !important;
-  border-color: rgb(124 58 237 / 0.28) !important;
-  background: rgb(124 58 237 / 0.1) !important;
-  color: rgb(109 40 217 / 1) !important;
-}
-
-.mdx-editor-root.dashboard-editor [role="toolbar"] .mdx-editor-enhance-button:hover {
-  border-color: rgb(124 58 237 / 0.36) !important;
-  background: rgb(124 58 237 / 0.15) !important;
-  color: rgb(91 33 182 / 1) !important;
-}
-
-.dark .mdx-editor-root.dashboard-editor [role="toolbar"] .mdx-editor-enhance-button {
-  border-color: rgb(159 115 242 / 0.28) !important;
-  background: rgb(159 115 242 / 0.14) !important;
-  color: rgb(221 214 254 / 1) !important;
-}
-
-.dark .mdx-editor-root.dashboard-editor [role="toolbar"] .mdx-editor-enhance-button:hover {
-  border-color: rgb(159 115 242 / 0.38) !important;
-  background: rgb(159 115 242 / 0.2) !important;
-  color: rgb(255 255 255 / 1) !important;
 }
 
 .mdx-editor-root.dashboard-editor [role="toolbar"] .dashboard-block-type-trigger {

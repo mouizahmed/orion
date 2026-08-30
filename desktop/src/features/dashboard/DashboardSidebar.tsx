@@ -10,6 +10,7 @@ import { SettingsNav } from '@/features/settings/SettingsNav'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
+import type { DashboardViewMode } from '@/features/dashboard/types'
 
 export default function DashboardSidebar({
   mode = 'home',
@@ -18,16 +19,18 @@ export default function DashboardSidebar({
   onOpenNotes,
   onOpenCalendar,
   onOpenPeople,
+  onOpenChat,
   onOpenSettings,
   onCloseSettings,
   onSelectSettingsSection,
 }: {
-  mode?: 'home' | 'notes' | 'calendar' | 'people' | 'settings'
+  mode?: DashboardViewMode
   selectedSettingsSection?: DashboardSettingsSection
   onOpenHome?: () => void
   onOpenNotes?: () => void
   onOpenCalendar?: () => void
   onOpenPeople?: () => void
+  onOpenChat?: () => void
   onOpenSettings?: () => void
   onCloseSettings?: () => void
   onSelectSettingsSection?: (section: DashboardSettingsSection) => void
@@ -186,7 +189,12 @@ export default function DashboardSidebar({
             <NavButton
               icon={MessageCircle}
               label="Chat"
-              onClick={() => undefined}
+              onClick={() => {
+                onOpenChat?.()
+                selectFolder(null)
+                selectNote(null)
+              }}
+              isActive={mode === 'chat'}
             />
           </div>
         )}

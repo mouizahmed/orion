@@ -126,7 +126,6 @@ func main() {
 	calendarPushService := calendarpush.NewService(calendarPushConfig, integrationConnectionRepo, calendarCacheRepo, integrationControlPlaneRepo)
 	log.Printf("calendar push: enabled=%t", calendarPushConfig.Enabled)
 	noteRepo := repository.NewNoteRepository(db)
-	noteVersionRepo := repository.NewNoteVersionRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
 	peopleRepo := repository.NewPersonRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
@@ -238,7 +237,7 @@ func main() {
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo, resourceEventPublisher)
 	peopleHandler := handlers.NewPeopleHandler(peopleRepo, resourceEventPublisher)
-	notesHandler := handlers.NewNotesHandler(noteRepo, noteVersionRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, aiClient, indexQueue, resourceEventPublisher)
+	notesHandler := handlers.NewNotesHandler(noteRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, indexQueue, resourceEventPublisher)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo, resourceEventPublisher)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
@@ -247,7 +246,6 @@ func main() {
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
 	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, integrationControlPlaneRepo, wsHub, resourceEventPublisher)
 	chatHandler := handlers.NewChatHandler(conversationRepo, messageRepo, aiClient, toolExecutor, retriever, indexQueue, resourceEventPublisher)
-	aiTransformHandler := handlers.NewAITransformHandler(aiClient)
 
 	// Initialize the router
 	router := gin.Default()
@@ -341,9 +339,6 @@ func main() {
 		authenticated.PATCH("/notes/:noteID", notesHandler.UpdateNote)
 		authenticated.PUT("/notes/:noteID/calendar-link", notesHandler.UpdateCalendarLink)
 		authenticated.DELETE("/notes/:noteID", notesHandler.DeleteNote)
-		authenticated.POST("/notes/:noteID/enhance", notesHandler.EnhanceNote)
-		authenticated.GET("/notes/:noteID/versions", notesHandler.ListVersions)
-		authenticated.POST("/notes/:noteID/revert/:versionID", notesHandler.RevertToVersion)
 		authenticated.POST("/notes/:noteID/images", notesHandler.UploadImage)
 		authenticated.GET("/notes/:noteID/images/:imageID", notesHandler.ProxyImage)
 		authenticated.DELETE("/notes/:noteID/images/:imageID", notesHandler.DeleteImage)
@@ -387,8 +382,6 @@ func main() {
 		authenticated.GET("/chat/conversations/:conversationID/messages", chatHandler.GetMessages)
 		authenticated.POST("/chat/conversations/:conversationID/messages", chatHandler.SendMessage)
 
-		// AI transform route
-		authenticated.POST("/ai/transform", aiTransformHandler.Transform)
 
 	}
 

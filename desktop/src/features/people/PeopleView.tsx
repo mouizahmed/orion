@@ -1,5 +1,5 @@
 import { FormEvent, useRef, useState } from 'react'
-import { Plus, Trash2, UserRound, UsersRound, X } from 'lucide-react'
+import { Plus, Trash2, UserRound, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -128,9 +128,6 @@ export default function PeopleView() {
           </div>
         ) : people.length === 0 ? (
           <div className="flex h-full min-h-48 flex-col items-center justify-center px-6 text-center">
-            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-100 text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
-              <UsersRound className="h-5 w-5" />
-            </div>
             <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">No people yet</p>
             <p className="mt-1 max-w-sm text-xs leading-5 text-neutral-500 dark:text-neutral-400">
               Add someone by email, with an optional name. Meeting attendees can be collected here later.

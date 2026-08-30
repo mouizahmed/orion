@@ -1,7 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
 
 import { listFolders } from '@/features/notes/api/folders-client'
-import { getNote, listNotesByEvent, listNotesPage, listVersions } from '@/features/notes/api/notes-client'
+import { getNote, listNotesByEvent, listNotesPage } from '@/features/notes/api/notes-client'
 import { getTranscriptSegments } from '@/features/notes/api/transcript-client'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -73,14 +73,5 @@ export function noteTranscriptQueryOptions(accountID: string, noteID: string) {
     queryFn: ({ signal }) => getTranscriptSegments(noteID, signal),
     enabled: Boolean(accountID && noteID),
     staleTime: 30_000,
-  })
-}
-
-export function noteVersionsQueryOptions(accountID: string, noteID: string) {
-  return queryOptions({
-    queryKey: queryKeys.noteVersions(accountID, noteID),
-    queryFn: ({ signal }) => listVersions(noteID, signal),
-    enabled: Boolean(accountID && noteID),
-    staleTime: 15_000,
   })
 }

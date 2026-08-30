@@ -14,8 +14,8 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react'
-import { Camera, Loader2, Sparkles } from 'lucide-react'
-import AISelectionPopover from './AISelectionPopover'
+import { Camera, Loader2 } from 'lucide-react'
+import EditorContextMenu, { type EditorCommand } from '@/features/notes/EditorContextMenu'
 import {
   MDXEditor,
   activePlugins$,
@@ -67,9 +67,6 @@ type MarkdownEditorProps = {
   showToolbar?: boolean
   className?: string
   noteId?: string
-  onEnhance?: () => void
-  isEnhancing?: boolean
-  canEnhance?: boolean
   toolbarLeading?: ReactNode
 }
 
@@ -79,12 +76,7 @@ export type MarkdownEditorHandle = {
   isFocused: () => boolean
 }
 
-type ToolbarContentsProps = {
-  onEnhance?: () => void
-  isEnhancing?: boolean
-  canEnhance?: boolean
-  leading?: ReactNode
-}
+type ToolbarContentsProps = { leading?: ReactNode }
 
 type BlockTypeOption = {
   label: string
@@ -145,7 +137,7 @@ function DashboardBlockTypeSelect() {
   )
 }
 
-function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true, leading }: ToolbarContentsProps) {
+function ToolbarContents({ leading }: ToolbarContentsProps) {
   return (
     <div className="dashboard-toolbar-layout">
       {leading ? <div className="dashboard-toolbar-leading">{leading}</div> : null}
@@ -166,23 +158,6 @@ function ToolbarContents({ onEnhance, isEnhancing = false, canEnhance = true, le
           <InsertTable />
           <InsertThematicBreak />
         </div>
-        {onEnhance ? (
-          <>
-            <Separator />
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onEnhance}
-              disabled={isEnhancing || !canEnhance}
-              title="Enhance note with AI"
-              className="mdx-editor-enhance-button inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-3 text-xs font-medium leading-none outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              {isEnhancing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Enhance
-            </button>
-          </>
-        ) : null}
       </div>
     </div>
   )
@@ -221,9 +196,6 @@ function MarkdownEditorInner(
     showToolbar = false,
     className,
     noteId,
-    onEnhance,
-    isEnhancing = false,
-    canEnhance = true,
     toolbarLeading,
   }: MarkdownEditorProps,
   ref: ForwardedRef<MarkdownEditorHandle>,
@@ -240,6 +212,7 @@ function MarkdownEditorInner(
 
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null)
   const dragCounterRef = useRef(0)
 
   // Plugins are stateful — each editor instance needs its own fresh array
@@ -259,18 +232,13 @@ function MarkdownEditorInner(
       base.push(
         toolbarPlugin({
           toolbarContents: () => (
-            <ToolbarContents
-              onEnhance={onEnhance}
-              isEnhancing={isEnhancing}
-              canEnhance={canEnhance}
-              leading={toolbarLeading}
-            />
+            <ToolbarContents leading={toolbarLeading} />
           ),
         }),
       )
     }
     return base
-  }, [canEnhance, isEnhancing, onEnhance, showToolbar, toolbarLeading])
+  }, [showToolbar, toolbarLeading])
 
   const handleImageFiles = useCallback(async (files: File[]) => {
     const currentNoteId = noteIdRef.current
@@ -356,6 +324,23 @@ function MarkdownEditorInner(
     focusEditorEnd()
   }, [focusEditorEnd])
 
+  const handleEditorContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (!(target instanceof Element) || !target.closest('.mdx-content-editable')) return
+    if (!window.editorContextMenu?.run) return
+    event.preventDefault()
+    const selection = window.getSelection()
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      hasSelection: Boolean(selection && !selection.isCollapsed && selection.toString()),
+    })
+  }, [])
+
+  const runEditorCommand = useCallback((command: EditorCommand) => {
+    window.editorContextMenu?.run(command)
+  }, [])
+
   // Sync external markdown changes (e.g. note switch) into the editor
   useEffect(() => {
     if (!editorRef.current) return
@@ -375,13 +360,6 @@ function MarkdownEditorInner(
     isInternalChangeRef.current = true
     onChange(value)
   }
-
-  const getMarkdown = useCallback(() => editorRef.current?.getMarkdown() ?? '', [])
-  const handleSetMarkdown = useCallback((md: string) => {
-    if (!editorRef.current) return
-    isInternalChangeRef.current = true
-    editorRef.current.setMarkdown(md)
-  }, [])
 
   useImperativeHandle(ref, () => ({
     focus: focusEditorEnd,
@@ -406,6 +384,7 @@ function MarkdownEditorInner(
       onDragOver={noteId ? handleDragOver : undefined}
       onPaste={noteId ? handlePaste : undefined}
       onMouseDown={handleEditorCanvasMouseDown}
+      onContextMenu={handleEditorContextMenu}
       className="relative h-full"
     >
       <MDXEditor
@@ -430,7 +409,7 @@ function MarkdownEditorInner(
             </div>
             <div className="mt-2 text-center">
               <p className="text-sm font-semibold text-white">Attach images</p>
-              <p className="text-xs text-neutral-400">Enhance your notes with visual context</p>
+              <p className="text-xs text-neutral-400">Add visual context to your notes</p>
             </div>
           </div>
         </div>
@@ -445,13 +424,16 @@ function MarkdownEditorInner(
         </div>
       )}
 
-      <AISelectionPopover
-        editorContainerRef={containerRef}
-        getMarkdown={getMarkdown}
-        setMarkdown={handleSetMarkdown}
-        onChange={onChange}
-        noteId={noteId}
-      />
+      {contextMenu ? (
+        <EditorContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          hasSelection={contextMenu.hasSelection}
+          onCommand={runEditorCommand}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
+
     </div>
   )
 }

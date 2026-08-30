@@ -917,13 +917,6 @@ create index note_calendar_links_live_event_idx
   where calendar_event_id is not null;
 create index note_calendar_links_connection_idx on public.note_calendar_links (user_id, connection_id);
 
-create table public.note_versions (
-  id uuid primary key default gen_random_uuid(),
-  note_id uuid not null references public.notes(id) on delete cascade,
-  note_markdown text not null,
-  created_at timestamptz not null default now()
-);
-
 create table public.transcript_segments (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null references public.notes(id) on delete cascade,
@@ -1027,7 +1020,6 @@ create index notes_user_fk_idx on public.notes (user_id);
 create index notes_folder_owner_idx on public.notes (folder_id, user_id);
 create index notes_calendar_event_owner_idx on public.notes (calendar_event_id, user_id);
 create index note_attendees_note_idx on public.note_attendees (note_id);
-create index note_versions_note_idx on public.note_versions (note_id);
 create index recording_sessions_note_owner_idx on public.note_recording_sessions (note_id, user_id);
 create index recording_sessions_user_idx on public.note_recording_sessions (user_id);
 create index note_attachments_note_owner_idx on public.note_attachments (note_id, user_id);
@@ -1053,7 +1045,7 @@ begin
     'integration_webhook_subscriptions','integration_jobs','integration_webhook_receipts',
     'integration_outbox_events','integration_delivery_attempts',
     'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
-    'notes','note_versions','transcript_segments','note_recording_sessions',
+    'notes','transcript_segments','note_recording_sessions',
     'note_attachments','note_calendar_links','note_attendees','note_attendee_suppressions','conversations','messages'
   ] loop
     execute format('alter table public.%I enable row level security', table_name);
@@ -1581,7 +1573,7 @@ begin
   foreach table_name in array array[
     'users','folders','account_extract_fields','account_extract_field_folders',
     'account_summary_templates','account_summary_template_folders',
-    'notes','note_versions','transcript_segments','note_recording_sessions',
+    'notes','transcript_segments','note_recording_sessions',
     'note_attachments','conversations','messages'
   ] loop
     execute format(

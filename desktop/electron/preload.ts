@@ -143,6 +143,10 @@ contextBridge.exposeInMainWorld('attachments', {
     >,
 })
 
+contextBridge.exposeInMainWorld('editorContextMenu', {
+  run: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => ipcRenderer.send('editor:run-command', command),
+})
+
 contextBridge.exposeInMainWorld('shortcutControl', {
   getAll: () => ipcRenderer.invoke('shortcuts:get') as Promise<ShortcutState>,
   update: (action: ShortcutAction, shortcut: string | null) =>

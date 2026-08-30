@@ -57,10 +57,3 @@ export type NoteAttendee = {
   source: 'manual' | 'calendar'
   createdAt: string
 }
-
-export type NoteVersion = {
-  id: string
-  note_id: string
-  note_markdown: string
-  created_at: string
-}

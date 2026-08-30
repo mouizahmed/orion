@@ -69,9 +69,9 @@ const featureSections = [
           "Orion learns from every meeting, so each transcript, note, and decision makes future answers more useful.",
       },
       {
-        title: "Enhance notes with AI",
+        title: "Structured meeting notes",
         description:
-          "Turn rough notes into clear summaries, action items, and cleaner meeting records.",
+          "Keep summaries, action items, and meeting records clear and easy to revisit.",
       },
       {
         title: "Search across past meetings",

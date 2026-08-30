@@ -5,7 +5,6 @@ import {
   noteQueryOptions,
   notesByEventQueryOptions,
   noteTranscriptQueryOptions,
-  noteVersionsQueryOptions,
   notesByFolderQueryOptions,
   recentNotesQueryOptions,
 } from '@/features/notes/queries/note-query-options'
@@ -48,13 +47,6 @@ export function useNotesByEventQuery(accountID: string | undefined, eventID: str
 export function useNoteTranscriptQuery(accountID: string | undefined, noteID: string | null, enabled: boolean) {
   return useQuery({
     ...noteTranscriptQueryOptions(accountID ?? 'anonymous', noteID ?? ''),
-    enabled: Boolean(accountID && noteID && enabled),
-  })
-}
-
-export function useNoteVersionsQuery(accountID: string | undefined, noteID: string | null, enabled = true) {
-  return useQuery({
-    ...noteVersionsQueryOptions(accountID ?? 'anonymous', noteID ?? ''),
     enabled: Boolean(accountID && noteID && enabled),
   })
 }

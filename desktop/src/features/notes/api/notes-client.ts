@@ -1,4 +1,4 @@
-import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary, NoteVersion } from '@/features/notes/types'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary } from '@/features/notes/types'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
@@ -279,58 +279,6 @@ export async function updateCalendarLink(
     }),
   })
   if (!payload.note) throw new Error('Failed to update calendar link')
-  return toNoteRecord(payload.note)
-}
-
-export async function enhanceNote(
-  noteId: string,
-  expectedRevision: number,
-): Promise<{ note: NoteRecord; versionId: string }> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ note?: ApiNote; version_id?: string }>(`${API_BASE_URL}/notes/${noteId}/enhance`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ expected_revision: expectedRevision }),
-  })
-  if (!payload.note) throw new Error('Failed to enhance note')
-  return {
-    note: toNoteRecord(payload.note),
-    versionId: payload.version_id ?? '',
-  }
-}
-
-export async function listVersions(noteId: string, signal?: AbortSignal): Promise<NoteVersion[]> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ versions: NoteVersion[] }>(`${API_BASE_URL}/notes/${noteId}/versions`, {
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    signal,
-  })
-  return payload.versions ?? []
-}
-
-export async function revertToVersion(
-  noteId: string,
-  versionId: string,
-  expectedRevision: number,
-): Promise<NoteRecord> {
-  const accessToken = await getAccessToken()
-  const payload = await fetchJson<{ note?: ApiNote }>(`${API_BASE_URL}/notes/${noteId}/revert/${versionId}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({ expected_revision: expectedRevision }),
-  })
-  if (!payload.note) throw new Error('Failed to revert note')
   return toNoteRecord(payload.note)
 }
 

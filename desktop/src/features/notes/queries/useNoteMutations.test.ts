@@ -29,10 +29,8 @@ vi.mock('@/features/notes/api/notes-client', () => ({
   renameFolder: vi.fn(),
   createNote: createNoteMock,
   deleteNote: vi.fn(),
-  enhanceNote: vi.fn(),
   addNoteAttendee: addNoteAttendeeMock,
   removeNoteAttendee: removeNoteAttendeeMock,
-  revertToVersion: vi.fn(),
   updateCalendarLink: vi.fn(),
   updateNote: vi.fn(),
 }))

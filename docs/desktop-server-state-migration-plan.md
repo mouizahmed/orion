@@ -161,7 +161,6 @@ TanStack Query is currently a desktop-renderer dependency, and the meaningful mi
 | Persisted chat messages | `ChatContext` fetches messages into local state and merges completed SSE messages manually. | Query-backed message history. Streaming buffers remain local and commit completed canonical messages to the query cache. |
 | Remote overlay note | `CompactMeetingPanel` fetches and caches the same note independently from the dashboard. | Reuse note query/mutation options under a query provider in the overlay renderer. Preserve local pseudo-note behavior separately. |
 | Calendar sync command | `DashboardTopBar` calls the endpoint and mutates calendar cache through module-level helpers. | `useCalendarSyncMutation`, using `useQueryClient`, with sync metadata updates and canonical invalidation. |
-| Enhance/revert note actions | Components call command endpoints and manually replace note state. | Mutations that merge the canonical note and invalidate dependent list/search/activity queries. |
 
 ### Keep outside TanStack Query
 
@@ -282,8 +281,6 @@ Provide one hook/action per operation:
 - `useLinkNoteEventMutation`
 - `useAddNoteAttendeeMutation`
 - `useRemoveNoteAttendeeMutation`
-- `useEnhanceNoteMutation`
-- `useRevertNoteMutation`
 
 All UI entry points call these operations. Components must not call `notes-client.ts` or `folders-client.ts` mutation functions directly.
 
@@ -526,7 +523,7 @@ Each phase must compile, pass tests, and leave no mixed writable ownership for t
 
 ### Phase 3 — Note dependencies
 
-- Migrate attendees, transcripts, notes-by-event, event search/linking, enhance, and revert.
+- Migrate attendees, transcripts, notes-by-event, and event search/linking.
 - Remove `linkedMeetingCache`, transcript load refs, and attendee maps.
 - Replace AI/custom DOM events with query cache updates/invalidation.
 - Add note/folder resource events and registry mappings.

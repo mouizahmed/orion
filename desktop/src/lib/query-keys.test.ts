@@ -12,7 +12,6 @@ describe('authenticated query keys', () => {
       queryKeys.notesByFolder(accountID, null),
       queryKeys.notesByEvent(accountID, 'event-a'),
       queryKeys.noteTranscript(accountID, 'note-a'),
-      queryKeys.noteVersions(accountID, 'note-a'),
       queryKeys.noteAttendees(accountID, 'note-a'),
       queryKeys.activity(accountID),
       queryKeys.activityFiltered(accountID, { sort: 'updated', direction: 'desc', scope: 'owned' }),

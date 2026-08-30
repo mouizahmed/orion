@@ -70,13 +70,6 @@ type NoteDetail struct {
 	Attendees       []NoteAttendee     `json:"attendees"`
 }
 
-type NoteVersion struct {
-	ID           string    `json:"id"`
-	NoteID       string    `json:"note_id"`
-	NoteMarkdown string    `json:"note_markdown"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
 type NoteAttendee struct {
 	ID        string    `json:"id"`
 	NoteID    string    `json:"note_id"`

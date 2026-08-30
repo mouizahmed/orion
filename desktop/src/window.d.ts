@@ -55,6 +55,10 @@ interface AttachmentsControl {
   pickFiles: () => Promise<AttachmentResult[]>
 }
 
+interface EditorContextMenuControl {
+  run: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => void
+}
+
 interface LiveInsightsControl {
   onInsight?: (callback: (event: { insight: LiveInsight }) => void) => () => void
   onProcessing?: (callback: (processing: boolean) => void) => () => void
@@ -104,6 +108,7 @@ declare global {
     shortcutControl?: ShortcutControl
     recordingSettings?: RecordingSettingsControl
     attachments?: AttachmentsControl
+    editorContextMenu?: EditorContextMenuControl
     liveInsights?: LiveInsightsControl
     dashboard?: DashboardControl
     audioCapture?: AudioCaptureControl

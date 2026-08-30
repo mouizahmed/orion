@@ -5,11 +5,13 @@ import NoteEditorView from '@/features/notes/NoteEditorView'
 import NotesLibraryView from '@/features/notes/NotesLibraryView'
 import SettingsView from '@/features/settings/SettingsView'
 import PeopleView from '@/features/people/PeopleView'
+import GlobalChatView from '@/features/chat/global/GlobalChatView'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
+import type { DashboardViewMode } from '@/features/dashboard/types'
 
 type DashboardWorkspaceProps = {
   userId?: string
-  mode?: 'home' | 'notes' | 'calendar' | 'people' | 'settings'
+  mode?: DashboardViewMode
   selectedSettingsSection?: DashboardSettingsSection
   onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
@@ -67,6 +69,10 @@ export default function DashboardWorkspace({
 
   if (mode === 'people') {
     return <div className="h-full"><PeopleView /></div>
+  }
+
+  if (mode === 'chat') {
+    return <div className="h-full"><GlobalChatView /></div>
   }
 
   if (isLoading) return <NotesLoadingView />

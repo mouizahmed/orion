@@ -4,10 +4,8 @@ import { createFolder, deleteFolder, renameFolder } from '@/features/notes/api/f
 import {
   createNote,
   deleteNote,
-  enhanceNote,
   addNoteAttendee,
   removeNoteAttendee,
-  revertToVersion,
   updateCalendarLink,
   updateNote,
 } from '@/features/notes/api/notes-client'
@@ -361,54 +359,6 @@ export function useRemoveNoteAttendeeMutation(accountID: string) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.note(accountID, noteID),
         })
-    },
-  })
-}
-
-export function useEnhanceNoteMutation(accountID: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async (noteID: string) =>
-      enhanceNote(noteID, await resolveNoteRevision(queryClient, accountID, noteID)),
-    scope: { id: `note-update:${accountID}` },
-    onSuccess: ({ note }) => {
-      if (isActiveServerStateAccount(accountID)) seedCanonicalNote(queryClient, accountID, note)
-    },
-    onSettled: async (_data, _error, noteID) => {
-      if (!isActiveServerStateAccount(accountID)) return
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.note(accountID, noteID),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.noteVersions(accountID, noteID),
-      })
-      invalidateNoteDependencies(queryClient, accountID)
-    },
-  })
-}
-
-export function useRevertNoteMutation(accountID: string) {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ noteID, versionID }: { noteID: string; versionID: string }) =>
-      revertToVersion(
-        noteID,
-        versionID,
-        await resolveNoteRevision(queryClient, accountID, noteID),
-      ),
-    scope: { id: `note-update:${accountID}` },
-    onSuccess: (note) => {
-      if (isActiveServerStateAccount(accountID)) seedCanonicalNote(queryClient, accountID, note)
-    },
-    onSettled: async (_data, _error, { noteID }) => {
-      if (!isActiveServerStateAccount(accountID)) return
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.note(accountID, noteID),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.noteVersions(accountID, noteID),
-      })
-      invalidateNoteDependencies(queryClient, accountID)
     },
   })
 }
