@@ -301,7 +301,16 @@ function MarkdownEditorInner(
   }, [handleImageFiles])
 
   const focusEditorEnd = useCallback(() => {
-    editorRef.current?.focus(undefined, {
+    editorRef.current?.focus(() => {
+      const editable = containerRef.current?.querySelector<HTMLElement>('.mdx-content-editable')
+      const selection = window.getSelection()
+      if (!editable || !selection) return
+      const range = document.createRange()
+      range.selectNodeContents(editable)
+      range.collapse(false)
+      selection.removeAllRanges()
+      selection.addRange(range)
+    }, {
       defaultSelection: 'rootEnd',
       preventScroll: true,
     })
@@ -317,8 +326,11 @@ function MarkdownEditorInner(
     const editable = containerRef.current?.querySelector<HTMLElement>('.mdx-content-editable')
     if (!editable) return
 
-    const lastBlock = editable.lastElementChild
-    if (lastBlock instanceof HTMLElement && event.clientY < lastBlock.getBoundingClientRect().bottom) return
+    const contentBlocks = editable.querySelectorAll<HTMLElement>(
+      'p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, table, hr, img',
+    )
+    const lastBlock = contentBlocks.item(contentBlocks.length - 1)
+    if (lastBlock && event.clientY < lastBlock.getBoundingClientRect().bottom) return
 
     event.preventDefault()
     focusEditorEnd()
@@ -383,7 +395,7 @@ function MarkdownEditorInner(
       onDrop={noteId ? handleDrop : undefined}
       onDragOver={noteId ? handleDragOver : undefined}
       onPaste={noteId ? handlePaste : undefined}
-      onMouseDown={handleEditorCanvasMouseDown}
+      onMouseDownCapture={handleEditorCanvasMouseDown}
       onContextMenu={handleEditorContextMenu}
       className="relative h-full"
     >
