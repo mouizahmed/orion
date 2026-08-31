@@ -75,7 +75,7 @@ function DropdownSurface({
 
 function DropdownPopover({
   className,
-  align = "end",
+  align = "start",
   sideOffset = 4,
   width = "md",
   ...props
@@ -88,7 +88,7 @@ function DropdownPopover({
     <DropdownSurface
       width={width}
       className={cn(
-        "absolute z-30",
+        "absolute z-[60]",
         align === "end" ? "right-0" : "left-0",
         sideOffset === 4 ? "top-[calc(100%+4px)]" : "top-full",
         className,

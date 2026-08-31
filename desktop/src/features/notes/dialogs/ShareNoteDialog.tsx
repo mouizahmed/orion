@@ -12,12 +12,26 @@ import {
 import { SettingRow, ToggleSwitch } from '@/features/settings/components/SettingsPrimitives'
 import { useAuth } from '@/features/auth/AuthContext'
 import { attendeeInitials, isCurrentUserAttendee } from '@/features/notes/NoteAttendeesDropdown'
-import type { NoteDetail } from '@/features/notes/types'
+import type { NoteAttendee, NoteDetail } from '@/features/notes/types'
 
 type ShareNoteDialogProps = {
   note: NoteDetail
   open: boolean
   onOpenChange: (open: boolean) => void
+}
+
+type ShareAttendee = Pick<NoteAttendee, 'name' | 'email'>
+
+export function shareAttendeesFromNote(note: NoteDetail): ShareAttendee[] {
+  const seenEmails = new Set<string>()
+
+  return note.attendees.flatMap((attendee) => {
+    const email = attendee.email.trim()
+    const normalizedEmail = email.toLowerCase()
+    if (!email || seenEmails.has(normalizedEmail)) return []
+    seenEmails.add(normalizedEmail)
+    return [{ name: attendee.name?.trim() ?? '', email }]
+  })
 }
 
 export default function ShareNoteDialog({ note, open, onOpenChange }: ShareNoteDialogProps) {
@@ -38,8 +52,9 @@ export default function ShareNoteDialog({ note, open, onOpenChange }: ShareNoteD
     setStopSharingOpen(false)
   }, [note.id])
 
+  const attendees = useMemo(() => shareAttendeesFromNote(note), [note])
   const selectedCount = selectedEmails.size
-  const attendeeEmails = useMemo(() => note.attendees.map((attendee) => attendee.email), [note.attendees])
+  const attendeeEmails = useMemo(() => attendees.map((attendee) => attendee.email), [attendees])
 
   const toggleAttendee = (email: string) => {
     setSelectedEmails((current) => {
@@ -73,7 +88,7 @@ export default function ShareNoteDialog({ note, open, onOpenChange }: ShareNoteD
           <div className="flex items-center justify-between gap-3 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
             <div className="text-xs font-medium text-neutral-900 dark:text-neutral-100">Attendees</div>
             <div className="text-[11px] text-neutral-500 dark:text-neutral-400">
-              {note.attendees.length === 0 ? '0 people' : `${selectedCount} / ${note.attendees.length} selected`}
+              {attendees.length === 0 ? '0 people' : `${selectedCount} / ${attendees.length} selected`}
             </div>
           </div>
 
@@ -81,14 +96,14 @@ export default function ShareNoteDialog({ note, open, onOpenChange }: ShareNoteD
             <div className="text-xs text-neutral-500 dark:text-neutral-400">
               Choose who should receive the share link.
             </div>
-            {note.attendees.length === 0 ? (
+            {attendees.length === 0 ? (
               <div className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">No attendees added yet.</div>
             ) : null}
           </div>
 
-          {note.attendees.length > 0 ? (
+          {attendees.length > 0 ? (
             <div className="max-h-44 overflow-y-auto border-t border-neutral-200 sidebar-scrollbar dark:border-white/10">
-              {note.attendees.map((attendee) => {
+              {attendees.map((attendee) => {
                 const selected = selectedEmails.has(attendee.email)
                 const isYou = isCurrentUserAttendee(attendee.email, user?.email)
                 return (
@@ -120,7 +135,7 @@ export default function ShareNoteDialog({ note, open, onOpenChange }: ShareNoteD
           ) : null}
 
           <div className="flex items-center justify-end gap-3 border-t border-neutral-200 px-3 py-2 dark:border-white/10">
-            {note.attendees.length > 0 ? (
+            {attendees.length > 0 ? (
               <button
                 type="button"
                 onClick={toggleAll}

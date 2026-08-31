@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { cn } from '@/lib/utils'
-import { CalendarDays, Check, ChevronDown, FileText, Folder, Loader2, Share2, Sparkles, X } from 'lucide-react'
+import { CalendarDays, Check, ChevronDown, Folder, Loader2, Share2, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -13,12 +12,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
-import NoteSidePanel, { type NoteSidePanelTab } from '@/features/notes/NoteSidePanel'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
 import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
 import ShareNoteDialog from '@/features/notes/dialogs/ShareNoteDialog'
-import { useNoteTranscriptQuery } from '@/features/notes/queries/useNotesQueries'
 import { useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } from '@/features/notes/queries/useNoteMutations'
 import { useCalendarEventSearchQuery } from '@/features/calendar/useCalendarEventSearchQuery'
 import { useDebouncedValue } from '@/lib/use-debounced-value'
@@ -89,10 +86,6 @@ export default function NoteEditorView({
   const [activeView, setActiveView] = useState<NoteView>('notes')
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
 
-  const [notePanelTab, setNotePanelTab] = useState<NoteSidePanelTab | null>(null)
-  const [lastNotePanelTab, setLastNotePanelTab] = useState<NoteSidePanelTab>('transcript')
-  const transcriptQuery = useNoteTranscriptQuery(userId, selectedId, notePanelTab === 'transcript')
-
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false)
   const meetingPickerRef = useRef<HTMLDivElement | null>(null)
   const meetingSearchRef = useRef<HTMLInputElement | null>(null)
@@ -122,7 +115,6 @@ export default function NoteEditorView({
       setDraftTitle('')
       setDraftFolderId('')
       setDraftNote('')
-      setNotePanelTab(null)
       return
     }
     if (lastLoadedIdRef.current === selectedNote.id) return
@@ -138,8 +130,6 @@ export default function NoteEditorView({
 
   useEffect(() => {
     setActiveView('notes')
-    setLastNotePanelTab('transcript')
-    setNotePanelTab((current) => current ? 'transcript' : null)
   }, [selectedId])
 
   // Folder moves can also originate from the sidebar while this editor stays open.
@@ -296,15 +286,15 @@ export default function NoteEditorView({
     <Tabs
       value={activeView}
       onValueChange={(value) => setActiveView(value === 'summary' ? 'summary' : 'notes')}
-      className="h-full min-h-0 gap-0"
+      className="h-full w-full min-h-0 min-w-0 max-w-full gap-0 [contain:inline-size]"
     >
-      <div className="flex h-full min-h-0">
+      <div className="relative flex h-full min-h-0 min-w-0">
 
       {/* ── Main panel ── */}
       <div className="relative flex min-w-0 flex-1 flex-col rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none">
 
         {/* Title row */}
-        <div className="flex items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
+        <div className="flex min-w-0 items-center gap-2 border-b border-neutral-200 px-3 py-2 dark:border-white/10">
           {noteIsLoading ? (
             <div className="flex h-8 w-full items-center gap-2" aria-hidden="true">
               <div className="h-3 w-28 animate-pulse rounded bg-neutral-200/80 dark:bg-white/10" />
@@ -327,22 +317,6 @@ export default function NoteEditorView({
             disabled={!selectedId}
             className="h-8 min-w-0 flex-1 truncate bg-transparent text-xs font-medium text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-50 dark:placeholder:text-neutral-500"
           />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setShareDialogOpen(true)}
-            title="Share note"
-            aria-label="Share note"
-            className="h-8 w-8 rounded-full p-0"
-            style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-          >
-            <Share2 className="h-3.5 w-3.5" />
-          </Button>
-          {/* Attendees */}
-          {selectedNote && (
-            <NoteAttendeesDropdown note={selectedNote} />
-          )}
           <div ref={folderPickerRef} className="relative" style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}>
             <Button
               type="button"
@@ -395,7 +369,7 @@ export default function NoteEditorView({
               <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
             </Button>
             {meetingPickerOpen && (
-              <DropdownPopover width="lg">
+              <DropdownPopover width="md" className="w-52 min-w-52">
                 <DropdownLabel>
                   <input
                     ref={meetingSearchRef}
@@ -453,23 +427,21 @@ export default function NoteEditorView({
             )}
           </div>
 
-          {/* Shared note side-panel entry point */}
+          {/* Attendees and note sharing stay at the end of the header actions. */}
+          {selectedNote && (
+            <NoteAttendeesDropdown note={selectedNote} />
+          )}
           <Button
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => setNotePanelTab((current) => current ? null : lastNotePanelTab)}
-            title={notePanelTab ? 'Hide transcript and AI panel' : 'Open transcript and AI'}
-            className={cn(
-              'h-8 rounded-full px-3',
-              notePanelTab
-                ? 'border-violet-500/30 bg-violet-500/12 text-violet-800 hover:bg-violet-500/15 dark:border-violet-400/30 dark:bg-violet-400/12 dark:text-violet-100 dark:hover:bg-violet-400/16'
-                : 'border-neutral-200 bg-white/70 text-neutral-700 hover:bg-neutral-100 hover:text-neutral-950 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white',
-            )}
+            onClick={() => setShareDialogOpen(true)}
+            title="Share note"
+            aria-label="Share note"
+            className="h-8 w-8 rounded-full p-0"
             style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
           >
-            <FileText className="h-3.5 w-3.5" />
-            Transcript &amp; AI
+            <Share2 className="h-3.5 w-3.5" />
           </Button>
 
             </>
@@ -502,9 +474,6 @@ export default function NoteEditorView({
                   </div>
                   <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
                     <div className="max-w-xs">
-                      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-100 text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
-                        <Sparkles className="h-4 w-4" />
-                      </div>
                       <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No summary yet</p>
                       <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                         A summary generated from the transcript will appear here.
@@ -517,29 +486,6 @@ export default function NoteEditorView({
           )}
         </div>
 
-      </div>
-
-      {/* Shared transcript and note-chat sidebar */}
-      <div
-        className={cn(
-          'flex-shrink-0 overflow-hidden transition-[width] duration-200 ease-out',
-          notePanelTab ? 'w-[368px]' : 'w-0',
-        )}
-      >
-        {notePanelTab ? (
-          <NoteSidePanel
-            noteId={selectedId}
-            noteTitle={draftTitle || 'Untitled note'}
-            activeTab={notePanelTab}
-            onActiveTabChange={(tab) => {
-              setLastNotePanelTab(tab)
-              setNotePanelTab(tab)
-            }}
-            onClose={() => setNotePanelTab(null)}
-            transcriptSegments={transcriptQuery.data?.segments ?? []}
-            transcriptLoading={transcriptQuery.isLoading}
-          />
-        ) : null}
       </div>
 
       </div>

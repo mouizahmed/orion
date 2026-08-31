@@ -202,7 +202,7 @@ export default function HomeView({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent align="end">
+              <SelectContent align="start">
                 <SelectItem value="updated">Last updated</SelectItem>
                 <SelectItem value="created">Created</SelectItem>
                 <SelectItem value="title">Title</SelectItem>
@@ -216,7 +216,7 @@ export default function HomeView({
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent align="end">
+              <SelectContent align="start">
                 <SelectItem value="all">All</SelectItem>
                 <SelectItem value="owned">Mine</SelectItem>
                 <SelectItem value="shared">Shared</SelectItem>

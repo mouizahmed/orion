@@ -250,6 +250,9 @@ export function useLinkNoteEventMutation(accountID: string) {
         queryKey: queryKeys.note(accountID, noteID),
       })
       const snapshot = snapshotAccountNotes(queryClient, accountID)
+      const previousDetail = queryClient.getQueryData<NoteDetail | null>(
+        queryKeys.note(accountID, noteID),
+      )
       const previousEventID = queryClient.getQueryData<NoteDetail | null>(
         queryKeys.note(accountID, noteID),
       )?.calendarEventId
@@ -257,23 +260,61 @@ export function useLinkNoteEventMutation(accountID: string) {
         calendarEventId: eventID ?? undefined,
         updatedAt: Date.now(),
       })
-      return { snapshot, previousEventID }
+      if (eventID === null) {
+        queryClient.setQueryData<NoteDetail | null>(queryKeys.note(accountID, noteID), (current) => (
+          current
+            ? {
+                ...current,
+                linkedEvent: null,
+                attendees: current.attendees.filter((attendee) => attendee.source === 'manual'),
+              }
+            : current
+        ))
+      } else {
+        queryClient.setQueryData<NoteDetail | null>(queryKeys.note(accountID, noteID), (current) => (
+          current
+            ? {
+                ...current,
+                linkedEvent: current.linkedEvent?.id === eventID ? current.linkedEvent : null,
+                attendees: current.attendees.filter((attendee) => attendee.source === 'manual'),
+              }
+            : current
+        ))
+      }
+      return { snapshot, previousDetail, previousEventID }
     },
     onError: (_error, _variables, context) => {
-      if (isActiveServerStateAccount(accountID)) restoreSnapshot(queryClient, context?.snapshot ?? [])
-    },
-    onSuccess: (note) => {
-      if (isActiveServerStateAccount(accountID) && note) seedCanonicalNote(queryClient, accountID, note)
-    },
-    onSettled: async (_data, _error, { noteID, eventID }, context) => {
       if (!isActiveServerStateAccount(accountID)) return
-      await queryClient.invalidateQueries({
+      restoreSnapshot(queryClient, context?.snapshot ?? [])
+      if (context?.previousDetail !== undefined) {
+        queryClient.setQueryData(queryKeys.note(accountID, _variables.noteID), context.previousDetail)
+      }
+    },
+    onSuccess: (note, { noteID, eventID }) => {
+      if (!isActiveServerStateAccount(accountID) || !note) return
+      seedCanonicalNote(queryClient, accountID, note)
+      if (eventID === null) {
+        queryClient.setQueryData<NoteDetail | null>(queryKeys.note(accountID, noteID), (current) => (
+          current
+            ? {
+                ...current,
+                linkedEvent: null,
+                attendees: current.attendees.filter((attendee) => attendee.source === 'manual'),
+              }
+            : current
+        ))
+      }
+    },
+    onSettled: (_data, _error, { noteID, eventID }, context) => {
+      if (!isActiveServerStateAccount(accountID)) return
+      void queryClient.invalidateQueries({
         queryKey: queryKeys.note(accountID, noteID),
       })
-      if (eventID)
+      if (eventID) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.notesByEvent(accountID, eventID),
         })
+      }
       if (context?.previousEventID)
         void queryClient.invalidateQueries({
           queryKey: queryKeys.notesByEvent(accountID, context.previousEventID),

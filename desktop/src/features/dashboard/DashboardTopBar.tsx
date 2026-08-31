@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { SidebarTrigger } from '@/components/ui/sidebar'
+import { SidebarTrigger, useSidebar } from '@/components/ui/sidebar'
 import { useWindowState } from '@/features/dashboard/useWindowState'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
@@ -24,6 +24,7 @@ export default function DashboardTopBar({
   onOpenNotes?: () => void
 }) {
   const isMacOS = desktopApi.platform.current() === 'darwin'
+  const { isCompact, setOpen: setNavigationOpen, setCompactPanel } = useSidebar()
   const { user } = useAuth()
   const { isMaximized } = useWindowState()
   const { folders, refresh, selectFolder, selectNote } = useDashboardNotes()
@@ -39,6 +40,12 @@ export default function DashboardTopBar({
   const searchContainerRef = useRef<HTMLDivElement | null>(null)
   const recordContainerRef = useRef<HTMLDivElement | null>(null)
   const calendarSyncMutation = useCalendarSyncMutation(user?.id)
+
+  const closeCompactOverlay = () => {
+    if (!isCompact) return
+    setNavigationOpen(false)
+    setCompactPanel(null)
+  }
 
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 200)
   const search = useDashboardSearchQuery(user?.id, debouncedSearchQuery)
@@ -92,7 +99,7 @@ export default function DashboardTopBar({
 
   return (
     <div
-      className="relative flex h-12 w-full items-center justify-between px-2 text-xs"
+      className="relative flex h-12 w-full min-w-0 items-center gap-2 px-2 text-xs"
       style={
         {
           paddingLeft: isMacOS && !isMaximized ? '80px' : undefined,
@@ -109,16 +116,16 @@ export default function DashboardTopBar({
           } as React.CSSProperties
         }
       />
-      <div className="relative z-10 flex items-center gap-2">
+      <div className="relative z-10 flex min-w-0 items-center gap-2">
         <img src={publicAssetUrl('orion-mark.svg')} alt="Orion Logo" className="h-6 w-6" />
         <SidebarTrigger />
 
         <div
           ref={searchContainerRef}
-          className="relative"
+          className="relative min-w-0 w-[clamp(180px,32vw,420px)]"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <div className="flex items-center gap-2 rounded-full border border-neutral-200/80 bg-white/72 px-3 py-1 text-xs text-neutral-700 ring-1 ring-neutral-900/5 backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-neutral-200 dark:ring-white/8">
+          <div className="flex min-w-0 max-w-[420px] items-center gap-2 rounded-full border border-neutral-200/80 bg-white/72 px-3 py-1 text-xs text-neutral-700 ring-1 ring-neutral-900/5 backdrop-blur-md dark:border-white/12 dark:bg-[#171417]/80 dark:text-neutral-200 dark:ring-white/8">
             <Search size={12} className="text-neutral-500 dark:text-neutral-400" />
             <Input
               variant="ghost"
@@ -127,9 +134,12 @@ export default function DashboardTopBar({
                 setSearchQuery(e.target.value)
                 setIsSearchOpen(true)
               }}
-              onFocus={() => setIsSearchOpen(true)}
-              placeholder="Search people, folders, companies, or meetings"
-              className="h-6 w-[420px] p-0 text-xs text-neutral-900 placeholder:text-neutral-500 dark:text-neutral-100 dark:placeholder:text-neutral-400"
+              onFocus={() => {
+                closeCompactOverlay()
+                setIsSearchOpen(true)
+              }}
+              placeholder={isCompact ? 'Search notes and meetings' : 'Search people, folders, or meetings'}
+              className="h-6 min-w-0 w-full p-0 text-xs text-neutral-900 placeholder:text-neutral-500 dark:text-neutral-100 dark:placeholder:text-neutral-400"
             />
           </div>
 
@@ -137,7 +147,7 @@ export default function DashboardTopBar({
             <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-neutral-200/80 bg-white/88 text-neutral-900 shadow-[0_20px_48px_-32px_rgba(15,23,42,0.52)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100 dark:shadow-2xl">
               <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-white/10">
                 <span className="text-xs text-neutral-600 dark:text-neutral-300">
-                  Search people, folders, companies, or meetings
+                  Search people, folders, or meetings
                 </span>
                 <span className="rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
                   ESC
@@ -228,13 +238,14 @@ export default function DashboardTopBar({
         </div>
       </div>
 
-      <div className="relative z-10 flex items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1">
         <Button
           type="button"
           variant="secondary"
           size="sm"
           className="h-8 rounded-full"
           onClick={() => {
+            closeCompactOverlay()
             void handleRefresh()
           }}
           disabled={isRefreshing || calendarSyncMutation.isPending}
@@ -258,13 +269,16 @@ export default function DashboardTopBar({
             variant="default"
             size="sm"
             className="h-8 rounded-full"
-            onClick={() => setIsRecordOpen((o) => !o)}
+            onClick={() => {
+              closeCompactOverlay()
+              setIsRecordOpen((o) => !o)
+            }}
           >
             <Plus size={14} />
             Record
           </Button>
           {isRecordOpen ? (
-            <DropdownPopover align="end" width="sm" className="w-fit min-w-0">
+            <DropdownPopover align="start" width="sm" className="w-fit min-w-0">
               <DropdownItem
                 className="whitespace-nowrap"
                 onClick={() => {

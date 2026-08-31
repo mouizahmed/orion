@@ -24,7 +24,7 @@ export function PreferencesSettings({
             </div>
             <Select defaultValue="5m">
               <SelectTrigger className="w-40 shrink-0" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}><SelectValue /></SelectTrigger>
-              <SelectContent align="end">
+              <SelectContent align="start">
                 <SelectItem value="none">Don&apos;t notify me</SelectItem>
                 <SelectItem value="1m">Before 1m</SelectItem>
                 <SelectItem value="5m">Before 5m</SelectItem>
@@ -58,7 +58,7 @@ export function PreferencesSettings({
             action={
               <Select value={recordingSettings.storageLocation} onValueChange={(value) => void updateRecordingSettings({ storageLocation: value === 'local' ? 'local' : 'server' })}>
                 <SelectTrigger className="w-40" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}><SelectValue /></SelectTrigger>
-                <SelectContent align="end">
+              <SelectContent align="start">
                   <SelectItem value="server">Orion server</SelectItem>
                   <SelectItem value="local">Local only</SelectItem>
                 </SelectContent>
@@ -83,7 +83,7 @@ export function PreferencesSettings({
             action={
               <Select defaultValue="never">
                 <SelectTrigger className="w-40" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}><SelectValue /></SelectTrigger>
-                <SelectContent align="end">
+              <SelectContent align="start">
                   <SelectItem value="never">Never</SelectItem>
                   <SelectItem value="30">30 days</SelectItem>
                   <SelectItem value="90">90 days</SelectItem>

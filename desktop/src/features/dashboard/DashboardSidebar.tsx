@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Home, MessageCircle, Notebook, Settings, UsersRound } from 'lucide-react'
 
-import { Sidebar as SidebarContainer } from '@/components/ui/sidebar'
+import { Sidebar as SidebarContainer, useSidebar } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
 import { DropdownItem } from '@/components/ui/dropdown-list'
 import { NotesTree } from '@/features/notes/NotesTree'
@@ -35,6 +35,7 @@ export default function DashboardSidebar({
   onCloseSettings?: () => void
   onSelectSettingsSection?: (section: DashboardSettingsSection) => void
 }) {
+  const { isCompact, setOpen } = useSidebar()
   const { user, logout } = useAuth()
   const {
     isLoading,
@@ -62,6 +63,10 @@ export default function DashboardSidebar({
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'S'
+
+  const closeCompactSidebar = () => {
+    if (isCompact) setOpen(false)
+  }
 
   useEffect(() => {
     if (!profileMenuOpen) {
@@ -129,22 +134,26 @@ export default function DashboardSidebar({
     onOpenHome?.()
     selectFolder(null)
     selectNote(null)
+    closeCompactSidebar()
   }
 
   const openCalendar = () => {
     onOpenCalendar?.()
     selectFolder(null)
     selectNote(null)
+    closeCompactSidebar()
   }
 
   const openNotesPage = () => {
     onOpenNotes?.()
+    closeCompactSidebar()
   }
 
   const openNotesRoot = () => {
     onOpenNotes?.()
     selectFolder(null)
     selectNote(null)
+    closeCompactSidebar()
   }
 
   return (
@@ -153,8 +162,14 @@ export default function DashboardSidebar({
         {mode === 'settings' ? (
             <SettingsNav
             selectedSection={selectedSettingsSection}
-            onSelectSection={(section) => onSelectSettingsSection?.(section)}
-            onBackToApp={() => onCloseSettings?.()}
+            onSelectSection={(section) => {
+              onSelectSettingsSection?.(section)
+              closeCompactSidebar()
+            }}
+            onBackToApp={() => {
+              onCloseSettings?.()
+              closeCompactSidebar()
+            }}
           />
         ) : (
           <div className="space-y-1">
@@ -183,6 +198,7 @@ export default function DashboardSidebar({
                 onOpenPeople?.()
                 selectFolder(null)
                 selectNote(null)
+                closeCompactSidebar()
               }}
               isActive={mode === 'people'}
             />
@@ -193,6 +209,7 @@ export default function DashboardSidebar({
                 onOpenChat?.()
                 selectFolder(null)
                 selectNote(null)
+                closeCompactSidebar()
               }}
               isActive={mode === 'chat'}
             />
@@ -273,7 +290,10 @@ export default function DashboardSidebar({
           <SidebarIconButton
             aria-label="Settings"
             suppressHoverBackground={mode === 'settings'}
-            onClick={onOpenSettings}
+            onClick={() => {
+              onOpenSettings?.()
+              closeCompactSidebar()
+            }}
             className={mode === 'settings' ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : undefined}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >

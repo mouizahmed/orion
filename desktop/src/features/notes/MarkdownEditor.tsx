@@ -397,7 +397,7 @@ function MarkdownEditorInner(
       onPaste={noteId ? handlePaste : undefined}
       onMouseDownCapture={handleEditorCanvasMouseDown}
       onContextMenu={handleEditorContextMenu}
-      className="relative h-full"
+      className="relative h-full min-w-0 max-w-full overflow-hidden"
     >
       <MDXEditor
         ref={editorRef}

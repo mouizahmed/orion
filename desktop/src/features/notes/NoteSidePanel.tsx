@@ -31,7 +31,7 @@ export default function NoteSidePanel({
   return (
     <aside
       aria-label="Note details"
-      className="ml-2 flex h-full w-[360px] flex-col overflow-hidden rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none"
+      className="flex h-full w-full flex-col overflow-hidden rounded-lg border border-neutral-300/70 bg-white/82 shadow-[inset_0_1px_0_rgba(255,255,255,0.68),0_18px_46px_-34px_rgba(15,23,42,0.5)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/80 dark:shadow-none"
     >
       <Tabs
         value={activeTab}

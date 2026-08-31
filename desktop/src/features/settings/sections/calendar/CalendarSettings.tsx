@@ -101,7 +101,7 @@ export function CalendarSettings() {
           <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
             <Select value="" disabled={Boolean(action)} onValueChange={(value) => void connectProvider(value as CalendarProvider)}>
               <SelectTrigger size="sm"><Plus className="h-3.5 w-3.5" /><SelectValue placeholder="Add" /></SelectTrigger>
-              <SelectContent align="end">
+              <SelectContent align="start">
                 {providerOptions.map((option) => (
                   <SelectItem key={option.provider} value={option.provider}>
                     <img src={option.icon} alt="" aria-hidden="true" className="h-4 w-4 shrink-0" />

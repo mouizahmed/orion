@@ -53,7 +53,7 @@ function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null
 
 function DashboardContent() {
   const { user, isLoading } = useAuth()
-  const { isOpen } = useSidebar()
+  const { isOpen, isCompact } = useSidebar()
   const initialNoteId = useDashboardNoteIdFromUrl()
   const [viewMode, setViewMode] = useState<DashboardViewMode>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
@@ -102,7 +102,7 @@ function DashboardContent() {
             onOpenNotes={() => setViewMode('notes')}
           />
 
-          <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen ? 'gap-2' : ''}`}>
+          <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen && !isCompact ? 'gap-2' : ''}`}>
             <DashboardSidebar
               mode={viewMode}
               selectedSettingsSection={settingsSection}
@@ -115,7 +115,7 @@ function DashboardContent() {
               onCloseSettings={() => setViewMode('home')}
               onSelectSettingsSection={setSettingsSection}
             />
-            <div className="flex-1 min-h-0 min-w-0 overflow-hidden select-none">
+            <div className="flex-1 min-h-0 min-w-0 overflow-visible select-none">
               <DashboardWorkspace
                 userId={user.id}
                 mode={viewMode}
