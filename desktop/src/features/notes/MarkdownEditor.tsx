@@ -20,11 +20,13 @@ import {
   MDXEditor,
   activePlugins$,
   allowedHeadingLevels$,
+  createRootEditorSubscription$,
   convertSelectionToNode$,
   currentBlockType$,
   headingsPlugin,
   listsPlugin,
   quotePlugin,
+  realmPlugin,
   linkPlugin,
   linkDialogPlugin,
   markdownShortcutPlugin,
@@ -68,6 +70,7 @@ type MarkdownEditorProps = {
   className?: string
   noteId?: string
   toolbarLeading?: ReactNode
+  bottomOverlayInset?: number
 }
 
 export type MarkdownEditorHandle = {
@@ -163,6 +166,46 @@ function ToolbarContents({ leading }: ToolbarContentsProps) {
   )
 }
 
+type BottomOverlayCaretPluginParams = {
+  getContainer: () => HTMLDivElement | null
+  getInset: () => number
+}
+
+function keepCaretAboveBottomOverlay(container: HTMLDivElement | null, bottomInset: number) {
+  if (!container || bottomInset <= 0) return
+
+  const selection = document.getSelection()
+  if (!selection?.isCollapsed || selection.rangeCount === 0) return
+
+  const editable = container.querySelector<HTMLElement>('.mdx-content-editable')
+  const anchorNode = selection.anchorNode
+  if (!editable || !anchorNode || !editable.contains(anchorNode)) return
+
+  const scrollContainer = editable.closest<HTMLElement>('.mdxeditor-root-contenteditable')
+  if (!scrollContainer) return
+
+  const rangeRect = selection.getRangeAt(0).getBoundingClientRect()
+  const anchorElement = anchorNode instanceof HTMLElement ? anchorNode : anchorNode.parentElement
+  const caretRect = rangeRect.bottom > 0 ? rangeRect : anchorElement?.getBoundingClientRect()
+  if (!caretRect) return
+
+  const safeBottom = scrollContainer.getBoundingClientRect().bottom - bottomInset
+  if (caretRect.bottom > safeBottom) {
+    scrollContainer.scrollTop += caretRect.bottom - safeBottom + 4
+  }
+}
+
+const bottomOverlayCaretPlugin = realmPlugin<BottomOverlayCaretPluginParams>({
+  init(realm, params) {
+    if (!params) return
+    realm.pub(createRootEditorSubscription$, (editor) =>
+      editor.registerUpdateListener(() => {
+        keepCaretAboveBottomOverlay(params.getContainer(), params.getInset())
+      }),
+    )
+  },
+})
+
 function useDarkMode(theme: 'dark' | 'auto') {
   const [isDark, setIsDark] = useState(() => {
     if (theme === 'dark') return true
@@ -197,11 +240,14 @@ function MarkdownEditorInner(
     className,
     noteId,
     toolbarLeading,
+    bottomOverlayInset = 0,
   }: MarkdownEditorProps,
   ref: ForwardedRef<MarkdownEditorHandle>,
 ) {
   const editorRef = useRef<MDXEditorMethods>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const bottomOverlayInsetRef = useRef(bottomOverlayInset)
+  bottomOverlayInsetRef.current = bottomOverlayInset
   const isInternalChangeRef = useRef(false)
   const hasMountedRef = useRef(false)
   const isDark = useDarkMode(theme)
@@ -227,6 +273,10 @@ function MarkdownEditorInner(
       thematicBreakPlugin(),
       tablePlugin(),
       imagePlugin(),
+      bottomOverlayCaretPlugin({
+        getContainer: () => containerRef.current,
+        getInset: () => bottomOverlayInsetRef.current,
+      }),
     ]
     if (showToolbar) {
       base.push(
@@ -398,6 +448,7 @@ function MarkdownEditorInner(
       onMouseDownCapture={handleEditorCanvasMouseDown}
       onContextMenu={handleEditorContextMenu}
       className="relative h-full min-w-0 max-w-full overflow-hidden"
+      style={{ '--editor-bottom-overlay-inset': `${bottomOverlayInset}px` } as CSSProperties}
     >
       <MDXEditor
         ref={editorRef}

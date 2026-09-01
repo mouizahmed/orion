@@ -13,11 +13,18 @@ import {
 type NoteChatPanelProps = {
   noteId: string
   noteTitle: string
+  onClose?: () => void
+  onConversationStateChange?: (hasMessages: boolean) => void
 }
 
 const fixtureDelayMs = 700
 
-export default function NoteChatPanel({ noteId, noteTitle }: NoteChatPanelProps) {
+export default function NoteChatPanel({
+  noteId,
+  noteTitle,
+  onClose,
+  onConversationStateChange,
+}: NoteChatPanelProps) {
   const [conversations, setConversations] = useState<NoteChatConversation[]>(() => createNoteChatHistoryFixtures(noteId, noteTitle))
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageData[]>([])
@@ -34,6 +41,10 @@ export default function NoteChatPanel({ noteId, noteTitle }: NoteChatPanelProps)
   }, [])
 
   useEffect(() => () => clearTimers(), [clearTimers])
+
+  useEffect(() => {
+    onConversationStateChange?.(messages.length > 0)
+  }, [messages.length, onConversationStateChange])
 
   const syncConversation = useCallback((conversationId: string, nextMessages: ChatMessageData[], title?: string) => {
     setConversations((current) => {
@@ -169,6 +180,7 @@ export default function NoteChatPanel({ noteId, noteTitle }: NoteChatPanelProps)
         conversations={conversations}
         onSelectConversation={selectConversation}
         onNewChat={startNewChat}
+        onClose={onClose}
       />
       {messages.length ? (
         <ChatThread

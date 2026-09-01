@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { History, SquarePen } from 'lucide-react'
+import { History, SquarePen, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { DropdownItem, DropdownLabel, DropdownPopover } from '@/components/ui/dropdown-list'
@@ -12,6 +12,7 @@ type NoteChatHeaderProps = {
   conversations: NoteChatConversation[]
   onSelectConversation: (conversation: NoteChatConversation) => void
   onNewChat: () => void
+  onClose?: () => void
 }
 
 export default function NoteChatHeader({
@@ -19,6 +20,7 @@ export default function NoteChatHeader({
   conversations,
   onSelectConversation,
   onNewChat,
+  onClose,
 }: NoteChatHeaderProps) {
   const [historyOpen, setHistoryOpen] = useState(false)
   const historyRef = useRef<HTMLDivElement | null>(null)
@@ -96,6 +98,11 @@ export default function NoteChatHeader({
       <Button type="button" variant="ghost" size="icon-sm" aria-label="New note chat" title="New chat" onClick={onNewChat} className="h-7 w-7 shrink-0">
         <SquarePen className="h-3.5 w-3.5" />
       </Button>
+      {onClose ? (
+        <Button type="button" variant="ghost" size="icon-sm" aria-label="Close note chat" title="Close chat" onClick={onClose} className="h-7 w-7 shrink-0">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
     </header>
   )
 }

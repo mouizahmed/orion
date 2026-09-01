@@ -12,6 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { toast } from 'sonner'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
+import NoteAssistantDock from '@/features/notes/NoteAssistantDock'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
 import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
@@ -464,6 +465,7 @@ export default function NoteEditorView({
               className="h-full dashboard-editor"
               noteId={selectedId}
               toolbarLeading={<NoteViewSwitch />}
+              bottomOverlayInset={72}
             />
               </TabsContent>
 
@@ -485,6 +487,14 @@ export default function NoteEditorView({
             </>
           )}
         </div>
+
+        {!noteIsLoading && selectedNote ? (
+          <NoteAssistantDock
+            accountId={userId}
+            noteId={selectedId}
+            noteTitle={draftTitle || selectedNote.title}
+          />
+        ) : null}
 
       </div>
 
