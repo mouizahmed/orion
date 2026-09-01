@@ -15,7 +15,6 @@ const resources = new Set<ResourceName>([
   'folders',
   'activity',
   'chat',
-  'people',
 ])
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -58,8 +57,6 @@ export function resourceQueryKeys(accountID: string, resource: ResourceName): re
       return [queryKeys.activity(accountID)]
     case 'chat':
       return [[...queryKeys.account(accountID), 'chat']]
-    case 'people':
-      return [queryKeys.people(accountID)]
   }
 }
 

@@ -23,7 +23,6 @@ export type ChatSourceKind =
   | 'note'
   | 'summary'
   | 'transcript'
-  | 'person'
   | 'meeting'
   | 'calendar_event'
   | 'attendee'

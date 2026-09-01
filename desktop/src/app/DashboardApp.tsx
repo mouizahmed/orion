@@ -109,7 +109,6 @@ function DashboardContent() {
               onOpenHome={() => setViewMode('home')}
               onOpenNotes={() => setViewMode('notes')}
               onOpenCalendar={handleOpenCalendar}
-              onOpenPeople={() => setViewMode('people')}
               onOpenChat={() => setViewMode('chat')}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
               onCloseSettings={() => setViewMode('home')}

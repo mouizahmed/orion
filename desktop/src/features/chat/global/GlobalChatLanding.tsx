@@ -38,7 +38,7 @@ export default function GlobalChatLanding({
             onValueChange={setDraft}
             onSubmit={() => onStartConversation(draft)}
             variant="page"
-            placeholder="Ask about your notes, meetings, people, or events..."
+            placeholder="Ask about your notes, meetings, or events..."
             onAttach={() => undefined}
             limits={{ maxPromptLength: 20_000, maxAttachments: 10, maxAttachmentSizeBytes: 25_000_000 }}
           />

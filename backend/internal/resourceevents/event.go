@@ -27,7 +27,6 @@ const (
 	ResourceFolders            Resource = "folders"
 	ResourceActivity           Resource = "activity"
 	ResourceChat               Resource = "chat"
-	ResourcePeople             Resource = "people"
 )
 
 func (r Resource) Valid() bool {
@@ -42,8 +41,7 @@ func (r Resource) Valid() bool {
 		ResourceNotes,
 		ResourceFolders,
 		ResourceActivity,
-		ResourceChat,
-		ResourcePeople:
+		ResourceChat:
 		return true
 	default:
 		return false

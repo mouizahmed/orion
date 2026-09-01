@@ -1,7 +1,6 @@
 export const queryKeys = {
   account: (accountID: string) => ['account', accountID] as const,
   folders: (accountID: string) => ['account', accountID, 'folders'] as const,
-  people: (accountID: string) => ['account', accountID, 'people'] as const,
   notes: (accountID: string) => ['account', accountID, 'notes'] as const,
   note: (accountID: string, noteID: string) => ['account', accountID, 'notes', 'detail', noteID] as const,
   notesByFolder: (accountID: string, folderID: string | null) =>

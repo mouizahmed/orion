@@ -17,7 +17,6 @@ export type ResourceName =
   | 'folders'
   | 'activity'
   | 'chat'
-  | 'people'
 
 export interface ResourceChangedEvent {
   version: 1

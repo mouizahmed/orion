@@ -65,14 +65,13 @@ describe('resource invalidation registry', () => {
     }
   })
 
-  it.each(['notes', 'folders', 'activity', 'chat', 'people'] as const)('accepts and invalidates the new %s resource family', async (resource) => {
+  it.each(['notes', 'folders', 'activity', 'chat'] as const)('accepts and invalidates the new %s resource family', async (resource) => {
     const client = new QueryClient()
     const accountID = 'account-a'
     client.setQueryData(queryKeys.notesByFolder(accountID, null), {})
     client.setQueryData(queryKeys.folders(accountID), {})
     client.setQueryData(queryKeys.activityFiltered(accountID, { sort: 'updated', direction: 'desc', scope: 'owned' }), {})
     client.setQueryData(queryKeys.conversationsScoped(accountID, { noteID: null, folderID: null }), {})
-    client.setQueryData(queryKeys.people(accountID), {})
     await invalidateResource(client, accountID, resource)
     expect(client.getQueryCache().findAll({ queryKey: queryKeys.account(accountID) }).some((query) => query.state.isInvalidated)).toBe(true)
   })

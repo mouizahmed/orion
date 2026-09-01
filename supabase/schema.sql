@@ -34,7 +34,6 @@ $$;
 
 drop table if exists public.note_attendee_suppressions cascade;
 drop table if exists public.note_attendees cascade;
-drop table if exists public.people cascade;
 drop table if exists public.note_calendar_links cascade;
 drop table if exists public.calendar_event_attendees cascade;
 drop table if exists public.calendar_sync_state cascade;
@@ -525,15 +524,6 @@ create table public.integration_connections (
   unique (id, user_id)
 );
 
-create table public.people (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
-  name text not null default '' check (name = btrim(name) and length(name) <= 120),
-  email text check (email is null or (email = btrim(email) and email <> '' and length(email) <= 320)),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
 create table public.integration_capabilities (
   user_id uuid not null,
   connection_id uuid not null,
@@ -1010,8 +1000,6 @@ alter table public.conversations
 
 create index folders_user_idx on public.folders (user_id) where deleted_at is null;
 create index folders_user_fk_idx on public.folders (user_id);
-create index people_user_name_idx on public.people (user_id, lower(name), id);
-create unique index people_user_email_key on public.people (user_id, lower(btrim(email))) where email is not null;
 create index integration_connections_active_idx on public.integration_connections (user_id, provider) where status = 'active';
 create index calendar_preferences_connection_owner_idx on public.calendar_preferences (connection_id, user_id);
 create index calendar_sources_connection_owner_idx on public.calendar_sources (connection_id, user_id);
@@ -1041,7 +1029,7 @@ begin
     'account_extract_field_folders','account_summary_templates','account_summary_template_folders',
     'account_plan_changes','account_usage_periods',
     'account_usage_operations','billing_customers','subscriptions',
-    'billing_webhook_events','folders','people','integration_connections','integration_capabilities',
+    'billing_webhook_events','folders','integration_connections','integration_capabilities',
     'integration_webhook_subscriptions','integration_jobs','integration_webhook_receipts',
     'integration_outbox_events','integration_delivery_attempts',
     'calendar_preferences','calendar_sources','calendar_events','calendar_event_attendees','calendar_sync_state',
@@ -1593,7 +1581,7 @@ begin
     'integration_connections','integration_capabilities','integration_webhook_subscriptions',
     'integration_jobs','integration_webhook_receipts','integration_outbox_events',
     'integration_delivery_attempts','calendar_preferences','calendar_sources',
-    'calendar_events','calendar_event_attendees','calendar_sync_state','people',
+    'calendar_events','calendar_event_attendees','calendar_sync_state',
     'note_calendar_links'
   ] loop
     execute format('drop policy if exists backend_only on public.%I', table_name);

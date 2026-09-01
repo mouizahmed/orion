@@ -10,8 +10,8 @@ export const orionSources: ChatSource[] = [
   { id: 'note-roadmap', kind: 'note', title: 'Product roadmap and launch decisions', citationIndex: 1, resourceId: 'note-1', locationLabel: 'Decisions section', excerpt: 'The team agreed to move the beta launch to September 14.' },
   { id: 'summary-roadmap', kind: 'summary', title: 'Product roadmap summary', citationIndex: 2, resourceId: 'note-1', locationLabel: 'Key outcomes', excerpt: 'Beta launch moved to September 14 with onboarding as the critical path.' },
   { id: 'transcript-roadmap', kind: 'transcript', title: 'Product roadmap transcript', citationIndex: 3, resourceId: 'transcript-1', locationLabel: '18:42–19:17', excerpt: 'Let us use September 14 and keep the first cohort intentionally small.' },
-  { id: 'person-amina', kind: 'person', title: 'Amina Patel', citationIndex: 4, resourceId: 'person-1', locationLabel: 'Product' },
-  { id: 'attendee-jules', kind: 'attendee', title: 'Jules Martin', citationIndex: 5, resourceId: 'person-2', locationLabel: 'Attendee' },
+  { id: 'attendee-amina', kind: 'attendee', title: 'Amina Patel', citationIndex: 4, resourceId: 'attendee-1', locationLabel: 'Attendee' },
+  { id: 'attendee-jules', kind: 'attendee', title: 'Jules Martin', citationIndex: 5, resourceId: 'attendee-2', locationLabel: 'Attendee' },
   { id: 'meeting-launch', kind: 'meeting', title: 'Beta launch review', citationIndex: 6, resourceId: 'meeting-1', locationLabel: '45 minutes' },
   { id: 'folder-planning', kind: 'folder', title: 'Planning and strategy', citationIndex: 7, resourceId: 'folder-1', locationLabel: '12 notes' },
 ]

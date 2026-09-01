@@ -138,7 +138,7 @@ export default function DashboardTopBar({
                 closeCompactOverlay()
                 setIsSearchOpen(true)
               }}
-              placeholder={isCompact ? 'Search notes and meetings' : 'Search people, folders, or meetings'}
+              placeholder={isCompact ? 'Search notes and meetings' : 'Search folders, notes, or meetings'}
               className="h-6 min-w-0 w-full p-0 text-xs text-neutral-900 placeholder:text-neutral-500 dark:text-neutral-100 dark:placeholder:text-neutral-400"
             />
           </div>
@@ -147,7 +147,7 @@ export default function DashboardTopBar({
             <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[520px] overflow-hidden rounded-xl border border-neutral-200/80 bg-white/88 text-neutral-900 shadow-[0_20px_48px_-32px_rgba(15,23,42,0.52)] backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100 dark:shadow-2xl">
               <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-white/10">
                 <span className="text-xs text-neutral-600 dark:text-neutral-300">
-                  Search people, folders, or meetings
+                  Search folders, notes, or meetings
                 </span>
                 <span className="rounded-full border border-neutral-200 bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500 dark:border-white/12 dark:bg-white/5 dark:text-neutral-300">
                   ESC

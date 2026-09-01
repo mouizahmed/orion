@@ -1,1 +1,1 @@
-export type DashboardViewMode = 'home' | 'notes' | 'calendar' | 'people' | 'chat' | 'settings'
+export type DashboardViewMode = 'home' | 'notes' | 'calendar' | 'chat' | 'settings'

@@ -4,7 +4,6 @@ import HomeView from '@/features/home/HomeView'
 import NoteEditorView from '@/features/notes/NoteEditorView'
 import NotesLibraryView from '@/features/notes/NotesLibraryView'
 import SettingsView from '@/features/settings/SettingsView'
-import PeopleView from '@/features/people/PeopleView'
 import GlobalChatView from '@/features/chat/global/GlobalChatView'
 import type { DashboardSettingsSection } from '@/features/settings/settings-config'
 import type { DashboardViewMode } from '@/features/dashboard/types'
@@ -65,10 +64,6 @@ export default function DashboardWorkspace({
         />
       </div>
     )
-  }
-
-  if (mode === 'people') {
-    return <div className="h-full"><PeopleView /></div>
   }
 
   if (mode === 'chat') {

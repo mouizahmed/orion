@@ -127,7 +127,6 @@ func main() {
 	log.Printf("calendar push: enabled=%t", calendarPushConfig.Enabled)
 	noteRepo := repository.NewNoteRepository(db)
 	folderRepo := repository.NewFolderRepository(db)
-	peopleRepo := repository.NewPersonRepository(db)
 	recordingRepo := repository.NewRecordingSessionRepository(db)
 	noteAttachmentRepo := repository.NewNoteAttachmentRepository(db)
 	noteAttendeeRepo := repository.NewNoteAttendeeRepository(db)
@@ -236,7 +235,6 @@ func main() {
 	summaryTemplatesHandler := handlers.NewSummaryTemplatesHandler(summaryTemplateRepo, resourceEventPublisher)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo, resourceEventPublisher)
-	peopleHandler := handlers.NewPeopleHandler(peopleRepo, resourceEventPublisher)
 	notesHandler := handlers.NewNotesHandler(noteRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, indexQueue, resourceEventPublisher)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo, resourceEventPublisher)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
@@ -356,11 +354,6 @@ func main() {
 		authenticated.PATCH("/folders/:folderID", folderHandler.RenameFolder)
 		authenticated.DELETE("/folders/:folderID", folderHandler.DeleteFolder)
 
-		// People routes
-		authenticated.GET("/people", peopleHandler.List)
-		authenticated.POST("/people", peopleHandler.Create)
-		authenticated.DELETE("/people/:personID", peopleHandler.Delete)
-
 		// Transcript routes
 		authenticated.POST("/notes/:noteID/transcript/segments", transcriptHandler.SaveSegments)
 		authenticated.GET("/notes/:noteID/transcript/segments", transcriptHandler.GetSegments)
@@ -381,7 +374,6 @@ func main() {
 		authenticated.PATCH("/chat/conversations/:conversationID", chatHandler.RenameConversation)
 		authenticated.GET("/chat/conversations/:conversationID/messages", chatHandler.GetMessages)
 		authenticated.POST("/chat/conversations/:conversationID/messages", chatHandler.SendMessage)
-
 
 	}
 
