@@ -183,35 +183,37 @@ export default function NoteChatPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <NoteChatHeader
-        activeConversationId={activeConversationId}
-        conversations={conversations}
-        onSelectConversation={selectConversation}
-        onNewChat={startNewChat}
-        onClose={onClose}
-      />
-      {messages.length ? (
-        <ChatThread
-          messages={messages}
-          density="panel"
-          onRetryMessage={retryMessage}
-          onApplyAction={runAction}
-          onCancelAction={cancelAction}
-          onRetryAction={runAction}
-          onUndoAction={undoAction}
-          className="px-0"
-          contentClassName="px-3 py-4"
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <NoteChatHeader
+          activeConversationId={activeConversationId}
+          conversations={conversations}
+          onSelectConversation={selectConversation}
+          onNewChat={startNewChat}
+          onClose={onClose}
         />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
-          <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Ask about this note</p>
-          <p className="mt-1 max-w-64 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
-            Ask a question or prepare a change for the note currently open.
-          </p>
-        </div>
-      )}
+        {messages.length ? (
+          <ChatThread
+            messages={messages}
+            density="panel"
+            onRetryMessage={retryMessage}
+            onApplyAction={runAction}
+            onCancelAction={cancelAction}
+            onRetryAction={runAction}
+            onUndoAction={undoAction}
+            className="px-0"
+            contentClassName="px-3 py-4"
+          />
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 text-center">
+            <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">Ask about this note</p>
+            <p className="mt-1 max-w-64 text-xs leading-5 text-neutral-500 dark:text-neutral-400">
+              Ask a question or prepare a change for the note currently open.
+            </p>
+          </div>
+        )}
+      </div>
 
-      <div className="shrink-0 p-0.5">
+      <div className="h-[60px] shrink-0 p-0.5">
         <ChatComposer
           value={draft}
           onValueChange={setDraft}
