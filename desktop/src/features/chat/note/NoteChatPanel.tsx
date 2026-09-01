@@ -1,23 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import type { ChatMessageData, ChatNoteAction } from '@/features/chat/chat-ui-types'
 import ChatComposer from '@/features/chat/components/ChatComposer'
 import ChatThread from '@/features/chat/components/ChatThread'
 import NoteChatHeader from '@/features/chat/note/NoteChatHeader'
 import {
-  createNoteChatHistoryFixtures,
   createNoteFixtureResponse,
   type NoteChatConversation,
 } from '@/features/chat/note/note-chat-fixtures'
+import { updateNoteChatSession } from '@/features/chat/note/note-chat-session-store'
+import { useNoteChatSession } from '@/features/chat/note/useNoteChatSession'
 
 type NoteChatPanelProps = {
   noteId: string
   noteTitle: string
   onClose?: () => void
-  onConversationStateChange?: (hasMessages: boolean) => void
   autoFocus?: boolean
-  draft?: string
-  onDraftChange?: (value: string) => void
 }
 
 const fixtureDelayMs = 700
@@ -26,20 +24,22 @@ export default function NoteChatPanel({
   noteId,
   noteTitle,
   onClose,
-  onConversationStateChange,
   autoFocus = false,
-  draft: controlledDraft,
-  onDraftChange,
 }: NoteChatPanelProps) {
-  const [conversations, setConversations] = useState<NoteChatConversation[]>(() => createNoteChatHistoryFixtures(noteId, noteTitle))
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<ChatMessageData[]>([])
-  const [localDraft, setLocalDraft] = useState('')
-  const draft = controlledDraft ?? localDraft
-  const setDraft = onDraftChange ?? setLocalDraft
-  const messagesRef = useRef<ChatMessageData[]>([])
+  const { activeConversationId, conversations, draft, messages } = useNoteChatSession(noteId, noteTitle)
+  const messagesRef = useRef<ChatMessageData[]>(messages)
   const responseTimerRef = useRef<number | null>(null)
   const actionTimersRef = useRef<number[]>([])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const setDraft = useCallback((value: string) => {
+    updateNoteChatSession(noteId, (current) => current.draft === value
+      ? current
+      : { ...current, draft: value })
+  }, [noteId])
 
   const clearTimers = useCallback(() => {
     if (responseTimerRef.current != null) window.clearTimeout(responseTimerRef.current)
@@ -50,28 +50,25 @@ export default function NoteChatPanel({
 
   useEffect(() => () => clearTimers(), [clearTimers])
 
-  useEffect(() => {
-    onConversationStateChange?.(messages.length > 0)
-  }, [messages.length, onConversationStateChange])
-
-  const syncConversation = useCallback((conversationId: string, nextMessages: ChatMessageData[], title?: string) => {
-    setConversations((current) => {
-      const existing = current.find((conversation) => conversation.id === conversationId)
-      const updatedAt = new Date().toISOString()
-      if (existing) {
-        return current.map((conversation) => conversation.id === conversationId
-          ? { ...conversation, title: title || conversation.title, updatedAt, updatedLabel: 'now', messages: nextMessages }
-          : conversation)
-      }
-      return [{ id: conversationId, title: title || 'New conversation', updatedAt, updatedLabel: 'now', messages: nextMessages }, ...current]
-    })
-  }, [])
-
   const commitMessages = useCallback((nextMessages: ChatMessageData[], conversationId: string, title?: string) => {
     messagesRef.current = nextMessages
-    setMessages(nextMessages)
-    syncConversation(conversationId, nextMessages, title)
-  }, [syncConversation])
+    updateNoteChatSession(noteId, (current) => {
+      const existing = current.conversations.find((conversation) => conversation.id === conversationId)
+      const updatedAt = new Date().toISOString()
+      const nextConversations = existing
+        ? current.conversations.map((conversation) => conversation.id === conversationId
+          ? { ...conversation, title: title || conversation.title, updatedAt, updatedLabel: 'now', messages: nextMessages }
+          : conversation)
+        : [{ id: conversationId, title: title || 'New conversation', updatedAt, updatedLabel: 'now', messages: nextMessages }, ...current.conversations]
+
+      return {
+        ...current,
+        activeConversationId: conversationId,
+        conversations: nextConversations,
+        messages: nextMessages,
+      }
+    })
+  }, [noteId])
 
   const replaceAction = useCallback((actionId: string, update: (action: ChatNoteAction) => ChatNoteAction) => {
     if (!activeConversationId) return
@@ -109,7 +106,6 @@ export default function NoteChatPanel({
         activities: [{ id: `${assistantMessageId}-thinking`, kind: 'thinking', state: 'running', label: 'Thinking' }],
       },
     ]
-    if (!activeConversationId) setActiveConversationId(conversationId)
     const title = activeConversationId ? undefined : prompt.length > 36 ? `${prompt.slice(0, 36)}…` : prompt
     commitMessages(nextMessages, conversationId, title)
     setDraft('')
@@ -167,18 +163,24 @@ export default function NoteChatPanel({
   const submitting = messages.some((message) => message.state === 'streaming')
   const selectConversation = (conversation: NoteChatConversation) => {
     clearTimers()
-    setActiveConversationId(conversation.id)
     messagesRef.current = conversation.messages
-    setMessages(conversation.messages)
-    setDraft('')
+    updateNoteChatSession(noteId, (current) => ({
+      ...current,
+      activeConversationId: conversation.id,
+      draft: '',
+      messages: conversation.messages,
+    }))
   }
 
   const startNewChat = () => {
     clearTimers()
-    setActiveConversationId(null)
     messagesRef.current = []
-    setMessages([])
-    setDraft('')
+    updateNoteChatSession(noteId, (current) => ({
+      ...current,
+      activeConversationId: null,
+      draft: '',
+      messages: [],
+    }))
   }
 
   return (
