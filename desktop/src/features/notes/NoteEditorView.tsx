@@ -465,7 +465,7 @@ export default function NoteEditorView({
               className="h-full dashboard-editor"
               noteId={selectedId}
               toolbarLeading={<NoteViewSwitch />}
-              bottomOverlayInset={72}
+              bottomOverlayInset={88}
             />
               </TabsContent>
 

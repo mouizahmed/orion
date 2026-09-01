@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import {
   ArrowUp,
   FileAudio,
@@ -24,7 +24,7 @@ type ChatComposerProps = {
   value: string
   onValueChange: (value: string) => void
   onSubmit: () => void
-  variant?: 'page' | 'panel'
+  variant?: 'page' | 'panel' | 'dock'
   placeholder?: string
   disabled?: boolean
   submitting?: boolean
@@ -37,6 +37,7 @@ type ChatComposerProps = {
   onInternetAccessChange?: (state: Exclude<ChatInternetAccessState, 'unavailable'>) => void
   limits?: ChatComposerLimits
   className?: string
+  autoFocus?: boolean
 }
 
 function formatBytes(value?: number) {
@@ -69,11 +70,13 @@ export default function ChatComposer({
   onInternetAccessChange,
   limits,
   className,
+  autoFocus = false,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const composingRef = useRef(false)
   const generatedErrorId = useId()
   const [announcement, setAnnouncement] = useState('')
+  const singleLineHeight = 40
   const maxTextareaHeight = variant === 'page' ? 160 : 112
 
   const validationErrors = useMemo(() => {
@@ -103,10 +106,21 @@ export default function ChatComposer({
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = '0px'
-    const contentHeight = value.trim() ? textarea.scrollHeight : 32
-    textarea.style.height = `${Math.max(32, Math.min(contentHeight, maxTextareaHeight))}px`
+    const contentHeight = value.trim() ? textarea.scrollHeight : singleLineHeight
+    textarea.style.height = `${Math.max(singleLineHeight, Math.min(contentHeight, maxTextareaHeight))}px`
     textarea.style.overflowY = contentHeight > maxTextareaHeight ? 'auto' : 'hidden'
-  }, [maxTextareaHeight, value])
+  }, [maxTextareaHeight, singleLineHeight, value])
+
+  useEffect(() => {
+    if (!autoFocus) return
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [autoFocus])
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -139,7 +153,7 @@ export default function ChatComposer({
       <div
         className={cn(
           'relative overflow-hidden border border-neutral-200 bg-white/80 shadow-sm backdrop-blur-md transition-[border-color,box-shadow] focus-within:border-neutral-300 focus-within:ring-2 focus-within:ring-neutral-900/10 motion-reduce:transition-none dark:border-white/10 dark:bg-white/[0.06] dark:focus-within:border-white/20 dark:focus-within:ring-white/10',
-          variant === 'page' ? 'rounded-3xl p-2.5' : 'rounded-2xl p-2',
+          'min-h-14 rounded-full border-neutral-300/80 bg-white p-2 dark:border-white/12 dark:bg-[#272427]',
           disabled && 'opacity-60',
           validationErrors.length && 'border-red-300 focus-within:border-red-400 focus-within:ring-red-500/10 dark:border-red-500/30',
         )}
@@ -197,7 +211,7 @@ export default function ChatComposer({
             aria-label="Chat message"
             aria-describedby={errorId}
             aria-invalid={validationErrors.length ? true : undefined}
-            className="sidebar-scrollbar block min-h-8 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-1 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed dark:text-neutral-100 dark:placeholder:text-neutral-500"
+            className="sidebar-scrollbar block min-h-10 min-w-0 flex-1 resize-none bg-transparent px-1.5 py-2 text-sm leading-6 text-neutral-900 outline-none placeholder:text-neutral-400 disabled:cursor-not-allowed dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
 
           {internetAccess ? (
@@ -211,7 +225,8 @@ export default function ChatComposer({
               disabled={disabled || submitting || internetAccess === 'unavailable' || !onInternetAccessChange}
               title={internetAccess === 'enabled' ? 'Internet access is enabled; prompts may use an external search provider' : internetAccess === 'disabled' ? 'Internet access is disabled' : 'Internet access is unavailable'}
               className={cn(
-                'flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/10 disabled:opacity-40 dark:focus-visible:ring-white/20',
+                'flex shrink-0 items-center gap-1.5 rounded-full px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/10 disabled:opacity-40 dark:focus-visible:ring-white/20',
+                'h-10',
                 internetAccess === 'enabled'
                   ? 'bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 dark:bg-violet-400/15 dark:text-violet-200'
                   : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white',
@@ -229,16 +244,16 @@ export default function ChatComposer({
               </span>
             ) : null}
             {onAttach ? (
-              <Button type="button" variant="ghost" size="icon-sm" aria-label="Add attachment" onClick={onAttach} disabled={disabled || submitting} className="h-8 w-8 rounded-full text-neutral-500 outline-none hover:bg-neutral-100 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900/10 disabled:opacity-40 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-white/20">
+              <Button type="button" variant="ghost" size="icon-sm" aria-label="Add attachment" onClick={onAttach} disabled={disabled || submitting} className="h-10 w-10 rounded-full text-neutral-500 outline-none hover:bg-neutral-100 hover:text-neutral-900 focus-visible:ring-2 focus-visible:ring-neutral-900/10 disabled:opacity-40 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white dark:focus-visible:ring-white/20">
                 <Paperclip className="h-3.5 w-3.5" />
               </Button>
             ) : null}
             {submitting && onStop ? (
-              <Button type="button" variant="brand" size="icon-sm" aria-label="Stop response" onClick={onStop} className="h-8 w-8 rounded-full bg-neutral-900 text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-neutral-900/20 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 dark:focus-visible:ring-white/30">
+              <Button type="button" variant="brand" size="icon-sm" aria-label="Stop response" onClick={onStop} className="h-10 w-10 rounded-full bg-neutral-900 text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-neutral-900/20 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 dark:focus-visible:ring-white/30">
                 <Square className="h-3 w-3 fill-current" />
               </Button>
             ) : (
-              <Button type="button" variant="brand" size="icon-sm" aria-label="Send message" onClick={handleSubmit} disabled={!canSubmit} className="h-8 w-8 rounded-full bg-neutral-900 text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-neutral-900/20 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 dark:focus-visible:ring-white/30">
+              <Button type="button" variant="brand" size="icon-sm" aria-label="Send message" onClick={handleSubmit} disabled={!canSubmit} className="h-10 w-10 rounded-full bg-neutral-900 text-white outline-none hover:bg-neutral-700 focus-visible:ring-2 focus-visible:ring-neutral-900/20 disabled:cursor-not-allowed disabled:opacity-30 dark:bg-white dark:text-neutral-950 dark:hover:bg-neutral-200 dark:focus-visible:ring-white/30">
                 <ArrowUp className="h-3.5 w-3.5" />
               </Button>
             )}

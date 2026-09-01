@@ -15,6 +15,9 @@ type NoteChatPanelProps = {
   noteTitle: string
   onClose?: () => void
   onConversationStateChange?: (hasMessages: boolean) => void
+  autoFocus?: boolean
+  draft?: string
+  onDraftChange?: (value: string) => void
 }
 
 const fixtureDelayMs = 700
@@ -24,11 +27,16 @@ export default function NoteChatPanel({
   noteTitle,
   onClose,
   onConversationStateChange,
+  autoFocus = false,
+  draft: controlledDraft,
+  onDraftChange,
 }: NoteChatPanelProps) {
   const [conversations, setConversations] = useState<NoteChatConversation[]>(() => createNoteChatHistoryFixtures(noteId, noteTitle))
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageData[]>([])
-  const [draft, setDraft] = useState('')
+  const [localDraft, setLocalDraft] = useState('')
+  const draft = controlledDraft ?? localDraft
+  const setDraft = onDraftChange ?? setLocalDraft
   const messagesRef = useRef<ChatMessageData[]>([])
   const responseTimerRef = useRef<number | null>(null)
   const actionTimersRef = useRef<number[]>([])
@@ -106,7 +114,7 @@ export default function NoteChatPanel({
     commitMessages(nextMessages, conversationId, title)
     setDraft('')
     completeResponse(assistantMessageId, prompt, conversationId)
-  }, [activeConversationId, commitMessages, completeResponse, noteId])
+  }, [activeConversationId, commitMessages, completeResponse, noteId, setDraft])
 
   const stopResponse = () => {
     if (responseTimerRef.current != null) window.clearTimeout(responseTimerRef.current)
@@ -203,21 +211,19 @@ export default function NoteChatPanel({
         </div>
       )}
 
-      <div className="shrink-0 border-t border-neutral-200 p-2.5 dark:border-white/10">
+      <div className="shrink-0 p-0.5">
         <ChatComposer
           value={draft}
           onValueChange={setDraft}
           onSubmit={() => submitPrompt(draft)}
           onStop={stopResponse}
           submitting={submitting}
-          variant="panel"
+          variant="dock"
           placeholder="Ask about this note..."
           onAttach={() => undefined}
           limits={{ maxPromptLength: 10_000 }}
+          autoFocus={autoFocus}
         />
-        <p className="mt-1.5 text-center text-[9px] leading-4 text-neutral-400 dark:text-neutral-500">
-          Can edit this note only. Fixture responses do not save changes.
-        </p>
       </div>
     </div>
   )

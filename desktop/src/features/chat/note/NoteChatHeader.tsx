@@ -43,7 +43,7 @@ export default function NoteChatHeader({
   }, [historyOpen])
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-1 border-b border-neutral-200 px-2 dark:border-white/10">
+    <header className="flex h-10 shrink-0 items-center gap-1 px-2">
       <div ref={historyRef} className="relative shrink-0">
         <Button
           type="button"
