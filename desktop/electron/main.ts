@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, globalShortcut, session } from 'electron'
+import { app, BrowserWindow, desktopCapturer, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { getCurrentAuthToken, isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
@@ -12,27 +12,20 @@ import {
 import {
   closeAuthWindow,
   closeDashboardWindow,
-  createDashboardWindow,
   createAuthWindow,
-  createWindow,
   destroyOverlayWindow,
-  getDashboardWindow,
-  getWindow,
   isAuthRendererSender,
   isAppNavigationUrl,
   isKnownRendererSender,
+  revealDashboardWindow,
   setAppQuitting,
   setAuthWindow,
   setWindow,
   showAuthWindow,
 } from './window'
 import { setupAttachmentHandlers } from './attachments'
-import {
-  configureKeyboardShortcuts,
-  restoreKeyboardShortcuts,
-  unregisterKeyboardShortcuts,
-} from './shortcuts'
-import { setupIpcHandlers, stopSystemAudioCapture } from './ipc-handlers'
+import { setupIpcHandlers } from './ipc-handlers'
+import { flushRecordingDraftPersistence, getPendingRecordingNoteId, resetRecordingUiSnapshot, revealDashboardWithDraftFlush } from './recording-ipc'
 import { config } from './config'
 import { destroyTray, setupTray } from './tray'
 
@@ -142,36 +135,14 @@ if (!gotTheLock) {
         return
       }
 
-      unregisterKeyboardShortcuts()
-
-      const overlay = getWindow()
-      if (overlay && !overlay.isDestroyed()) {
-        overlay.setIgnoreMouseEvents(true, { forward: true })
-        overlay.setOpacity(0)
-        overlay.hide()
-      }
-
-      const dashboard = createDashboardWindow()
-      if (dashboard.isMinimized()) dashboard.restore()
-      dashboard.show()
-      dashboard.focus()
+      revealDashboardWithDraftFlush()
     })
     setBillingWindowRevealHandler(() => {
       if (!isRendererAuthenticated()) {
         showAuthWindow()
         return
       }
-      unregisterKeyboardShortcuts()
-      const overlay = getWindow()
-      if (overlay && !overlay.isDestroyed()) {
-        overlay.setIgnoreMouseEvents(true, { forward: true })
-        overlay.setOpacity(0)
-        overlay.hide()
-      }
-      const dashboard = createDashboardWindow()
-      if (dashboard.isMinimized()) dashboard.restore()
-      dashboard.show()
-      dashboard.focus()
+      revealDashboardWithDraftFlush()
     })
 
     // Setup IPC handlers
@@ -194,94 +165,31 @@ if (!gotTheLock) {
       },
     )
 
-    const isDashboardOpen = () => {
-      const dash = getDashboardWindow()
-      return Boolean(dash && !dash.isDestroyed() && dash.isVisible())
-    }
-
-    const configureOverlayShortcuts = () => {
-      const toggleOverlayPanel = (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => {
-        if (isDashboardOpen()) return
-        const overlay = getWindow()
-        if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return
-        overlay.focus()
-        setTimeout(() => {
-          if (!overlay.isDestroyed() && overlay.isVisible()) {
-            overlay.webContents.send('toggle-overlay-panel', panel)
-          }
-        }, 16)
-      }
-
-      const toggleVisibilityHandler = () => {
-        if (isDashboardOpen()) return
-        const overlay = getWindow()
-        if (!overlay || overlay.isDestroyed()) return
-        if (overlay.isVisible()) {
-          overlay.hide()
-          unregisterKeyboardShortcuts()
-        } else {
-          overlay.show()
-          restoreKeyboardShortcuts()
-          setTimeout(() => {
-            if (!overlay.isDestroyed() && overlay.isVisible()) {
-              overlay.focus()
-            }
-          }, 16)
-        }
-      }
-
-      const focusNotepadHandler = () => {
-        if (isDashboardOpen()) return
-        const overlay = getWindow()
-        if (!overlay || overlay.isDestroyed() || !overlay.isVisible()) return
-        overlay.focus()
-        setTimeout(() => {
-          if (!overlay.isDestroyed() && overlay.isVisible()) {
-            overlay.webContents.send('toggle-notepad-focus')
-          }
-        }, 16)
-      }
-
-      configureKeyboardShortcuts(toggleVisibilityHandler, focusNotepadHandler, {
-        toggleNotepad: () => toggleOverlayPanel('notepad'),
-        toggleTranscript: () => toggleOverlayPanel('transcript'),
-        toggleAsk: () => toggleOverlayPanel('ask'),
-        toggleInsights: () => toggleOverlayPanel('insights'),
-      })
-    }
-
     // Register auth IPC and validate the encrypted main-process session before
     // loading any renderer that could show authenticated application state.
     await setupAuthHandlers({
       isKnownRendererSender,
       isAuthRendererSender,
       onSignedIn: () => {
-        createWindow({ show: false })
         closeAuthWindow()
-        configureOverlayShortcuts()
-        unregisterKeyboardShortcuts()
-        const dashboard = createDashboardWindow()
-        dashboard.show()
-        dashboard.focus()
+        revealDashboardWindow(getPendingRecordingNoteId())
       },
       onSignedOut: () => {
-        stopSystemAudioCapture()
+        resetRecordingUiSnapshot({ clearDraft: false })
         closeDashboardWindow()
         destroyOverlayWindow()
         showAuthWindow()
-        unregisterKeyboardShortcuts()
       },
       onOAuthPending: () => {
-        stopSystemAudioCapture()
+        resetRecordingUiSnapshot({ clearDraft: false })
         closeDashboardWindow()
         destroyOverlayWindow()
         showAuthWindow()
-        unregisterKeyboardShortcuts()
       },
     })
 
-    // Create the logged-out auth window first. The overlay window is created
-    // only after auth so its frameless transparent flags stay isolated.
+    // Create the logged-out auth window first. The recording overlay is
+    // created lazily only after an authenticated recording start command.
     createAuthWindow({ show: false })
 
     // Setup system tray (keep app running even if windows are closed)
@@ -313,18 +221,16 @@ app.on('activate', () => {
   // dock icon is clicked and there are no other windows open.
   if (BrowserWindow.getAllWindows().length === 0) {
     if (isRendererAuthenticated()) {
-      createWindow()
-      restoreKeyboardShortcuts()
+      revealDashboardWindow(getPendingRecordingNoteId())
     } else {
       showAuthWindow()
     }
   }
 })
 
-// Cleanup shortcuts on quit
 app.on('will-quit', () => {
   isQuitting = true
   setAppQuitting(true)
-  globalShortcut.unregisterAll()
   destroyTray()
+  flushRecordingDraftPersistence()
 })

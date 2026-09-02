@@ -12,18 +12,7 @@ export const electronDesktopApi: DesktopApi = {
     onMainProcessMessage: (callback) => window.appEvents?.onMainProcessMessage?.(callback) ?? (() => undefined),
   },
   window: {
-    startDrag: (...args) => window.windowControl?.startDrag?.(...args),
-    moveDrag: (...args) => window.windowControl?.moveDrag?.(...args),
-    setIgnoreMouseEvents: (...args) => window.windowControl?.setIgnoreMouseEvents?.(...args),
-    toggleVisibility: () => window.windowControl?.toggleVisibility?.(),
-    setWindowHeight: (...args) => window.windowControl?.setWindowHeight?.(...args),
     setWindowSize: (...args) => window.windowControl?.setWindowSize?.(...args),
-    setVisibleOverlayBounds: (...args) => window.windowControl?.setVisibleOverlayBounds?.(...args),
-    onDragOffset: (callback) => window.windowControl?.onDragOffset?.(callback),
-    onFocusInput: (callback) => window.windowControl?.onFocusInput?.(callback),
-    onToggleNotepadFocus: (callback) => window.windowControl?.onToggleNotepadFocus?.(callback) ?? (() => undefined),
-    onToggleOverlayPanel: (callback) => window.windowControl?.onToggleOverlayPanel?.(callback) ?? (() => undefined),
-    blurOverlay: () => window.windowControl?.blurOverlay?.(),
     minimize: () => window.windowControl?.minimize?.(),
     close: () => window.windowControl?.close?.(),
   },
@@ -35,11 +24,23 @@ export const electronDesktopApi: DesktopApi = {
   attachments: {
     pickFiles: () => window.attachments?.pickFiles?.() ?? missingApi('attachments.pickFiles'),
   },
-  shortcuts: {
-    isAvailable: () => Boolean(window.shortcutControl),
-    getAll: () => window.shortcutControl?.getAll?.() ?? missingApi('shortcutControl.getAll'),
-    update: (action, shortcut) =>
-      window.shortcutControl?.update?.(action, shortcut) ?? missingApi('shortcutControl.update'),
+  recording: {
+    start: (input) => window.recordingControl?.start?.(input) ?? missingApi('recordingControl.start'),
+    stop: () => window.recordingControl?.stop?.() ?? missingApi('recordingControl.stop'),
+    showOverlay: () => window.recordingControl?.showOverlay?.() ?? missingApi('recordingControl.showOverlay'),
+    getSnapshot: () => window.recordingControl?.getSnapshot?.() ?? missingApi('recordingControl.getSnapshot'),
+    publishSession: (session) => window.recordingControl?.publishSession?.(session),
+    publishTranscriptUpdate: (segment) => window.recordingControl?.publishTranscriptUpdate?.(segment),
+    markSurfaceReady: (sessionId) => window.recordingControl?.markSurfaceReady?.(sessionId),
+    getNoteDraft: () => window.recordingControl?.getNoteDraft?.() ?? missingApi('recordingControl.getNoteDraft'),
+    updateNoteDraft: (draft) => window.recordingControl?.updateNoteDraft?.(draft),
+    acknowledgeNoteDraft: (draft) => window.recordingControl?.acknowledgeNoteDraft?.(draft),
+    setDraftFlushProvider: (provider) => window.recordingControl?.setDraftFlushProvider?.(provider) ?? (() => undefined),
+    onStart: (callback) => window.recordingControl?.onStart?.(callback) ?? (() => undefined),
+    onStop: (callback) => window.recordingControl?.onStop?.(callback) ?? (() => undefined),
+    onSession: (callback) => window.recordingControl?.onSession?.(callback) ?? (() => undefined),
+    onTranscriptUpdate: (callback) => window.recordingControl?.onTranscriptUpdate?.(callback) ?? (() => undefined),
+    onNoteDraft: (callback) => window.recordingControl?.onNoteDraft?.(callback) ?? (() => undefined),
   },
   recordingSettings: {
     isAvailable: () => Boolean(window.recordingSettings),
@@ -47,13 +48,6 @@ export const electronDesktopApi: DesktopApi = {
     update: (settings) => window.recordingSettings?.update?.(settings) ?? missingApi('recordingSettings.update'),
     pickLocalPath: () =>
       window.recordingSettings?.pickLocalPath?.() ?? missingApi('recordingSettings.pickLocalPath'),
-  },
-  audio: {
-    getDesktopSourceId: () => window.audioCapture?.getDesktopSourceId?.() ?? missingApi('audioCapture.getDesktopSourceId'),
-    startSystemAudioStream: () =>
-      window.audioCapture?.startSystemAudioStream?.() ?? missingApi('audioCapture.startSystemAudioStream'),
-    stopSystemAudioStream: () => window.audioCapture?.stopSystemAudioStream?.(),
-    onSystemAudioChunk: (callback) => window.audioCapture?.onSystemAudioChunk?.(callback) ?? (() => undefined),
   },
   auth: {
     loginWithGoogle: () => window.electronAPI?.authenticateWithGoogle?.() ?? missingApi('electronAPI.authenticateWithGoogle'),

@@ -7,25 +7,35 @@ import NoteAssistantSurface, {
   TRANSCRIPT_FOOTER_HEIGHT,
 } from '@/features/notes/NoteAssistantSurface'
 import SavedTranscriptView from '@/features/notes/SavedTranscriptView'
+import LiveTranscriptViewport from '@/features/recording/components/LiveTranscriptViewport'
+import type { RecordingTranscriptSegment, TranscriptPhase } from '@/features/recording/recording-types'
 
 type NoteTranscriptPanelProps = {
   expanded: boolean
   expandedHeight: number
   isRecording: boolean
+  canResumeRecording: boolean
   loading: boolean
   segments: TranscriptSegment[]
+  liveSegments?: readonly RecordingTranscriptSegment[]
+  transcriptPhase?: TranscriptPhase
   onAnimationComplete: () => void
   onClose: () => void
+  onResumeRecording?: () => void
 }
 
 export default function NoteTranscriptPanel({
   expanded,
   expandedHeight,
   isRecording,
+  canResumeRecording,
   loading,
   segments,
+  liveSegments,
+  transcriptPhase,
   onAnimationComplete,
   onClose,
+  onResumeRecording,
 }: NoteTranscriptPanelProps) {
   return (
     <NoteAssistantSurface
@@ -72,23 +82,34 @@ export default function NoteTranscriptPanel({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 sidebar-scrollbar">
+      <div className="flex min-h-0 flex-1 flex-col p-3">
         <InfoBanner className="mb-3">
           The transcript may show repeated sentences without headphones, but your final notes will be unaffected. For the best experience, use headphones.
         </InfoBanner>
-        <SavedTranscriptView segments={segments} loading={loading} theme="light" />
+        {liveSegments && transcriptPhase ? (
+          <div className="-mx-3 min-h-0 flex-1">
+            <LiveTranscriptViewport segments={liveSegments} transcriptPhase={transcriptPhase} />
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto sidebar-scrollbar">
+            <SavedTranscriptView segments={segments} loading={loading} theme="light" />
+          </div>
+        )}
       </div>
 
       <div className="flex h-16 shrink-0 items-center pr-1">
-        <span aria-hidden="true" className="h-14 w-[60px] shrink-0" />
+        <span aria-hidden="true" className={isRecording ? 'h-14 w-[140px] shrink-0' : 'h-14 w-[60px] shrink-0'} />
         <div className="min-w-0 flex-1 px-1">
           <Button
             type="button"
             variant="ghost"
             size="sm"
+            disabled={isRecording || !canResumeRecording || !onResumeRecording}
+            onClick={onResumeRecording}
+            title={!isRecording && !canResumeRecording ? 'Stop the current recording before resuming this note' : undefined}
             className="h-14 rounded-full px-3 text-sm font-medium text-neutral-700 dark:text-neutral-200"
           >
-            {isRecording ? 'Pause' : 'Resume'}
+            {isRecording ? 'Recording' : 'Resume'}
           </Button>
         </div>
       </div>

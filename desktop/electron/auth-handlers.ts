@@ -180,6 +180,10 @@ export function getCurrentAuthToken(): string | null {
   return isRendererAuthenticated() ? currentAccessToken : null
 }
 
+export function getCurrentAuthUserId(): string | null {
+  return isRendererAuthenticated() ? snapshot.user?.id ?? null : null
+}
+
 export function getCurrentAuthTokenForRequest(forceRefresh = false): Promise<string> {
   return currentToken(forceRefresh)
 }

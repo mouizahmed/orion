@@ -21,32 +21,40 @@ function useDashboardNoteIdFromUrl() {
   }, [])
 }
 
-function DashboardNoteSelector({ initialNoteId }: { initialNoteId: string | null }) {
+function DashboardNoteSelector({
+  initialNoteId,
+  onOpenNotes,
+}: {
+  initialNoteId: string | null
+  onOpenNotes: () => void
+}) {
   const { selectNote } = useDashboardNotes()
   const initialAppliedRef = useRef(false)
 
   useEffect(() => {
     if (initialAppliedRef.current) return
     if (!initialNoteId) return
+    onOpenNotes()
     selectNote(initialNoteId)
     initialAppliedRef.current = true
     // Clear noteId from URL so a page refresh starts at home
     const url = new URL(window.location.href)
     url.searchParams.delete('noteId')
     window.history.replaceState(null, '', url.toString())
-  }, [initialNoteId, selectNote])
+  }, [initialNoteId, onOpenNotes, selectNote])
 
   useEffect(() => {
     const unsubscribe = desktopApi.dashboard.onSelectNote((payload) => {
       const noteId = typeof payload?.noteId === 'string' ? payload.noteId : ''
       if (!noteId) return
+      onOpenNotes()
       selectNote(noteId)
     })
 
     return () => {
       unsubscribe()
     }
-  }, [selectNote])
+  }, [onOpenNotes, selectNote])
 
   return null
 }
@@ -58,6 +66,7 @@ function DashboardContent() {
   const [viewMode, setViewMode] = useState<DashboardViewMode>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
   const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
+  const handleOpenNotes = useCallback(() => setViewMode('notes'), [])
 
   const handleOpenCalendar = useCallback((eventId?: string) => {
     setViewMode('calendar')
@@ -94,12 +103,12 @@ function DashboardContent() {
 
   return (
     <DashboardNotesProvider userId={user.id}>
-      <DashboardNoteSelector initialNoteId={initialNoteId} />
+      <DashboardNoteSelector initialNoteId={initialNoteId} onOpenNotes={handleOpenNotes} />
       <div className="dashboard-root h-screen w-full bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100">
         <div className="grid h-full min-h-0 grid-rows-[auto_1fr]">
           <DashboardTopBar
-            onBackToOverlay={() => desktopApi.dashboard.close()}
-            onOpenNotes={() => setViewMode('notes')}
+            mode={viewMode}
+            onOpenNotes={handleOpenNotes}
           />
 
           <div className={`flex h-full min-h-0 px-2 pb-2 ${isOpen && !isCompact ? 'gap-2' : ''}`}>
@@ -107,7 +116,7 @@ function DashboardContent() {
               mode={viewMode}
               selectedSettingsSection={settingsSection}
               onOpenHome={() => setViewMode('home')}
-              onOpenNotes={() => setViewMode('notes')}
+              onOpenNotes={handleOpenNotes}
               onOpenCalendar={handleOpenCalendar}
               onOpenChat={() => setViewMode('chat')}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
@@ -124,7 +133,7 @@ function DashboardContent() {
                   setSettingsSection('calendar')
                   setViewMode('settings')
                 }}
-                onOpenNotes={() => setViewMode('notes')}
+                onOpenNotes={handleOpenNotes}
                 initialCalendarEventId={pendingCalendarEventId}
               />
             </div>

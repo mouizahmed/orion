@@ -8,7 +8,6 @@ import { BillingSettings } from '@/features/settings/sections/billing/BillingSet
 import { CalendarSettings } from '@/features/settings/sections/calendar/CalendarSettings'
 import { ExtractsSettings } from '@/features/settings/sections/extracts/ExtractsSettings'
 import { PreferencesSettings } from '@/features/settings/sections/preferences/PreferencesSettings'
-import { ShortcutsSettings } from '@/features/settings/sections/shortcuts/ShortcutsSettings'
 import { ConnectorsSettings } from '@/features/settings/sections/connectors/ConnectorsSettings'
 import { EmailDraftSettings } from '@/features/settings/sections/email-drafts/EmailDraftSettings'
 import { SummaryTemplatesSettings } from '@/features/settings/sections/summary-templates/SummaryTemplatesSettings'
@@ -27,7 +26,6 @@ function SettingsSection({ section, userID }: { section: DashboardSettingsSectio
     case 'emailDraft': return <EmailDraftSettings userID={userID} />
     case 'summaryTemplates': return <SummaryTemplatesSettings userID={userID} />
     case 'preferences': return <PreferencesSettings />
-    case 'shortcuts': return <ShortcutsSettings />
   }
 }
 

@@ -14,12 +14,22 @@ import {
   type ActiveNoteAssistantMode,
 } from '@/features/notes/note-assistant-state'
 import { useNoteTranscriptQuery } from '@/features/notes/queries/useNotesQueries'
+import type { RecordingTranscriptSegment, TranscriptPhase } from '@/features/recording/recording-types'
+import { desktopApi } from '@/lib/desktop-api'
+import { toast } from 'sonner'
 
 type NoteAssistantDockProps = {
   accountId?: string
   noteId: string
   noteTitle: string
   isRecording?: boolean
+  canResumeRecording?: boolean
+  recordingIndicatorActive?: boolean
+  canStopRecording?: boolean
+  canShowRecordingOverlay?: boolean
+  liveSegments?: readonly RecordingTranscriptSegment[]
+  transcriptPhase?: TranscriptPhase
+  onResumeRecording?: () => void
 }
 
 function blurActiveElement() {
@@ -31,13 +41,20 @@ export default function NoteAssistantDock({
   noteId,
   noteTitle,
   isRecording = false,
+  canResumeRecording = true,
+  recordingIndicatorActive = isRecording,
+  canStopRecording = isRecording,
+  canShowRecordingOverlay = isRecording,
+  liveSegments,
+  transcriptPhase,
+  onResumeRecording,
 }: NoteAssistantDockProps) {
   const [assistant, dispatchAssistant] = useReducer(noteAssistantReducer, null)
   const [trackHeight, setTrackHeight] = useState(0)
   const previousNoteIdRef = useRef(noteId)
   const trackRef = useRef<HTMLDivElement>(null)
   const mode = assistant?.mode ?? 'closed'
-  const transcriptQuery = useNoteTranscriptQuery(accountId, noteId, mode === 'transcript')
+  const transcriptQuery = useNoteTranscriptQuery(accountId, noteId, mode === 'transcript' && !liveSegments)
   const chatSession = useNoteChatSession(noteId, noteTitle)
 
   useLayoutEffect(() => {
@@ -112,11 +129,24 @@ export default function NoteAssistantDock({
               assistantActive={Boolean(assistant)}
               chatActive={chatActive}
               chatLabel={chatDockLabel}
-              isRecording={isRecording}
+              isRecording={recordingIndicatorActive}
+              recordingSessionActive={isRecording}
+              canStopRecording={canStopRecording}
+              canShowRecordingOverlay={canShowRecordingOverlay}
               panelVisible={panelVisible}
               transcriptActive={transcriptActive}
               onToggleChat={() => toggleMode('chat')}
               onToggleTranscript={() => toggleMode('transcript')}
+              onShowOverlay={() => {
+                void desktopApi.recording.showOverlay().catch((error) => {
+                  toast.error(error instanceof Error ? error.message : 'Could not open recording overlay')
+                })
+              }}
+              onStopRecording={() => {
+                void desktopApi.recording.stop().catch((error) => {
+                  toast.error(error instanceof Error ? error.message : 'Could not stop recording')
+                })
+              }}
             />
 
             {transcriptActive && (
@@ -124,10 +154,14 @@ export default function NoteAssistantDock({
                 expanded={panelVisible}
                 expandedHeight={transcriptPanelHeight}
                 isRecording={isRecording}
+                canResumeRecording={canResumeRecording}
                 loading={transcriptQuery.isLoading}
                 segments={transcriptQuery.data?.segments ?? []}
+                liveSegments={liveSegments}
+                transcriptPhase={transcriptPhase}
                 onAnimationComplete={finishPanelAnimation}
                 onClose={closeAssistant}
+                onResumeRecording={onResumeRecording}
               />
             )}
 

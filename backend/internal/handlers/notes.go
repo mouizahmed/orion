@@ -872,6 +872,17 @@ func (h *NotesHandler) ProxyImage(c *gin.Context) {
 		return
 	}
 
+	// The stored note markdown keeps this authenticated Orion URL stable. The
+	// editor asks for JSON so it can render the short-lived storage URL in an
+	// <img>, which cannot attach Orion's bearer token itself.
+	if strings.Contains(c.GetHeader("Accept"), "application/json") {
+		c.JSON(http.StatusOK, gin.H{
+			"url":        signedURL,
+			"expires_in": 3600,
+		})
+		return
+	}
+
 	c.Redirect(http.StatusFound, signedURL)
 }
 

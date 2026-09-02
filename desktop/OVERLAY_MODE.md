@@ -4,7 +4,9 @@
 
 This is the working plan for rebuilding Orion's recording overlay and its relationship to the dashboard. The first delivery is UI-first and fixture-driven. Audio capture, transcription transport, recording persistence, recovery, and backend changes are intentionally deferred until the new interaction model and visual design are approved.
 
-This document replaces the old concept of a freely switchable "overlay mode." Orion will no longer have two peer application modes. The dashboard is the application; the overlay is a temporary recording surface.
+Phases 1 through 4 are implemented and visually iterated. The shared recording foundation, expanded/collapsed overlay, dashboard recording controls, and window-flow shell are now the official UI path. The shell remains fixture-driven for audio and transcription, but its cross-window note draft is now main-owned, encrypted on disk, and retained until the backend save is acknowledged. Real capture/transcription ownership and backend recording recovery still begin with the Phase 5 architecture design.
+
+This document replaces the old concept of a freely switchable "overlay mode." Orion will no longer have two peer application modes. The dashboard is the application; the overlay is a temporary recording surface with a notepad by default and a toggleable live transcript.
 
 ## Product decisions
 
@@ -50,26 +52,32 @@ The UI must not manufacture `local-meeting-*` note IDs. UI fixtures may use fixt
 
 ### Use the new overlay
 
-The supplied compact transcript reference defines the information hierarchy, not its visual style. Orion keeps its existing neutral palette, glass treatment, rounded geometry, typography, light/dark support, and restrained motion.
+The supplied compact transcript reference defines the information hierarchy, not its visual style. Orion uses the dashboard's existing neutral palette, `#171417` dark assistant-surface family, soft borders, rounded geometry, typography, light/dark support, and restrained motion. The overlay keeps only enough translucency to read as an overlay without allowing background windows to overpower its content.
 
 The overlay is one compact transparent/glass surface with these regions:
 
 1. **Session header**
    - elapsed time on the left;
-   - live audio activity, pause/resume, and stop controls in the center;
+   - live audio activity and stop controls in the center;
    - one collapse/expand affordance on the right;
    - the whole safe header region acts as the drag handle, excluding controls.
-2. **Transcript heading**
-   - a small waveform/captions icon and `Transcript` label;
-   - optional compact status such as `Listening`, `Paused`, `Reconnecting`, or `Transcript unavailable`.
-3. **Live transcript body**
+2. **Notepad/transcript switch**
+   - `Notepad` is the default view;
+   - quiet upper-right `Notepad` and `Transcript` buttons switch views without discarding the note draft or transcript position;
+   - do not render a redundant content title or expanded-body recording status row.
+3. **Notepad body**
+   - a simple distraction-free writing area following the supplied layout hierarchy;
+   - transparent styling inside the shared glass surface;
+   - draft state survives collapsing and switching to Transcript;
+   - the latest draft is mirrored through main-process IPC, durably recovered, and cleared only after the dashboard confirms the exact value was saved.
+4. **Live transcript body**
    - chronological transcript rows in a single readable column;
    - stable speaker/source distinction using Orion's current restrained chips or alignment, without chat-bubble clutter;
    - automatic follow mode while the user is at the bottom;
    - preserve the user's scroll position when they scroll upward, with a `Jump to live` affordance;
    - an intentional empty state such as `Start speaking...` before the first segment.
-4. **Optional collapsed state**
-   - a slim glass recording capsule with activity, timer, pause/resume, stop, and expand;
+5. **Optional collapsed state**
+   - a slim glass recording capsule with activity, timer, stop, and expand;
    - still available only while a recording is active.
 
 The expanded overlay should initially target roughly `380-440px` width and `420-520px` height, then be tuned by the user during visual review. It should remain resizable only if testing shows that a fixed transcript viewport is too restrictive. Transparency applies to the Electron window background; readable content sits on a translucent, blurred Orion surface rather than directly on the desktop.
@@ -87,7 +95,7 @@ The expanded overlay should initially target roughly `380-440px` width and `420-
 
 The current note assistant dock already provides the right basic anchor. During an active recording for the open note, its left transcript control becomes a recording capsule matching the supplied reference:
 
-- animated green recording bars;
+- animated purple recording bars using Orion's accent color;
 - transcript expand/collapse chevron;
 - stop square as a distinct adjacent action;
 - adequate spacing and hit targets so expanding the transcript cannot accidentally stop the session.
@@ -97,7 +105,6 @@ Opening it expands the existing transcript surface upward. During recording:
 - committed segments stream into the open panel as they arrive;
 - interim text may appear in a visually quieter final row and be replaced in place;
 - the panel follows the latest segment only when already at the bottom;
-- `Pause` changes to `Resume` only when capture is actually paused;
 - reconnecting, degraded transcription, and capture-without-transcript are distinct states;
 - stopping transitions the panel to `finalizing`, then the normal saved transcript state without closing it.
 
@@ -117,18 +124,21 @@ Stop is a recording action, not a window-navigation action. It may be initiated 
 
 Do not use a confirmation dialog for every stop click if the stop control is already isolated and clearly labeled. Use disabled in-progress feedback plus a short undo only if the future engine can safely support it. Closing Orion while recording remains a separate confirmation/recovery decision for the engine phase.
 
+### Resume recording from a saved note
+
+Resume does not revive a paused capture session. After Stop completes, the transcript panel for that note offers `Resume recording`. Selecting it starts a new recording session associated with the same `noteId`, opens the overlay, and appends subsequent transcript segments to that note. The new capture receives a new session ID and elapsed timer, while the note and its previously saved transcript remain continuous.
+
 ## Shared recording UI contract
 
 UI work should depend on a single renderer-agnostic snapshot rather than local booleans in `OverlayApp` or `NoteAssistantDock`.
 
 ```ts
 type RecordingPhase =
-  | 'idle'
   | 'starting'
   | 'recording'
-  | 'paused'
   | 'stopping'
   | 'finalizing'
+  | 'complete'
   | 'error'
 
 type TranscriptPhase =
@@ -147,8 +157,7 @@ type RecordingSessionSnapshot = {
   phase: RecordingPhase
   transcriptPhase: TranscriptPhase
   startedAt: number
-  pausedAt: number | null
-  accumulatedPausedMs: number
+  stoppedAt: number | null
   micMuted: boolean
   systemAudioMuted: boolean
   recoverableError: string | null
@@ -158,13 +167,14 @@ type RecordingSessionSnapshot = {
 The UI layer consumes:
 
 - `getSnapshot()` for initial render in either window;
-- `subscribe(listener)` for session changes;
-- `pause()`, `resume()`, `stop()`, and source mute commands;
+- a session subscription for phase/control changes;
+- `stop()` and source mute commands;
+- `startForNote(noteId)` for a new recording session on an existing note;
 - `showOverlay()` and `showDashboard()` as visibility commands only;
-- a live transcript subscription keyed by both `sessionId` and `noteId`;
+- live transcript deltas keyed by both `sessionId` and `noteId` (not repeated full transcript snapshots);
 - committed transcript query data for reload and final state.
 
-For the UI-only milestone, provide a deterministic fixture adapter implementing this interface. It should simulate elapsed time, transcript arrival, interim replacement, pause/resume, reconnecting, finalization, and error states without using microphone permission, audio capture, WebSockets, recording endpoints, or production persistence.
+For the UI-only milestone, provide a deterministic fixture adapter implementing this interface. It should simulate elapsed time, transcript arrival, interim replacement, stop/finalization, starting another session for the same note, reconnecting, and error states without using microphone permission, audio capture, WebSockets, recording endpoints, or production persistence.
 
 ## Window lifecycle target
 
@@ -181,6 +191,17 @@ Target responsibilities:
 
 Exact audio-process placement is deliberately undecided until the audio redesign. The invariant is that neither window's visibility nor React component lifetime may own the recording lifetime.
 
+The Phase 4 shell already enforces the boundary where it can: main owns the canonical cross-window snapshot, rejects renderer-published null sessions and backwards transitions, serializes start/stop commands, and retains the note draft independently of either renderer. The fixture renderer still advances simulated `recording -> finalizing -> complete` phases; moving real capture and phase authorship fully into the session host remains Phase 5/6 work.
+
+### Draft durability and handoff
+
+- Main holds the canonical versioned draft and encrypts the per-account recovery copy with Electron `safeStorage` (the packaged app already requires secure OS storage for authentication).
+- A recovered draft is account-scoped; it is never exposed to a different signed-in account.
+- Overlay and dashboard edits update the same channel. Sender echoes are excluded, while MDXEditor's built-in muted external update path prevents normalization feedback.
+- A completed or interrupted session keeps its draft until the selected note is hydrated and the existing revision-aware note mutation saves that exact value.
+- The dashboard then acknowledges `{ sessionId, noteId, value }`; main clears the in-memory and encrypted copies only if they still match. A newer edit therefore cannot be cleared by a stale save response.
+- Switching surfaces relies on ordered IPC from the outgoing renderer: its editor change is published before the visibility command, and the incoming renderer hydrates from main's latest version.
+
 ### Required window policy changes during integration
 
 - Signed-in startup creates/shows the dashboard only.
@@ -191,22 +212,23 @@ Exact audio-process placement is deliberately undecided until the audio redesign
 - Hiding or closing the dashboard must not reveal an idle overlay.
 - The overlay cannot create a recording by itself unless it was opened by a valid start-recording command.
 - Authentication loss stops or safely suspends capture according to the later recovery policy; it must never leave an invisible orphan recording.
-- Keyboard shortcuts that operate overlay panels are removed or redefined around the simplified transcript overlay.
+- Global keyboard shortcuts are removed so native editing shortcuts remain available without conflicts.
 
 ## UI component plan
 
 ### New or substantially rewritten
 
-- `RecordingOverlay`: the complete transparent recording surface.
-- `RecordingOverlayHeader`: timer, activity, pause/resume, stop, collapse, and drag region.
+- `RecordingOverlay`: the complete transparent recording surface with default notepad and toggleable transcript.
+- `RecordingOverlayHeader`: timer, activity, stop, collapse, and drag region.
+- `RecordingOverlayNotepad`: the default distraction-free recording note surface.
 - `LiveTranscriptViewport`: shared follow-mode behavior for live transcript rendering.
 - `RecordingStatusPill`: dashboard-wide recording status and overlay return entry.
-- `RecordingTranscriptDockControl`: the widened recording version of the note transcript button.
-- `RecordingUiProvider`: fixture-backed shared snapshot/commands for the UI milestone; later backed by Electron IPC.
+- `NoteAssistantDockControls`: the widened recording version of the note transcript button.
+- `RecordingUiProvider`: fixture-backed overlay snapshot/commands for the UI milestone, bridged to the dashboard through Electron IPC and later replaced by the real engine adapter.
 
 ### Reuse where useful
 
-- `RecordingBars` for Orion's activity language, with configurable active/paused/error color.
+- `RecordingBars` for Orion's activity language, with configurable active/error color.
 - `NoteAssistantSurface` for dock geometry and animation.
 - transcript typography/data concepts from `SavedTranscriptView`, after extracting reusable rows rather than coupling live UI to a saved-query component.
 - dashboard and overlay light/dark tokens from `index.css` and existing component primitives.
@@ -214,9 +236,9 @@ Exact audio-process placement is deliberately undecided until the audio redesign
 ### Remove after replacement
 
 - idle `CompactOverlayBar` behavior and the current multi-tool recording toolbar;
-- `CompactMeetingPanel` and overlay notepad mode;
+- the old `CompactMeetingPanel` notepad implementation;
 - overlay `Insights` and `Ask` placeholders;
-- overlay panel switching state and related global shortcuts;
+- overlay panel switching state and all related global shortcuts;
 - the confirmation that opening the dashboard ends a meeting;
 - `TEMP_BYPASS_MEETING_BACKEND` and production paths using `local-meeting-*` IDs;
 - legacy overlay components that have no remaining importers.
@@ -230,7 +252,6 @@ Removal happens only after the replacement surfaces are accepted and their impor
 - starting;
 - listening with no transcript yet;
 - live transcript with mic and system speakers;
-- paused;
 - reconnecting transcription while capture continues;
 - transcript unavailable while capture continues;
 - stopping/finalizing;
@@ -244,7 +265,7 @@ Removal happens only after the replacement surfaces are accepted and their impor
 - active recording note open, transcript expanded and rolling;
 - a different note open;
 - non-note pages open;
-- paused, reconnecting, stopping, and finalizing;
+- reconnecting, stopping, and finalizing;
 - transcript panel with no committed segments, many segments, and user scrolled away from live.
 
 ## Delivery phases
@@ -253,19 +274,21 @@ Removal happens only after the replacement surfaces are accepted and their impor
 
 - Add the recording/transcript state types and controlled fixture adapter.
 - Add deterministic fixture segment streams and command transitions.
-- Keep the fixture behind a development-only entry or explicit prop so it cannot impersonate a real recording in production.
-- Add reducer/unit coverage for legal transitions, elapsed-time calculation, and note/session matching.
+- Keep fixture data isolated behind the recording UI controller boundary so it can be replaced by the real recording engine without changing the overlay components.
+- Keep legal transitions, elapsed-time calculation, and note/session matching explicit in pure modules so static review remains straightforward.
 
 No audio, recording API, WebSocket, database, or Electron lifecycle changes in this phase.
 
 ### Phase 2: Overlay UI from scratch
 
-- Build the new expanded and collapsed transparent overlay.
+- Build the new expanded and collapsed transparent overlay with Notepad as its default view and Transcript as a toggle.
 - Implement header controls, drag-safe regions, statuses, transcript follow mode, and `Jump to live`.
 - Use the fixture provider for every state.
-- Remove no legacy code yet; expose the new UI through a development preview route or guarded renderer entry for review.
+- The legacy overlay was initially retained for review, then removed early by product decision.
 
 User performs visual inspection and gives feedback at the end of this phase.
+
+The new recording overlay is now the official overlay renderer. No preview environment variables or alternate startup route are required.
 
 ### Phase 3: Dashboard recording UI
 
@@ -282,10 +305,12 @@ User performs visual inspection and gives feedback at the end of this phase.
 - Make dashboard the default signed-in/idle window.
 - Restrict fixture overlay creation and reveal to an active fixture session.
 - Wire overlay-to-dashboard and dashboard-to-overlay visibility transitions without ending the fixture session.
-- Update tray labels, dashboard back affordance, and shortcut availability.
+- Update tray behavior and dashboard recording affordance; global overlay shortcuts have been removed.
 - Keep real audio/transcription disabled in the new shell.
 
-This phase validates navigation semantics without relying on the current overlay-owned engine.
+This phase validates navigation semantics without relying on a real recording engine. Start, stop, and overlay-return commands use acknowledged IPC, wait for overlay renderer readiness, and reject invalid or backwards fixture snapshots.
+
+Session events and transcript segment deltas use separate IPC channels, avoiding repeated full-history payloads and unrelated top-bar re-renders. The signed-out auth renderer has its own root and cannot invoke recording channels or content-size the auth window. `dashboard:select-note` is buffered in preload so a reused but loading dashboard cannot miss the finalization handoff.
 
 ### Phase 5: Audio and recording architecture design
 
@@ -295,7 +320,7 @@ Before implementation, audit and separately plan:
 - process ownership and supervision;
 - permission acquisition and loss;
 - WebSocket lifecycle, reconnect, backpressure, and duplicate prevention;
-- pause semantics for capture, billing, elapsed time, and transcript timestamps;
+- stop/finalization semantics and starting a subsequent session for an existing note;
 - incremental transcript durability and live fan-out to both renderers;
 - active-session discovery, crash recovery, and stale-session cleanup;
 - finalization, summary jobs, recording-file storage, quotas, and error recovery;
@@ -307,9 +332,9 @@ This phase produces a second implementation plan. It does not inherit current De
 
 - Replace the fixture adapter with the authoritative session IPC/event adapter.
 - Connect live transcript fan-out and committed transcript reconciliation.
-- Exercise real pause/resume/stop and source controls.
-- Remove the old overlay UI, overlay-owned recording state, obsolete IPC, shortcuts, tray actions, and dead components.
-- Retain the fixture adapter for component development and deterministic regression tests.
+- Exercise real stop, resume-recording-as-new-session, and source controls.
+- Legacy overlay UI, overlay-owned recording state, obsolete IPC, shortcuts, tray actions, and dead components were removed early after Phase 2.
+- Retain the fixture adapter for deterministic component development.
 
 ## Acceptance criteria
 
@@ -319,14 +344,14 @@ This phase produces a second implementation plan. It does not inherit current De
 - Overlay cannot be opened when the fixture session is idle.
 - Starting a fixture recording opens the new overlay.
 - Overlay matches the supplied layout hierarchy while visibly belonging to Orion.
-- Switching to the dashboard and back preserves timer, pause state, transcript contents, and scroll behavior.
+- Switching to the dashboard and back preserves timer, transcript contents, and scroll behavior.
 - Dashboard top bar always shows active recording state, regardless of dashboard page.
 - Only the active recording note receives the live transcript dock treatment.
 - Transcript rows roll into both visible surfaces without resetting unrelated UI.
 - Stop from any surface produces one `stopping -> finalizing -> complete` transition.
 - Stopping removes overlay access and returns to the recorded note in the dashboard.
 - Light/dark, reduced motion, keyboard focus, accessible labels, and narrow-window states are covered.
-- TypeScript, ESLint, focused unit tests, and production renderer/main/preload builds pass.
+- TypeScript, strict ESLint, and production renderer/main/preload builds pass.
 
 ### Integrated milestone (Phase 6)
 
@@ -341,9 +366,7 @@ This phase produces a second implementation plan. It does not inherit current De
 
 ## Verification approach
 
-Automated UI-state checks should cover reducers, commands, note/session matching, transcript interim replacement, deduplication, follow-mode decisions, and elapsed time. Component tests should cover accessible names, disabled states, stop serialization, and visibility rules.
-
-Code-level verification should run desktop TypeScript, strict ESLint, focused tests, and renderer/main/preload production bundles. Per project guidance, Codex will not use browser automation, screenshots, computer-use, or local visual inspection unless explicitly requested. The user will visually review the fixture preview at the end of the overlay and dashboard UI phases.
+Code-level verification runs desktop TypeScript, strict ESLint, renderer/main/preload production bundles, Go build/vet for touched backend code, and diff/static inspection. Per project guidance, Codex does not add, modify, or run automated tests, and will not use browser automation, screenshots, computer-use, or local visual inspection unless explicitly requested. The user visually reviews the overlay and dashboard flows.
 
 ## Decisions to confirm before implementation
 
@@ -351,8 +374,8 @@ The plan recommends these defaults:
 
 1. Put the persistent recording indicator in `DashboardTopBar`, not over page content.
 2. Let clicking the indicator return to the overlay; provide a secondary path to open the active note.
-3. Keep stop visually separate from transcript expand/collapse and pause/resume.
-4. Make the new overlay transcript-only; note editing remains in the dashboard.
+3. Keep stop visually separate from transcript expand/collapse and dashboard navigation.
+4. Make Notepad the overlay default and keep live Transcript available as a reversible toggle.
 5. Support a collapsed recording capsule as part of the UI rebuild.
 6. Show the dashboard immediately after stop while transcript/summary finalization continues.
 

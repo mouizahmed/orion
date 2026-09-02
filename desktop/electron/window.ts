@@ -20,6 +20,7 @@ export let win: BrowserWindow | null = null
 let authWin: BrowserWindow | null = null
 let dashboardWin: BrowserWindow | null = null
 let allowDashboardClose = false
+let dashboardHiddenHandler: (() => void) | null = null
 let isAppQuitting = false
 
 const TITLE_BAR_HEIGHT = 48
@@ -132,6 +133,7 @@ export function createWindow(options: { show?: boolean } = {}) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
     backgroundColor: '#00000000',
   })
@@ -154,15 +156,6 @@ export function createWindow(options: { show?: boolean } = {}) {
   // Test active push message to Renderer-process.
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', new Date().toLocaleString())
-  })
-
-  win.on('show', () => {
-    // Defer focus event one frame to avoid blocking first paint on show.
-    setTimeout(() => {
-      if (!win?.isDestroyed() && win?.isVisible()) {
-        win.webContents.send('focus-input')
-      }
-    }, 16)
   })
 
   win.on('closed', () => {
@@ -297,6 +290,10 @@ export function createDashboardWindow(noteId?: string) {
     dashboardWin?.hide()
   })
 
+  dashboardWin.on('hide', () => {
+    dashboardHiddenHandler?.()
+  })
+
   dashboardWin.on('closed', () => {
     nativeTheme.removeListener('updated', updateDashboardTitleBarColors)
     dashboardWin = null
@@ -346,6 +343,34 @@ export function getDashboardWindow() {
   return dashboardWin
 }
 
+export function hideOverlayWindow() {
+  if (!win || win.isDestroyed()) return
+  win.setIgnoreMouseEvents(true, { forward: true })
+  win.setOpacity(0)
+  win.hide()
+}
+
+export function revealDashboardWindow(noteId?: string) {
+  hideOverlayWindow()
+
+  if (dashboardWin && !dashboardWin.isDestroyed()) {
+    if (noteId) dashboardWin.webContents.send('dashboard:select-note', { noteId })
+    if (dashboardWin.isMinimized()) dashboardWin.restore()
+    dashboardWin.show()
+    dashboardWin.focus()
+    return dashboardWin
+  }
+
+  const dashboard = createDashboardWindow(noteId)
+  dashboard.show()
+  dashboard.focus()
+  return dashboard
+}
+
+export function setDashboardHiddenHandler(handler: (() => void) | null) {
+  dashboardHiddenHandler = handler
+}
+
 function isWindowSender(window: BrowserWindow | null, sender: WebContents) {
   return Boolean(window && !window.isDestroyed() && window.webContents.id === sender.id)
 }
@@ -356,6 +381,14 @@ export function isKnownRendererSender(sender: WebContents) {
 
 export function isAuthRendererSender(sender: WebContents) {
   return isWindowSender(authWin, sender)
+}
+
+export function isOverlayRendererSender(sender: WebContents) {
+  return isWindowSender(win, sender)
+}
+
+export function isDashboardRendererSender(sender: WebContents) {
+  return isWindowSender(dashboardWin, sender)
 }
 
 export function setWindow(window: BrowserWindow | null) {

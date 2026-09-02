@@ -1,7 +1,7 @@
 import { Menu, Tray, nativeImage } from 'electron'
 import path from 'node:path'
-import { closeDashboardWindow, createDashboardWindow, getDashboardWindow, getWindow, showAuthWindow } from './window'
-import { restoreKeyboardShortcuts, unregisterKeyboardShortcuts } from './shortcuts'
+import { showAuthWindow } from './window'
+import { revealDashboardWithDraftFlush } from './recording-ipc'
 import { isRendererAuthenticated } from './auth-handlers'
 
 let tray: Tray | null = null
@@ -36,37 +36,13 @@ export function setupTray(options: { onQuit: () => void }) {
   const buildMenu = () =>
     Menu.buildFromTemplate([
       {
-        label: 'Show Overlay',
-        click: () => {
-          if (!isRendererAuthenticated()) {
-            showAuthWindow()
-            return
-          }
-          const overlay = getWindow()
-          const dashboard = getDashboardWindow()
-          if (dashboard && !dashboard.isDestroyed()) {
-            closeDashboardWindow()
-          }
-          overlay?.show()
-          overlay?.focus()
-          if (overlay?.isVisible()) restoreKeyboardShortcuts()
-        },
-      },
-      {
         label: 'Open Dashboard',
         click: () => {
-          const overlay = getWindow()
           if (!isRendererAuthenticated()) {
             showAuthWindow()
             return
           }
-          if (overlay && !overlay.isDestroyed()) {
-            overlay.hide()
-          }
-          unregisterKeyboardShortcuts()
-          const dash = createDashboardWindow()
-          dash.show()
-          dash.focus()
+          revealDashboardWithDraftFlush()
         },
       },
       { type: 'separator' },
@@ -84,23 +60,7 @@ export function setupTray(options: { onQuit: () => void }) {
       return
     }
 
-    const overlay = getWindow()
-    if (!overlay) return
-    if (overlay.isVisible()) {
-      overlay.hide()
-      unregisterKeyboardShortcuts()
-      return
-    }
-    const dashboard = getDashboardWindow()
-    if (dashboard && !dashboard.isDestroyed()) {
-      unregisterKeyboardShortcuts()
-      dashboard.show()
-      dashboard.focus()
-      return
-    }
-    restoreKeyboardShortcuts()
-    overlay.show()
-    overlay.focus()
+    revealDashboardWithDraftFlush()
   })
 
   return tray

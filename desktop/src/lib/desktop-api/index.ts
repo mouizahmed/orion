@@ -9,10 +9,6 @@ export type {
   IntegrationConnectionCompletedEvent,
   IntegrationProvider,
   IntegrationResult,
-  MeetingPanel,
   Platform,
   RecordingSettings,
-  ShortcutAction,
-  ShortcutState,
-  VisibleOverlayBounds,
 } from './types'

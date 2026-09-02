@@ -20,7 +20,6 @@ export function createServerStateQueryClient() {
 }
 
 export const dashboardQueryClient = createServerStateQueryClient()
-export const overlayQueryClient = createServerStateQueryClient()
 
 let activeServerStateAccountID: string | null = null
 

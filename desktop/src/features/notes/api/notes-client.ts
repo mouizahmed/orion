@@ -2,6 +2,15 @@ import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary } from '@/featur
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
+const NOTE_IMAGE_PREVIEW_CACHE_MS = 50 * 60 * 1000
+
+type NoteImagePreviewCacheEntry = {
+  expiresAt: number
+  promise: Promise<string>
+}
+
+const noteImagePreviewCache = new Map<string, NoteImagePreviewCacheEntry>()
+
 type ApiAttendee = {
   name?: string
   email: string
@@ -294,6 +303,56 @@ export async function uploadNoteImage(noteId: string, file: File): Promise<strin
   if (!res.ok) throw new Error('Upload failed')
   const data = (await res.json()) as { url: string }
   return data.url
+}
+
+function isAuthenticatedNoteImageUrl(source: string): boolean {
+  try {
+    const sourceUrl = new URL(source)
+    const apiUrl = new URL(API_BASE_URL)
+    const apiPath = apiUrl.pathname.replace(/\/+$/, '')
+    const relativePath = sourceUrl.pathname.slice(apiPath.length)
+    return sourceUrl.origin === apiUrl.origin
+      && sourceUrl.pathname.startsWith(`${apiPath}/`)
+      && /^\/notes\/[^/]+\/images\/[^/]+$/.test(relativePath)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * MDXEditor renders images with a plain <img>, which cannot attach Orion's
+ * bearer token. Resolve only Orion-owned image proxy URLs through an
+ * authenticated fetch and leave external/data/blob URLs untouched.
+ */
+export function resolveNoteImagePreview(source: string): Promise<string> {
+  if (!isAuthenticatedNoteImageUrl(source)) return Promise.resolve(source)
+
+  const cached = noteImagePreviewCache.get(source)
+  if (cached && cached.expiresAt > Date.now()) return cached.promise
+  noteImagePreviewCache.delete(source)
+
+  const pending = authenticatedFetch(source, {
+    headers: { Accept: 'application/json' },
+  }).then(async (response) => {
+    if (!response.ok) throw new Error('Failed to load note image')
+    const payload = (await response.json()) as { url?: unknown }
+    if (typeof payload.url !== 'string') throw new Error('Invalid note image response')
+
+    const previewUrl = new URL(payload.url)
+    if (previewUrl.protocol !== 'https:' || previewUrl.username || previewUrl.password) {
+      throw new Error('Invalid note image URL')
+    }
+    return previewUrl.toString()
+  }).catch((error) => {
+    noteImagePreviewCache.delete(source)
+    throw error
+  })
+
+  noteImagePreviewCache.set(source, {
+    expiresAt: Date.now() + NOTE_IMAGE_PREVIEW_CACHE_MS,
+    promise: pending,
+  })
+  return pending
 }
 
 export async function listNotesByEvent(

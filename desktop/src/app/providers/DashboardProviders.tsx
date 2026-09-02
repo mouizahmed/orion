@@ -9,6 +9,7 @@ import { BillingProvider } from '@/features/settings/sections/billing/BillingCon
 import { dashboardQueryClient } from '@/lib/query-client'
 import ServerStateInvalidationBridge from '@/app/providers/ServerStateInvalidationBridge'
 import ServerStateSessionBoundary from '@/app/providers/ServerStateSessionBoundary'
+import { DashboardRecordingProvider } from '@/features/recording/DashboardRecordingContext'
 
 export function DashboardProviders({ children }: { children: ReactNode }) {
   return (
@@ -18,7 +19,9 @@ export function DashboardProviders({ children }: { children: ReactNode }) {
           <CalendarQueryEvents />
           <ServerStateInvalidationBridge />
           <BillingProvider>
-            <SidebarProvider defaultOpen>{children}</SidebarProvider>
+            <DashboardRecordingProvider>
+              <SidebarProvider defaultOpen>{children}</SidebarProvider>
+            </DashboardRecordingProvider>
           </BillingProvider>
           <Toaster
             position="bottom-center"

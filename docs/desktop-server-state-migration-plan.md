@@ -4,7 +4,9 @@
 
 Implemented on 2026-08-22.
 
-All delivery phases below are now represented in the codebase. Notes, folders, activity, search, calendar-linked notes, persisted chat data, and remote overlay notes use the existing account-scoped TanStack Query architecture. Note writes share serialized mutation scopes and backend revision checks, and the generic resource-event bridge now covers notes, folders, activity, and chat.
+All delivery phases below are now represented in the codebase. Notes, folders, activity, search, calendar-linked notes, and persisted chat data use the existing account-scoped TanStack Query architecture. Note writes share serialized mutation scopes and backend revision checks, and the generic resource-event bridge now covers notes, folders, activity, and chat.
+
+**Update (2026-09-02):** the recording overlay rework superseded this plan's overlay sections. The overlay renderer has no query provider; the recording note draft is owned by the Electron main process and synchronized to both renderers over a versioned IPC channel, with the dashboard editor as the sole backend persister. The Overlay renderer section and Phase 6 below are annotated accordingly.
 
 Automated verification completed with backend tests and vet, desktop lint/type/tests, production renderer/main/preload builds, cache-transform tests, query-key account isolation tests, and resource-invalidation tests. The `add_note_revision` migration was applied to the Orion development project on 2026-08-22 and verified through the live schema, data, migration history, and Supabase security/performance advisors. Interactive desktop scenarios could not run because no browser backend or Windows Computer Use native helper was available. Electron compilation succeeds, but `electron-builder` cannot complete its final Windows unpack-directory rename in this environment (`EPERM`), including when given a fresh output directory.
 
@@ -159,7 +161,7 @@ TanStack Query is currently a desktop-renderer dependency, and the meaningful mi
 |---|---|---|
 | Chat conversations | `ChatContext` fetches and mutates a local conversation array. | Query-backed scoped conversation lists with create/rename/delete mutations. |
 | Persisted chat messages | `ChatContext` fetches messages into local state and merges completed SSE messages manually. | Query-backed message history. Streaming buffers remain local and commit completed canonical messages to the query cache. |
-| Remote overlay note | `CompactMeetingPanel` fetches and caches the same note independently from the dashboard. | Reuse note query/mutation options under a query provider in the overlay renderer. Preserve local pseudo-note behavior separately. |
+| Recording overlay note | The recording note draft is owned by the Electron main process: versioned, broadcast to both renderers, encrypted-persisted per account, and fenced by a draft-flush handshake on window swaps. The dashboard editor is the only backend persister. | During engine integration, move durable persistence of the recording draft to main/the backend session record so it does not depend on the dashboard renderer being alive. Do not add a query provider or note mutations to the overlay renderer — a second backend writer against the same note would reintroduce revision conflicts. |
 | Calendar sync command | `DashboardTopBar` calls the endpoint and mutates calendar cache through module-level helpers. | `useCalendarSyncMutation`, using `useQueryClient`, with sync metadata updates and canonical invalidation. |
 
 ### Keep outside TanStack Query
@@ -173,9 +175,9 @@ TanStack Query is currently a desktop-renderer dependency, and the meaningful mi
 | Note title/body before autosave | Unsaved form state. |
 | Live transcription and audio capture | High-frequency ephemeral streams. Persisted transcript results may enter the query cache after save. |
 | Chat streaming text, thinking deltas, current tool execution, and abort state | High-frequency stream state. Completed persisted messages belong in query data. |
-| Recording preferences and shortcuts | Electron IPC-owned local settings, explicitly outside the existing account server-state plan. |
+| Recording preferences | Electron IPC-owned local settings, explicitly outside the existing account server-state plan. (Global shortcuts were removed with the legacy overlay.) |
+| Recording note draft | Owned by the Electron main process (versioned IPC channel with encrypted per-account persistence), not by either renderer's query cache. |
 | Stripe checkout/portal progress | Workflow state layered over the already query-backed billing status. |
-| Local meeting fallback notes | Deliberately local `localStorage` data, not backend server state. |
 | Component-local rename text and dialog form values | Unsaved drafts. |
 
 ## Query-key design
@@ -409,20 +411,18 @@ The context may remain as a thin stream orchestrator. It must not remain the lon
 
 ## Overlay renderer
 
-The overlay and dashboard are separate renderer environments and cannot safely assume a shared in-memory `QueryClient`.
+> **Superseded by the recording overlay rework.** The overlay renderer deliberately runs **without** a query provider or note mutations. The recording note draft is owned by the Electron main process — a versioned IPC channel with encrypted per-account persistence and a draft-flush handshake on window swaps — and the dashboard editor is the sole backend persister. Giving the overlay its own note mutations would create a second backend writer against the same note and reintroduce the revision conflicts this plan's serialized-mutation design eliminated.
 
-- Factor reusable query-client construction and account session cleanup into shared providers.
-- Mount a query provider in the overlay only for resources it consumes.
-- Reuse the same query keys, options, transforms, and mutation hooks.
-- Keep a separate in-memory cache per renderer.
+Guidance that remains valid if the overlay ever consumes query-backed *read* resources:
+
+- The overlay and dashboard are separate renderer environments; never attempt to share a mutable `QueryClient` object across Electron renderer processes.
+- Factor reusable query-client construction and account session cleanup into shared providers, and keep a separate in-memory cache per renderer.
 - Use backend resource events to invalidate every connected renderer.
-- Do not attempt to share a mutable QueryClient object across Electron renderer processes.
 
-For `CompactMeetingPanel`:
+For the recording notepad during engine integration:
 
-- Remote notes use `useNoteQuery` and the body autosave mutation.
-- Local pseudo-notes keep the current local-storage adapter and never enter account query keys.
-- Live transcript state remains local.
+- The draft continues to flow through the main-process channel; durable persistence moves to main/the backend session record, not into either renderer.
+- Live transcript state remains local ephemeral state.
 - When transcript segments are persisted, invalidate the saved transcript query once per committed batch, not per audio delta.
 
 ## Realtime resource expansion
@@ -544,10 +544,7 @@ Each phase must compile, pass tests, and leave no mixed writable ownership for t
 
 ### Phase 6 — Overlay adoption
 
-- Mount shared server-state providers in the overlay renderer.
-- Reuse remote note query/mutation hooks in `CompactMeetingPanel`.
-- Preserve local fallback notes and live stream state.
-- Verify dashboard and overlay converge through backend invalidation events.
+> **Superseded.** The recording overlay rework resolved cross-renderer note convergence through the main-process draft channel instead of a per-renderer query cache. The overlay renderer intentionally has no server-state provider and no note mutations; see the Overlay renderer section. Revisit only if the overlay gains query-backed read resources of its own.
 
 ### Phase 7 — Cleanup and enforcement
 
@@ -570,7 +567,7 @@ Each phase must compile, pass tests, and leave no mixed writable ownership for t
 | `desktop/src/features/dashboard/DashboardTopBar.tsx` | Replace manual search/cache/refresh orchestration with hooks. |
 | `desktop/src/features/calendar/CalendarView.tsx` | Replace linked-note local cache with an infinite query. |
 | `desktop/src/features/chat/ChatContext.tsx` | Retain stream/UI orchestration; remove persistent response caches. |
-| `desktop/src/features/overlay/CompactMeetingPanel.tsx` | Reuse remote note queries/mutations. |
+| `desktop/src/features/recording/components/RecordingOverlayNotepad.tsx` | No query/mutation adoption — the notepad stays a thin view over the main-process draft channel (superseded; see Overlay renderer section). |
 | `desktop/src/app/realtime/types.ts` | Add typed resource names. |
 | `desktop/src/app/realtime/resource-invalidation.ts` | Register dependency invalidations for new resources. |
 | `backend/internal/resourceevents/event.go` | Add backend resource enums. |
@@ -602,7 +599,7 @@ Each phase must compile, pass tests, and leave no mixed writable ownership for t
 
 - Move an open note from the sidebar; the editor picker updates immediately.
 - Move an open note from the editor; the sidebar removes the old row and shows one destination row.
-- Open the same note in dashboard and overlay; changes converge after mutation/invalidation.
+- Open the same note in dashboard and overlay during a recording; both converge through the main-process draft channel (not query invalidation), including across window swaps.
 - Change title/body while a folder move occurs; the autosave does not restore the old folder.
 - Rapid title edits resolve in the order of the latest submitted value.
 - Create/delete/rename folders from every entry point; sidebar, My Notes, settings folder selectors, search, and counts converge.

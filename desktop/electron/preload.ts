@@ -1,22 +1,6 @@
 import { ipcRenderer, contextBridge } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-
-type ShortcutAction =
-  | 'moveUp'
-  | 'moveDown'
-  | 'moveLeft'
-  | 'moveRight'
-  | 'toggleVisibility'
-  | 'focusNotepad'
-  | 'toggleNotepad'
-  | 'toggleTranscript'
-  | 'toggleAsk'
-  | 'toggleInsights'
-
-type ShortcutState = {
-  current: Record<ShortcutAction, string>
-  defaults: Record<ShortcutAction, string>
-}
+import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '../src/features/recording/recording-types'
 
 type RecordingSettings = {
   storageLocation: 'server' | 'local'
@@ -39,6 +23,66 @@ type IntegrationConnectionCompletedEvent = {
   error?: string
 }
 
+type RecordingStartInput = {
+  sessionId: string
+  noteId: string
+  noteTitle: string
+  startedAt: number
+}
+
+type RecordingDraftFlushValue = Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>
+
+const recordingStartListeners = new Set<(input: RecordingStartInput) => void>()
+const recordingStopListeners = new Set<(input: { stoppedAt: number }) => void>()
+const dashboardSelectNoteListeners = new Set<(payload?: { noteId?: string }) => void>()
+let pendingRecordingStart: RecordingStartInput | null = null
+let pendingRecordingStop: { stoppedAt: number } | null = null
+let pendingDashboardSelectNote: { noteId?: string } | null = null
+let recordingDraftFlushProvider: (() => RecordingDraftFlushValue | null) | null = null
+
+// Main sends this before swapping window visibility. The response is a
+// barrier: same-renderer IPC is ordered, so by the time main receives it,
+// every draft update this renderer sent beforehand has been applied. The
+// provider also returns the live editor value in case a future editor change
+// path defers its updates. A renderer with no provider has no editor state,
+// so replying immediately with no draft is correct, and replying always is
+// what keeps main's flush from waiting out its timeout.
+ipcRenderer.on('recording:request-draft-flush', (_event, input?: { flushId?: string }) => {
+  const flushId = input?.flushId
+  if (typeof flushId !== 'string') return
+  let draft: RecordingDraftFlushValue | null = null
+  try {
+    draft = recordingDraftFlushProvider?.() ?? null
+  } catch {
+    // A broken provider must not block the visibility transition.
+  }
+  ipcRenderer.send('recording:flush-draft', { flushId, draft })
+})
+
+ipcRenderer.on('dashboard:select-note', (_event, payload?: { noteId?: string }) => {
+  if (dashboardSelectNoteListeners.size === 0) {
+    pendingDashboardSelectNote = payload ?? {}
+    return
+  }
+  for (const listener of dashboardSelectNoteListeners) listener(payload)
+})
+
+ipcRenderer.on('recording:start', (_event, input: RecordingStartInput) => {
+  if (recordingStartListeners.size === 0) {
+    pendingRecordingStart = input
+    return
+  }
+  for (const listener of recordingStartListeners) listener(input)
+})
+
+ipcRenderer.on('recording:stop', (_event, input: { stoppedAt: number }) => {
+  if (recordingStopListeners.size === 0) {
+    pendingRecordingStop = input
+    return
+  }
+  for (const listener of recordingStopListeners) listener(input)
+})
+
 contextBridge.exposeInMainWorld('appEvents', {
   onMainProcessMessage: (callback: (message: unknown) => void) => {
     const listener = (_event: IpcRendererEvent, message: unknown) => callback(message)
@@ -51,60 +95,8 @@ contextBridge.exposeInMainWorld('appEvents', {
 
 // Expose window control API
 contextBridge.exposeInMainWorld('windowControl', {
-  startDrag: (mouseX: number, mouseY: number) => {
-    ipcRenderer.send('window-drag-start', { mouseX, mouseY })
-  },
-
-  moveDrag: (mouseX: number, mouseY: number, offsetX: number, offsetY: number) => {
-    ipcRenderer.send('window-drag-move', { mouseX, mouseY, offsetX, offsetY })
-  },
-
-  setIgnoreMouseEvents: (ignore: boolean) => {
-    ipcRenderer.send('set-ignore-mouse-events', ignore)
-  },
-
-  toggleVisibility: () => {
-    ipcRenderer.send('toggle-visibility')
-  },
-
-  setWindowHeight: (height: number) => {
-    ipcRenderer.send('set-window-height', height)
-  },
-
   setWindowSize: (width: number, height: number) => {
     ipcRenderer.send('set-window-size', { width, height })
-  },
-
-  setVisibleOverlayBounds: (bounds: { offsetX: number; offsetY: number; width: number; height: number }) => {
-    ipcRenderer.send('set-visible-overlay-bounds', bounds)
-  },
-
-  onDragOffset: (callback: (offset: { x: number; y: number }) => void) => {
-    ipcRenderer.on('drag-offset', (_event, offset) => callback(offset))
-  },
-
-  onFocusInput: (callback: () => void) => {
-    ipcRenderer.on('focus-input', () => callback())
-  },
-
-  onToggleNotepadFocus: (callback: () => void) => {
-    const listener = () => callback()
-    ipcRenderer.on('toggle-notepad-focus', listener)
-    return () => {
-      ipcRenderer.off('toggle-notepad-focus', listener)
-    }
-  },
-
-  onToggleOverlayPanel: (callback: (panel: 'notepad' | 'transcript' | 'ask' | 'insights') => void) => {
-    const listener = (_event: IpcRendererEvent, panel: 'notepad' | 'transcript' | 'ask' | 'insights') => callback(panel)
-    ipcRenderer.on('toggle-overlay-panel', listener)
-    return () => {
-      ipcRenderer.off('toggle-overlay-panel', listener)
-    }
-  },
-
-  blurOverlay: () => {
-    ipcRenderer.send('blur-overlay')
   },
 
   minimize: () => {
@@ -121,11 +113,13 @@ contextBridge.exposeInMainWorld('dashboard', {
   open: (noteId?: string) => ipcRenderer.send('dashboard:open', { noteId }),
   close: () => ipcRenderer.send('dashboard:close'),
   onSelectNote: (callback: (payload?: { noteId?: string }) => void) => {
-    const listener = (_event: IpcRendererEvent, payload?: { noteId?: string }) => callback(payload)
-    ipcRenderer.on('dashboard:select-note', listener)
-    return () => {
-      ipcRenderer.off('dashboard:select-note', listener)
+    dashboardSelectNoteListeners.add(callback)
+    if (pendingDashboardSelectNote) {
+      const payload = pendingDashboardSelectNote
+      pendingDashboardSelectNote = null
+      callback(payload)
     }
+    return () => dashboardSelectNoteListeners.delete(callback)
   },
 })
 
@@ -147,11 +141,65 @@ contextBridge.exposeInMainWorld('editorContextMenu', {
   run: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => ipcRenderer.send('editor:run-command', command),
 })
 
-contextBridge.exposeInMainWorld('shortcutControl', {
-  getAll: () => ipcRenderer.invoke('shortcuts:get') as Promise<ShortcutState>,
-  update: (action: ShortcutAction, shortcut: string | null) =>
-    ipcRenderer.invoke('shortcuts:update', { action, shortcut }) as Promise<ShortcutState>,
+contextBridge.exposeInMainWorld('recordingControl', {
+  start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => ipcRenderer.invoke('recording:start', input) as Promise<void>,
+  stop: () => ipcRenderer.invoke('recording:stop') as Promise<void>,
+  showOverlay: () => ipcRenderer.invoke('recording:show-overlay') as Promise<void>,
+  getSnapshot: () => ipcRenderer.invoke('recording:get-snapshot') as Promise<RecordingUiSnapshot>,
+  publishSession: (session: RecordingSessionSnapshot) => ipcRenderer.send('recording:publish-session', session),
+  publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => ipcRenderer.send('recording:publish-transcript-update', segment),
+  markSurfaceReady: (sessionId: string) => ipcRenderer.send('recording:surface-ready', { sessionId }),
+  getNoteDraft: () => ipcRenderer.invoke('recording:get-note-draft') as Promise<RecordingNoteDraft | null>,
+  updateNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => {
+    ipcRenderer.send('recording:update-note-draft', draft)
+  },
+  acknowledgeNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => {
+    ipcRenderer.send('recording:ack-note-draft', draft)
+  },
+  setDraftFlushProvider: (provider: () => RecordingDraftFlushValue | null) => {
+    recordingDraftFlushProvider = provider
+    return () => {
+      if (recordingDraftFlushProvider === provider) recordingDraftFlushProvider = null
+    }
+  },
+  onStart: (callback: (input: RecordingStartInput) => void) => {
+    recordingStartListeners.add(callback)
+    if (pendingRecordingStart) {
+      const input = pendingRecordingStart
+      pendingRecordingStart = null
+      callback(input)
+    }
+    return () => recordingStartListeners.delete(callback)
+  },
+  onStop: (callback: (input: { stoppedAt: number }) => void) => {
+    recordingStopListeners.add(callback)
+    if (pendingRecordingStop) {
+      const input = pendingRecordingStop
+      pendingRecordingStop = null
+      callback(input)
+    }
+    return () => recordingStopListeners.delete(callback)
+  },
+  onSession: (callback: (session: RecordingSessionSnapshot | null) => void) => {
+    const listener = (_event: IpcRendererEvent, session: RecordingSessionSnapshot | null) => callback(session)
+    ipcRenderer.on('recording:session', listener)
+    return () => ipcRenderer.off('recording:session', listener)
+  },
+  onTranscriptUpdate: (callback: (segment: RecordingTranscriptSegment) => void) => {
+    const listener = (_event: IpcRendererEvent, segment: RecordingTranscriptSegment) => callback(segment)
+    ipcRenderer.on('recording:transcript-update', listener)
+    return () => ipcRenderer.off('recording:transcript-update', listener)
+  },
+  onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => {
+    const listener = (_event: IpcRendererEvent, draft: RecordingNoteDraft | null) => callback(draft)
+    ipcRenderer.on('recording:note-draft', listener)
+    return () => ipcRenderer.off('recording:note-draft', listener)
+  },
 })
+
+// Main may send recording commands as soon as preload has installed the
+// listeners above. Commands are buffered until the React controller subscribes.
+ipcRenderer.send('recording:preload-ready')
 
 contextBridge.exposeInMainWorld('recordingSettings', {
   get: () => ipcRenderer.invoke('recording-settings:get') as Promise<RecordingSettings>,
@@ -160,22 +208,6 @@ contextBridge.exposeInMainWorld('recordingSettings', {
   pickLocalPath: () =>
     ipcRenderer.invoke('recording-settings:pick-local-path') as Promise<RecordingSettings>,
 })
-
-
-// Audio capture API
-contextBridge.exposeInMainWorld('audioCapture', {
-  getDesktopSourceId: () => ipcRenderer.invoke('audio:get-desktop-source-id') as Promise<string | null>,
-  startSystemAudioStream: () => ipcRenderer.invoke('audio:start-system-capture') as Promise<void>,
-  stopSystemAudioStream: () => ipcRenderer.send('audio:stop-system-capture'),
-  onSystemAudioChunk: (callback: (buffer: ArrayBuffer) => void) => {
-    const listener = (_event: IpcRendererEvent, buffer: ArrayBuffer) => callback(buffer)
-    ipcRenderer.on('audio:system-chunk', listener)
-    return () => {
-      ipcRenderer.off('audio:system-chunk', listener)
-    }
-  },
-})
-
 // Authentication API
 contextBridge.exposeInMainWorld('electronAPI', {
   // OAuth Authentication

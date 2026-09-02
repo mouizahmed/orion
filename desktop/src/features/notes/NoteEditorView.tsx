@@ -9,7 +9,8 @@ import {
   DropdownPopover,
   DropdownSeparator,
 } from '@/components/ui/dropdown-list'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { ViewSwitch } from '@/components/ui/view-switch'
 import { toast } from 'sonner'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
 import NoteAssistantDock from '@/features/notes/NoteAssistantDock'
@@ -21,6 +22,9 @@ import { useLinkNoteEventMutation, useMoveNoteMutation, useUpdateNoteMutation } 
 import { useCalendarEventSearchQuery } from '@/features/calendar/useCalendarEventSearchQuery'
 import { useDebouncedValue } from '@/lib/use-debounced-value'
 import { reconcileCanonicalDraft } from '@/features/notes/draft-reconciliation'
+import { useDashboardRecording } from '@/features/recording/DashboardRecordingContext'
+import { getRecordingOverlayStatus } from '@/features/recording/recording-overlay-presenter'
+import { isRecordingCaptureActive } from '@/features/recording/recording-state'
 
 
 type MeetingOption = {
@@ -36,24 +40,10 @@ type NoteEditorViewProps = {
 
 type NoteView = 'notes' | 'summary'
 
-function NoteViewSwitch() {
-  return (
-    <TabsList className="note-view-tabs h-8 shrink-0 rounded-full border border-neutral-200 bg-neutral-100/80 p-0.5 text-neutral-500 shadow-none dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
-      <TabsTrigger
-        value="notes"
-        className="h-full rounded-full px-3 py-0 text-xs shadow-none data-[state=active]:bg-white data-[state=active]:text-neutral-950 dark:data-[state=active]:border-0 dark:data-[state=active]:bg-white/12 dark:data-[state=active]:text-white"
-      >
-        Notes
-      </TabsTrigger>
-      <TabsTrigger
-        value="summary"
-        className="h-full rounded-full px-3 py-0 text-xs shadow-none data-[state=active]:bg-white data-[state=active]:text-neutral-950 dark:data-[state=active]:border-0 dark:data-[state=active]:bg-white/12 dark:data-[state=active]:text-white"
-      >
-        Summary
-      </TabsTrigger>
-    </TabsList>
-  )
-}
+const NOTE_VIEW_OPTIONS = [
+  { value: 'notes', label: 'Notes' },
+  { value: 'summary', label: 'Summary' },
+] as const
 
 function NoteLoadingIndicator() {
   return (
@@ -74,6 +64,13 @@ export default function NoteEditorView({
   userId,
 }: NoteEditorViewProps) {
   const { folders, selectedId, selectedNote, selectedNoteLoading, selectNote } = useDashboardNotes()
+  const {
+    snapshot,
+    noteDraft: recordingNoteDraft,
+    resume,
+    updateNoteDraft: updateRecordingNoteDraft,
+    acknowledgeNoteDraft,
+  } = useDashboardRecording()
   const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(userId ?? '')
   const { mutateAsync: moveNoteAsync } = useMoveNoteMutation(userId ?? '')
   const { mutateAsync: linkNoteEventAsync } = useLinkNoteEventMutation(userId ?? '')
@@ -106,7 +103,13 @@ export default function NoteEditorView({
   const bodySaveTimerRef = useRef<number | null>(null)
   const canonicalTitleRef = useRef('')
   const canonicalBodyRef = useRef('')
+  // Revision the canonical refs were last synchronized at. Query refetches can
+  // resolve out of order, so canonical content older than this must not be
+  // adopted back into the drafts (it would resurrect just-overwritten text).
+  const canonicalRevisionRef = useRef(0)
   const lastLoadedIdRef = useRef<string | null>(null)
+  const recordingNoteDraftRef = useRef(recordingNoteDraft)
+  recordingNoteDraftRef.current = recordingNoteDraft
 
   // Hydrate drafts when selected note detail arrives from context
   useEffect(() => {
@@ -125,6 +128,7 @@ export default function NoteEditorView({
     setDraftNote(selectedNote.noteMarkdown)
     canonicalTitleRef.current = selectedNote.title
     canonicalBodyRef.current = selectedNote.noteMarkdown
+    canonicalRevisionRef.current = selectedNote.revision
     setMeetingSearch('')
     setHydratedNoteId(selectedNote.id)
   }, [selectedNote])
@@ -142,6 +146,7 @@ export default function NoteEditorView({
   // Reconcile canonical title changes without overwriting a dirty title draft.
   useEffect(() => {
     if (!selectedNote || selectedNote.id !== selectedId) return
+    if (selectedNote.revision < canonicalRevisionRef.current) return
     const nextTitle = reconcileCanonicalDraft(
       canonicalTitleRef.current,
       draftTitle,
@@ -149,12 +154,14 @@ export default function NoteEditorView({
     )
     if (nextTitle === null) return
     canonicalTitleRef.current = nextTitle
+    canonicalRevisionRef.current = Math.max(canonicalRevisionRef.current, selectedNote.revision)
     setDraftTitle(nextTitle)
   }, [draftTitle, selectedId, selectedNote])
 
   // Reconcile canonical body changes (including chat/AI updates) without overwriting a dirty draft.
   useEffect(() => {
     if (!selectedNote || selectedNote.id !== selectedId) return
+    if (selectedNote.revision < canonicalRevisionRef.current) return
     const nextBody = reconcileCanonicalDraft(
       canonicalBodyRef.current,
       draftNote,
@@ -162,8 +169,28 @@ export default function NoteEditorView({
     )
     if (nextBody === null) return
     canonicalBodyRef.current = nextBody
+    canonicalRevisionRef.current = Math.max(canonicalRevisionRef.current, selectedNote.revision)
     setDraftNote(nextBody)
-  }, [draftNote, selectedId, selectedNote])
+    updateRecordingNoteDraft(selectedId, nextBody)
+  }, [draftNote, selectedId, selectedNote, updateRecordingNoteDraft])
+
+  // The overlay lives in a separate renderer. Apply its latest in-memory draft
+  // after this note hydrates; dashboard edits publish through the same channel.
+  useEffect(() => {
+    if (
+      !recordingNoteDraft
+      || recordingNoteDraft.noteId !== selectedId
+      || hydratedNoteId !== selectedId
+      || (snapshot.session && (
+        snapshot.session.sessionId !== recordingNoteDraft.sessionId
+        || snapshot.session.noteId !== selectedId
+      ))
+    ) return
+    setDraftNote((current) => current === recordingNoteDraft.value ? current : recordingNoteDraft.value)
+    if (canonicalBodyRef.current === recordingNoteDraft.value) {
+      acknowledgeNoteDraft(recordingNoteDraft)
+    }
+  }, [acknowledgeNoteDraft, hydratedNoteId, recordingNoteDraft, selectedId, snapshot.session])
 
   // Close pickers on outside click / escape
   useEffect(() => {
@@ -241,7 +268,11 @@ export default function NoteEditorView({
     const noteID = selectedId
     titleSaveTimerRef.current = window.setTimeout(() => {
       void updateNoteAsync({ noteID, patch: { title: draftTitle } })
-        .then((note) => { if (note) canonicalTitleRef.current = note.title })
+        .then((note) => {
+          if (!note) return
+          canonicalTitleRef.current = note.title
+          canonicalRevisionRef.current = Math.max(canonicalRevisionRef.current, note.revision)
+        })
         .catch((error: unknown) => {
           if (error instanceof Error && error.message === 'note not found') selectNote(null)
           else if (error instanceof Error && error.message === 'note has changed') toast.error('This note changed elsewhere. Your title draft was kept.')
@@ -260,7 +291,15 @@ export default function NoteEditorView({
     const noteID = selectedId
     bodySaveTimerRef.current = window.setTimeout(() => {
       void updateNoteAsync({ noteID, patch: { noteMarkdown: draftNote } })
-        .then((note) => { if (note) canonicalBodyRef.current = note.noteMarkdown })
+        .then((note) => {
+          if (!note) return
+          canonicalBodyRef.current = note.noteMarkdown
+          canonicalRevisionRef.current = Math.max(canonicalRevisionRef.current, note.revision)
+          const pendingDraft = recordingNoteDraftRef.current
+          if (pendingDraft?.noteId === noteID && pendingDraft.value === note.noteMarkdown) {
+            acknowledgeNoteDraft(pendingDraft)
+          }
+        })
         .catch((error: unknown) => {
           if (error instanceof Error && error.message === 'note not found') selectNote(null)
           else if (error instanceof Error && error.message === 'note has changed') toast.error('This note changed elsewhere. Your note draft was kept.')
@@ -269,7 +308,7 @@ export default function NoteEditorView({
     return () => {
       if (bodySaveTimerRef.current) window.clearTimeout(bodySaveTimerRef.current)
     }
-  }, [draftNote, selectNote, selectedId, updateNoteAsync])
+  }, [acknowledgeNoteDraft, draftNote, selectNote, selectedId, updateNoteAsync])
 
   const handleMoveNote = useCallback((folderID: string | null) => {
     if (!selectedId) return
@@ -280,8 +319,34 @@ export default function NoteEditorView({
     })
   }, [moveNoteAsync, selectedId])
 
+  const handleNoteChange = useCallback((value: string) => {
+    setDraftNote(value)
+    if (selectedId) updateRecordingNoteDraft(selectedId, value)
+  }, [selectedId, updateRecordingNoteDraft])
+
   if (!selectedId) return null
   const noteIsLoading = selectedNoteLoading || hydratedNoteId !== selectedId
+  const activeRecordingSession = snapshot.session?.phase !== 'complete' ? snapshot.session : null
+  const recordingSession = activeRecordingSession?.noteId === selectedId ? activeRecordingSession : null
+  // Keep the session around while its transcript finishes, but return the dock to
+  // its idle layout as soon as audio capture has ended. Otherwise the dashboard
+  // briefly renders a disabled stop control and then shifts again on completion.
+  const recordingSessionActive = isRecordingCaptureActive(recordingSession)
+  const recordingIndicatorActive = recordingSession
+    ? getRecordingOverlayStatus(recordingSession).activityActive
+    : false
+  const canStopRecording = Boolean(recordingSession && (
+    recordingSession.phase === 'starting'
+    || recordingSession.phase === 'recording'
+    || recordingSession.phase === 'error'
+  ))
+  const canShowRecordingOverlay = canStopRecording
+  const noteViewSwitch = (
+    <ViewSwitch
+      options={NOTE_VIEW_OPTIONS}
+      ariaLabel="Note view"
+    />
+  )
 
   return (
     <Tabs
@@ -458,13 +523,13 @@ export default function NoteEditorView({
               <TabsContent value="notes" className="h-full min-h-0">
                 <MarkdownEditor
               markdown={draftNote}
-              onChange={setDraftNote}
+              onChange={handleNoteChange}
               placeholder="Markdown notes…"
               theme="auto"
               showToolbar
               className="h-full dashboard-editor"
               noteId={selectedId}
-              toolbarLeading={<NoteViewSwitch />}
+              toolbarLeading={noteViewSwitch}
               bottomOverlayInset={88}
             />
               </TabsContent>
@@ -472,7 +537,7 @@ export default function NoteEditorView({
               <TabsContent value="summary" className="h-full min-h-0">
                 <div className="flex h-full min-h-0 flex-col">
                   <div className="flex min-h-[47px] shrink-0 items-start border-b border-neutral-200/80 bg-white p-[7px_8px] dark:border-white/10 dark:bg-[#171417]">
-                    <NoteViewSwitch />
+                    {noteViewSwitch}
                   </div>
                   <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
                     <div className="max-w-xs">
@@ -493,6 +558,20 @@ export default function NoteEditorView({
             accountId={userId}
             noteId={selectedId}
             noteTitle={draftTitle || selectedNote.title}
+            isRecording={recordingSessionActive}
+            canResumeRecording={!activeRecordingSession && !recordingNoteDraft}
+            recordingIndicatorActive={recordingIndicatorActive}
+            canStopRecording={canStopRecording}
+            canShowRecordingOverlay={canShowRecordingOverlay}
+            liveSegments={recordingSession ? snapshot.transcript : undefined}
+            transcriptPhase={recordingSession?.transcriptPhase}
+            onResumeRecording={async () => {
+              try {
+                await resume(selectedId, draftTitle || selectedNote.title, draftNote)
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : 'Could not resume recording')
+              }
+            }}
           />
         ) : null}
 

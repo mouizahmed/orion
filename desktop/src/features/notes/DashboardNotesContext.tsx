@@ -39,6 +39,8 @@ type DashboardNotesContextType = {
     title?: string
     folderId?: string | null
     calendarEventId?: string
+  }, options?: {
+    select?: boolean
   }) => Promise<NoteRecord | null>
   deleteById: (noteID: string) => Promise<boolean>
   requestDeleteNote: (noteID: string, title?: string) => void
@@ -148,7 +150,10 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
   )
 
   const createNewNote = useCallback(
-    async (payload?: { title?: string; folderId?: string | null; calendarEventId?: string }) => {
+    async (
+      payload?: { title?: string; folderId?: string | null; calendarEventId?: string },
+      options?: { select?: boolean },
+    ) => {
       if (createInFlightRef.current) return null
       createInFlightRef.current = true
       try {
@@ -157,7 +162,7 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
           folderId: payload?.folderId ?? null,
           calendarEventId: payload?.calendarEventId,
         })
-        setSelectedId(created.id)
+        if (options?.select !== false) setSelectedId(created.id)
         return created
       } catch {
         return null

@@ -2,7 +2,6 @@ import {
   CalendarDays,
   ClipboardList,
   CreditCard,
-  Keyboard,
   LayoutGrid,
   Mail,
   MonitorCog,
@@ -11,7 +10,7 @@ import {
   User,
 } from 'lucide-react'
 
-export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'preferences' | 'shortcuts'
+export type DashboardSettingsSection = 'account' | 'billing' | 'calendar' | 'connectors' | 'vocabulary' | 'extracts' | 'emailDraft' | 'summaryTemplates' | 'preferences'
 
 export const settingsSections: Record<DashboardSettingsSection, { title: string; icon: typeof User }> = {
   account: { title: 'Account', icon: User },
@@ -23,5 +22,4 @@ export const settingsSections: Record<DashboardSettingsSection, { title: string;
   emailDraft: { title: 'Email Draft', icon: Mail },
   summaryTemplates: { title: 'Summary Templates', icon: ClipboardList },
   preferences: { title: 'Preferences', icon: MonitorCog },
-  shortcuts: { title: 'Shortcuts', icon: Keyboard },
 }

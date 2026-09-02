@@ -46,12 +46,15 @@ import {
   type BlockType,
   type HEADING_LEVEL,
   type MDXEditorMethods,
+  type ToMarkdownOptions,
 } from '@mdxeditor/editor'
+import { addImportVisitor$, type MdastImportVisitor } from '@mdxeditor/editor'
 import { useCellValue, usePublisher } from '@mdxeditor/gurx'
 import { $createHeadingNode, $createQuoteNode, type HeadingTagType } from '@lexical/rich-text'
-import { $createParagraphNode } from 'lexical'
+import { $createLineBreakNode, $createParagraphNode, type ElementNode } from 'lexical'
+import type * as Mdast from 'mdast'
 import '@mdxeditor/editor/style.css'
-import { uploadNoteImage } from '@/features/notes/api/notes-client'
+import { resolveNoteImagePreview, uploadNoteImage } from '@/features/notes/api/notes-client'
 import {
   Select,
   SelectContent,
@@ -166,6 +169,65 @@ function ToolbarContents({ leading }: ToolbarContentsProps) {
   )
 }
 
+const preserveEmptyParagraph: NonNullable<NonNullable<ToMarkdownOptions['handlers']>['paragraph']> = (
+  node,
+  parent,
+  state,
+  info,
+) => {
+  const exitParagraph = state.enter('paragraph')
+  const exitPhrasing = state.enter('phrasing')
+  const value = state.containerPhrasing(node, info)
+  exitPhrasing()
+  exitParagraph()
+  // A trailing empty paragraph is an editor artifact: MDXEditor re-appends one
+  // on every import, so persisting it as `<br />` would grow the document by a
+  // blank line per load/save cycle — and would turn an empty document into a
+  // non-empty one. Only interior blank paragraphs need the `<br />` marker.
+  if (!value && (!parent || (parent.type === 'root' && parent.children[parent.children.length - 1] === node))) {
+    return ''
+  }
+  return value || '<br />'
+}
+
+const NOTE_MARKDOWN_OPTIONS: ToMarkdownOptions = {
+  handlers: { paragraph: preserveEmptyParagraph },
+}
+
+function isBrJsxElement(node: { type: string }): node is Mdast.Nodes & { name?: string | null } {
+  return (node.type === 'mdxJsxTextElement' || node.type === 'mdxJsxFlowElement')
+    && (node as { name?: string | null }).name === 'br'
+}
+
+// The `<br />` produced by preserveEmptyParagraph must import back as a real,
+// editable empty paragraph. Without this visitor MDXEditor's fallback HTML
+// visitor (priority -100) wraps it in a GenericHTMLNode, which renders as a
+// phantom blank line the caret cannot type into.
+const importEmptyParagraphVisitor: MdastImportVisitor<Mdast.Nodes> = {
+  testNode: (node) => isBrJsxElement(node),
+  visitNode({ mdastNode, mdastParent, lexicalParent, actions }) {
+    if (mdastNode.type === 'mdxJsxFlowElement') {
+      // A standalone `<br />` block is a serialized empty paragraph.
+      actions.addAndStepInto($createParagraphNode())
+      return
+    }
+    // Inline `<br />` inside a paragraph of nothing but breaks: leave the
+    // paragraph genuinely empty. Amid other content: a normal line break.
+    const emptyParagraphMarker = mdastParent?.type === 'paragraph'
+      && mdastParent.children.every((child) => isBrJsxElement(child))
+    if (!emptyParagraphMarker) {
+      const parent = lexicalParent as ElementNode
+      parent.append($createLineBreakNode())
+    }
+  },
+}
+
+const emptyParagraphImportPlugin = realmPlugin({
+  init(realm) {
+    realm.pub(addImportVisitor$, importEmptyParagraphVisitor)
+  },
+})
+
 type BottomOverlayCaretPluginParams = {
   getContainer: () => HTMLDivElement | null
   getInset: () => number
@@ -248,13 +310,31 @@ function MarkdownEditorInner(
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomOverlayInsetRef = useRef(bottomOverlayInset)
   bottomOverlayInsetRef.current = bottomOverlayInset
-  const isInternalChangeRef = useRef(false)
-  const hasMountedRef = useRef(false)
   const isDark = useDarkMode(theme)
   const noteIdRef = useRef(noteId)
   noteIdRef.current = noteId
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  // True while this component itself is writing into the editor. Change
+  // events emitted during those writes are re-serializations, not user edits;
+  // reporting them upward creates save churn and cross-window echo loops.
+  const applyingExternalMarkdownRef = useRef(false)
+
+  const applyMarkdownToEditor = useCallback((value: string) => {
+    const editor = editorRef.current
+    if (!editor) return
+    applyingExternalMarkdownRef.current = true
+    editor.setMarkdown(value)
+    // Lexical may flush its update listeners a microtask later; a user
+    // keystroke always arrives in a later task, so this cannot swallow input.
+    queueMicrotask(() => queueMicrotask(() => {
+      applyingExternalMarkdownRef.current = false
+    }))
+  }, [])
+
+  // Older saves serialized an empty document as `<br />`. Treat that stored
+  // form as empty so those notes open with a usable, placeholder-showing editor.
+  const externalMarkdown = markdown.trim() === '<br />' ? '' : markdown
 
   const [isDragging, setIsDragging] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
@@ -272,7 +352,12 @@ function MarkdownEditorInner(
       markdownShortcutPlugin(),
       thematicBreakPlugin(),
       tablePlugin(),
-      imagePlugin(),
+      // Resize is disabled so notes never store pixel dimensions: the same
+      // markdown renders in the wide dashboard and the narrow overlay, and a
+      // width chosen against one container misrenders in the other. Sizing is
+      // responsive CSS on .mdx-content-editable img instead.
+      imagePlugin({ imagePreviewHandler: resolveNoteImagePreview, disableImageResize: true }),
+      emptyParagraphImportPlugin(),
       bottomOverlayCaretPlugin({
         getContainer: () => containerRef.current,
         getInset: () => bottomOverlayInsetRef.current,
@@ -302,9 +387,8 @@ function MarkdownEditorInner(
           const imageMarkdown = `![${file.name}](${url})`
           const current = editorRef.current?.getMarkdown() ?? ''
           const updated = current ? `${current}\n\n${imageMarkdown}` : imageMarkdown
-          isInternalChangeRef.current = true
           onChangeRef.current(updated)
-          editorRef.current?.setMarkdown(updated)
+          applyMarkdownToEditor(updated)
         } catch (e) {
           console.error('Image upload failed:', e)
         }
@@ -312,7 +396,7 @@ function MarkdownEditorInner(
     } finally {
       setIsUploading(false)
     }
-  }, [])
+  }, [applyMarkdownToEditor])
 
   const handleDragEnter = useCallback((e: ReactDragEvent) => {
     if (!e.dataTransfer.types.includes('Files')) return
@@ -405,21 +489,16 @@ function MarkdownEditorInner(
 
   // Sync external markdown changes (e.g. note switch) into the editor
   useEffect(() => {
-    if (!editorRef.current) return
-    if (isInternalChangeRef.current) {
-      isInternalChangeRef.current = false
-      return
-    }
-    editorRef.current.setMarkdown(markdown)
-  }, [markdown])
+    const editor = editorRef.current
+    if (!editor || editor.getMarkdown() === externalMarkdown) return
+    applyMarkdownToEditor(externalMarkdown)
+  }, [applyMarkdownToEditor, externalMarkdown])
 
-  const handleChange = (value: string) => {
-    // Ignore the initial normalization onChange that MDXEditor fires on mount
-    if (!hasMountedRef.current) {
-      hasMountedRef.current = true
-      return
-    }
-    isInternalChangeRef.current = true
+  const handleChange = (value: string, initialMarkdownNormalize: boolean) => {
+    // MDXEditor identifies its own mount-time normalization. A generic
+    // "ignore first change" flag can swallow the user's first real keystroke
+    // whenever no normalization event is emitted.
+    if (initialMarkdownNormalize || applyingExternalMarkdownRef.current) return
     onChange(value)
   }
 
@@ -452,8 +531,9 @@ function MarkdownEditorInner(
     >
       <MDXEditor
         ref={editorRef}
-        markdown={markdown}
+        markdown={externalMarkdown}
         onChange={handleChange}
+        toMarkdownOptions={NOTE_MARKDOWN_OPTIONS}
         placeholder={placeholder}
         plugins={plugins}
         contentEditableClassName="mdx-content-editable"

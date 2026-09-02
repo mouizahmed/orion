@@ -1,3 +1,5 @@
+import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
+
 export type AuthResult =
   | {
       success: true
@@ -45,25 +47,6 @@ export type IntegrationConnectionCompletedEvent = {
   error?: string
 }
 
-export type ShortcutAction =
-  | 'moveUp'
-  | 'moveDown'
-  | 'moveLeft'
-  | 'moveRight'
-  | 'toggleVisibility'
-  | 'focusNotepad'
-  | 'toggleNotepad'
-  | 'toggleTranscript'
-  | 'toggleAsk'
-  | 'toggleInsights'
-
-export type MeetingPanel = 'notepad' | 'transcript' | 'ask' | 'insights'
-
-export type ShortcutState = {
-  current: Record<ShortcutAction, string>
-  defaults: Record<ShortcutAction, string>
-}
-
 export type RecordingSettings = {
   storageLocation: 'server' | 'local'
   localRecordingsPath: string
@@ -78,13 +61,6 @@ export type AttachmentResult = {
   dataUrl?: string
 }
 
-export type VisibleOverlayBounds = {
-  offsetX: number
-  offsetY: number
-  width: number
-  height: number
-}
-
 export type Platform = NodeJS.Platform
 
 export type DesktopApi = {
@@ -95,18 +71,7 @@ export type DesktopApi = {
     onMainProcessMessage: (callback: (message: unknown) => void) => () => void
   }
   window: {
-    startDrag: (mouseX: number, mouseY: number) => void
-    moveDrag: (mouseX: number, mouseY: number, offsetX: number, offsetY: number) => void
-    setIgnoreMouseEvents: (ignore: boolean) => void
-    toggleVisibility: () => void
-    setWindowHeight: (height: number) => void
     setWindowSize: (width: number, height: number) => void
-    setVisibleOverlayBounds: (bounds: VisibleOverlayBounds) => void
-    onDragOffset: (callback: (offset: { x: number; y: number }) => void) => void
-    onFocusInput: (callback: () => void) => void
-    onToggleNotepadFocus: (callback: () => void) => () => void
-    onToggleOverlayPanel: (callback: (panel: MeetingPanel) => void) => () => void
-    blurOverlay: () => void
     minimize: () => void
     close: () => void
   }
@@ -118,22 +83,29 @@ export type DesktopApi = {
   attachments: {
     pickFiles: () => Promise<AttachmentResult[]>
   }
-  shortcuts: {
-    isAvailable: () => boolean
-    getAll: () => Promise<ShortcutState>
-    update: (action: ShortcutAction, shortcut: string | null) => Promise<ShortcutState>
+  recording: {
+    start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => Promise<void>
+    stop: () => Promise<void>
+    showOverlay: () => Promise<void>
+    getSnapshot: () => Promise<RecordingUiSnapshot>
+    publishSession: (session: RecordingSessionSnapshot) => void
+    publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => void
+    markSurfaceReady: (sessionId: string) => void
+    getNoteDraft: () => Promise<RecordingNoteDraft | null>
+    updateNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
+    acknowledgeNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
+    setDraftFlushProvider: (provider: () => Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'> | null) => () => void
+    onStart: (callback: (input: { sessionId: string; noteId: string; noteTitle: string; startedAt: number }) => void) => () => void
+    onStop: (callback: (input: { stoppedAt: number }) => void) => () => void
+    onSession: (callback: (session: RecordingSessionSnapshot | null) => void) => () => void
+    onTranscriptUpdate: (callback: (segment: RecordingTranscriptSegment) => void) => () => void
+    onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => () => void
   }
   recordingSettings: {
     isAvailable: () => boolean
     get: () => Promise<RecordingSettings>
     update: (settings: Partial<RecordingSettings>) => Promise<RecordingSettings>
     pickLocalPath: () => Promise<RecordingSettings>
-  }
-  audio: {
-    getDesktopSourceId: () => Promise<string | null>
-    startSystemAudioStream: () => Promise<void>
-    stopSystemAudioStream: () => void
-    onSystemAudioChunk: (callback: (buffer: ArrayBuffer) => void) => () => void
   }
   auth: {
     loginWithGoogle: () => Promise<AuthResult>

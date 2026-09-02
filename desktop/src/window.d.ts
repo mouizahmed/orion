@@ -5,12 +5,9 @@ import type {
   IntegrationConnectionCompletedEvent,
   IntegrationProvider,
   IntegrationResult,
-  MeetingPanel,
   RecordingSettings,
-  ShortcutAction,
-  ShortcutState,
-  VisibleOverlayBounds,
 } from '@/lib/desktop-api'
+import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
 import type { LiveInsight, LiveResponseSuggestion } from './types/live-insight'
 
 interface AppEventsControl {
@@ -18,18 +15,7 @@ interface AppEventsControl {
 }
 
 interface WindowControl {
-  startDrag: (mouseX: number, mouseY: number) => void
-  moveDrag: (mouseX: number, mouseY: number, offsetX: number, offsetY: number) => void
-  setIgnoreMouseEvents: (ignore: boolean) => void
-  toggleVisibility: () => void
-  setWindowHeight: (height: number) => void
   setWindowSize: (width: number, height: number) => void
-  setVisibleOverlayBounds: (bounds: VisibleOverlayBounds) => void
-  onDragOffset: (callback: (offset: { x: number; y: number }) => void) => void
-  onFocusInput: (callback: () => void) => void
-  onToggleNotepadFocus: (callback: () => void) => () => void
-  onToggleOverlayPanel: (callback: (panel: MeetingPanel) => void) => () => void
-  blurOverlay: () => void
   minimize: () => void
   close: () => void
 }
@@ -40,9 +26,23 @@ interface DashboardControl {
   onSelectNote: (callback: (payload?: { noteId?: string }) => void) => () => void
 }
 
-interface ShortcutControl {
-  getAll: () => Promise<ShortcutState>
-  update: (action: ShortcutAction, shortcut: string | null) => Promise<ShortcutState>
+interface RecordingControl {
+  start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => Promise<void>
+  stop: () => Promise<void>
+  showOverlay: () => Promise<void>
+  getSnapshot: () => Promise<RecordingUiSnapshot>
+  publishSession: (session: RecordingSessionSnapshot) => void
+  publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => void
+  markSurfaceReady: (sessionId: string) => void
+  getNoteDraft: () => Promise<RecordingNoteDraft | null>
+  updateNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
+  acknowledgeNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
+  setDraftFlushProvider: (provider: () => Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'> | null) => () => void
+  onStart: (callback: (input: { sessionId: string; noteId: string; noteTitle: string; startedAt: number }) => void) => () => void
+  onStop: (callback: (input: { stoppedAt: number }) => void) => () => void
+  onSession: (callback: (session: RecordingSessionSnapshot | null) => void) => () => void
+  onTranscriptUpdate: (callback: (segment: RecordingTranscriptSegment) => void) => () => void
+  onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => () => void
 }
 
 interface RecordingSettingsControl {
@@ -93,25 +93,17 @@ interface ElectronAPI {
   ) => () => void
 }
 
-interface AudioCaptureControl {
-  getDesktopSourceId: () => Promise<string | null>
-  startSystemAudioStream: () => Promise<void>
-  stopSystemAudioStream: () => void
-  onSystemAudioChunk: (callback: (buffer: ArrayBuffer) => void) => () => void
-}
-
 declare global {
   interface Window {
     appEvents?: AppEventsControl
     windowControl?: WindowControl
     electronAPI?: ElectronAPI
-    shortcutControl?: ShortcutControl
+    recordingControl?: RecordingControl
     recordingSettings?: RecordingSettingsControl
     attachments?: AttachmentsControl
     editorContextMenu?: EditorContextMenuControl
     liveInsights?: LiveInsightsControl
     dashboard?: DashboardControl
-    audioCapture?: AudioCaptureControl
     env?: {
       platform: NodeJS.Platform
     }

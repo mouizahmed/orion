@@ -31,7 +31,11 @@ export function RecordingBars({
       {bars.map((height, index) => (
         <motion.span
           key={index}
-          animate={{ scaleY: animate ? waveforms[index] : 1 }}
+          animate={{
+            height: animate
+              ? waveforms[index].map((scale) => Math.round(height * scale))
+              : height,
+          }}
           transition={animate
             ? {
                 duration: 0.78 + index * 0.045,
@@ -41,7 +45,7 @@ export function RecordingBars({
               }
             : { duration: 0.15 }}
           className="block w-[2px] rounded-full bg-current"
-          style={{ height, transformOrigin: 'center' }}
+          style={{ height }}
         />
       ))}
     </span>

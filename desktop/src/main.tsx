@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import OverlayApp from './app/OverlayApp.tsx'
+import AuthApp from './app/AuthApp.tsx'
+import RecordingOverlayApp from './app/RecordingOverlayApp.tsx'
 import DashboardApp from './app/DashboardApp.tsx'
 import ChatFoundationPreview from './features/chat/dev/ChatFoundationPreview.tsx'
 import './index.css'
@@ -33,7 +34,9 @@ const RootComponent =
     ? <ChatFoundationPreview />
     : view === 'dashboard'
       ? <DashboardApp />
-      : <OverlayApp />
+      : view === 'auth'
+        ? <AuthApp />
+        : <RecordingOverlayApp />
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
