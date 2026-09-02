@@ -14,6 +14,7 @@ type DashboardRecordingContextValue = {
   resume: (noteId: string, noteTitle: string, noteMarkdown: string) => Promise<void>
   updateNoteDraft: (noteId: string, value: string) => void
   acknowledgeNoteDraft: (draft: RecordingNoteDraft) => void
+  discardNoteDraft: (noteId: string) => void
 }
 
 type DashboardRecordingSessionContextValue = {
@@ -120,6 +121,7 @@ export function DashboardRecordingProvider({ children }: { children: ReactNode }
       })
     },
     acknowledgeNoteDraft: (draft: RecordingNoteDraft) => desktopApi.recording.acknowledgeNoteDraft(draft),
+    discardNoteDraft: (noteId: string) => desktopApi.recording.discardNoteDraft(noteId),
   }), [])
 
   const value = useMemo<DashboardRecordingContextValue>(() => ({

@@ -70,6 +70,7 @@ export default function NoteEditorView({
     resume,
     updateNoteDraft: updateRecordingNoteDraft,
     acknowledgeNoteDraft,
+    discardNoteDraft,
   } = useDashboardRecording()
   const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(userId ?? '')
   const { mutateAsync: moveNoteAsync } = useMoveNoteMutation(userId ?? '')
@@ -301,14 +302,20 @@ export default function NoteEditorView({
           }
         })
         .catch((error: unknown) => {
-          if (error instanceof Error && error.message === 'note not found') selectNote(null)
-          else if (error instanceof Error && error.message === 'note has changed') toast.error('This note changed elsewhere. Your note draft was kept.')
+          if (error instanceof Error && error.message === 'note not found') {
+            // The note is gone, so its pending recording draft can never be
+            // saved or acknowledged; discard it or it blocks recording forever.
+            if (recordingNoteDraftRef.current?.noteId === noteID) discardNoteDraft(noteID)
+            selectNote(null)
+          } else if (error instanceof Error && error.message === 'note has changed') {
+            toast.error('This note changed elsewhere. Your note draft was kept.')
+          }
         })
     }, 400)
     return () => {
       if (bodySaveTimerRef.current) window.clearTimeout(bodySaveTimerRef.current)
     }
-  }, [acknowledgeNoteDraft, draftNote, selectNote, selectedId, updateNoteAsync])
+  }, [acknowledgeNoteDraft, discardNoteDraft, draftNote, selectNote, selectedId, updateNoteAsync])
 
   const handleMoveNote = useCallback((folderID: string | null) => {
     if (!selectedId) return

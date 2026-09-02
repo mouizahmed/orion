@@ -156,6 +156,9 @@ contextBridge.exposeInMainWorld('recordingControl', {
   acknowledgeNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => {
     ipcRenderer.send('recording:ack-note-draft', draft)
   },
+  discardNoteDraft: (noteId: string) => {
+    ipcRenderer.send('recording:discard-note-draft', { noteId })
+  },
   setDraftFlushProvider: (provider: () => RecordingDraftFlushValue | null) => {
     recordingDraftFlushProvider = provider
     return () => {

@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
+import { desktopApi } from '@/lib/desktop-api'
+import { useDashboardRecordingSession } from '@/features/recording/DashboardRecordingContext'
 import { CreateNoteDialog } from '@/features/notes/dialogs/CreateNoteDialog'
 import { DeleteConfirmationDialog } from '@/features/notes/dialogs/DeleteConfirmationDialog'
 import type { FolderRecord } from '@/features/notes/folder-types'
@@ -67,6 +69,13 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
 
   const foldersQuery = useFoldersQuery(userId)
   const selectedNoteQuery = useNoteQuery(userId, selectedId)
+  const { session: recordingSession } = useDashboardRecordingSession()
+  // Deleting the note a live recording writes into would strand its draft:
+  // the discard guard refuses to drop a live session's draft, and after
+  // completion no editor could ever hydrate the deleted note to save it.
+  const activeRecordingNoteId = recordingSession && recordingSession.phase !== 'complete'
+    ? recordingSession.noteId
+    : null
   const folders = useMemo(() => foldersQuery.data ?? [], [foldersQuery.data])
   const { mutateAsync: createFolderAsync } = useCreateFolderMutation(accountID)
   const { mutateAsync: deleteFolderAsync } = useDeleteFolderMutation(accountID)
@@ -75,6 +84,21 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
   const { mutateAsync: deleteNoteAsync } = useDeleteNoteMutation(accountID)
   const { mutateAsync: updateNoteAsync } = useUpdateNoteMutation(accountID)
   const { mutateAsync: moveNoteAsync } = useMoveNoteMutation(accountID)
+
+  // A selected note that no longer exists (deleted elsewhere, or a stale
+  // recording-recovery target) would otherwise leave the editor loading
+  // forever — and any pending recording draft for it unacknowledgeable, which
+  // blocks new recordings. Only a definitive not-found deselects; transient
+  // network errors keep the selection so a refetch can recover.
+  const selectedNoteMissing = Boolean(selectedId && (
+    (selectedNoteQuery.isSuccess && selectedNoteQuery.data === null)
+    || (selectedNoteQuery.error instanceof Error && selectedNoteQuery.error.message === 'note not found')
+  ))
+  useEffect(() => {
+    if (!selectedNoteMissing || !selectedId) return
+    desktopApi.recording.discardNoteDraft(selectedId)
+    setSelectedId(null)
+  }, [selectedNoteMissing, selectedId])
 
   const selectNote = useCallback((id: string | null) => setSelectedId(id), [])
   const selectFolder = useCallback((id: string | null) => setSelectedFolderId(id), [])
@@ -175,15 +199,21 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
 
   const deleteById = useCallback(
     async (noteID: string) => {
+      if (noteID === activeRecordingNoteId) return false
       try {
         const deleted = await deleteNoteAsync(noteID)
-        if (deleted) setSelectedId((current) => (current === noteID ? null : current))
+        if (deleted) {
+          setSelectedId((current) => (current === noteID ? null : current))
+          // A pending recording draft for a deleted note can never be saved;
+          // main ignores this unless the draft matches and is not mid-session.
+          desktopApi.recording.discardNoteDraft(noteID)
+        }
         return deleted
       } catch {
         return false
       }
     },
-    [deleteNoteAsync],
+    [activeRecordingNoteId, deleteNoteAsync],
   )
 
   const requestDeleteFolder = useCallback((folderID: string, name?: string) => {
@@ -208,6 +238,10 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
 
   const confirmDeletion = useCallback(async () => {
     if (!pendingDeletion || deleting) return
+    if (pendingDeletion.kind === 'note' && pendingDeletion.id === activeRecordingNoteId) {
+      setDeleteError('Stop the active recording before deleting this note.')
+      return
+    }
     setDeleting(true)
     setDeleteError(null)
     try {
@@ -217,6 +251,7 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
       if (!deleted) throw new Error(`Could not delete ${pendingDeletion.kind}`)
       if (pendingDeletion.kind === 'note') {
         setSelectedId((current) => (current === pendingDeletion.id ? null : current))
+        desktopApi.recording.discardNoteDraft(pendingDeletion.id)
       } else {
         setSelectedFolderId((current) => (current === pendingDeletion.id ? null : current))
       }
@@ -226,7 +261,7 @@ export function DashboardNotesProvider({ userId, children }: { userId?: string; 
     } finally {
       setDeleting(false)
     }
-  }, [deleteFolderAsync, deleteNoteAsync, deleting, pendingDeletion])
+  }, [activeRecordingNoteId, deleteFolderAsync, deleteNoteAsync, deleting, pendingDeletion])
 
   const value = useMemo<DashboardNotesContextType>(
     () => ({

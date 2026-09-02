@@ -36,7 +36,7 @@ function publishRecordingUiSnapshot(
     snapshot.session?.phase === 'finalizing'
     && previous.session?.phase !== 'finalizing'
   ) {
-    revealDashboardWindow(snapshot.session.noteId)
+    revealDashboardWithDraftFlush(snapshot.session.noteId)
   }
 
   if (
@@ -126,7 +126,15 @@ function flushRendererNoteDraft(contents: WebContents, timeoutMs = 1_000) {
       draftFlushWaiters.delete(flushId)
       resolve()
     })
-    contents.send('recording:request-draft-flush', { flushId })
+    try {
+      contents.send('recording:request-draft-flush', { flushId })
+    } catch {
+      // The renderer died between the destroyed-check and the send (e.g. the
+      // post-complete overlay teardown). Navigation must still proceed.
+      clearTimeout(timeout)
+      draftFlushWaiters.delete(flushId)
+      resolve()
+    }
   })
 }
 
@@ -317,6 +325,10 @@ export function setupRecordingIpc() {
       ) {
         return
       }
+      // The dashboard may have been reopened (tray, protocol reveal) while the
+      // flush was in flight; revealing the overlay now would cover it.
+      const dashboard = getDashboardWindow()
+      if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) return
       const overlay = getWindow()
       if (
         overlay
@@ -548,6 +560,24 @@ export function setupRecordingIpc() {
       publishRecordingNoteDraft(null)
       flushRecordingDraftPersistence()
     }
+  })
+
+  // A pending draft blocks new recordings until it is acknowledged as saved.
+  // When its note no longer exists (deleted locally or on another device),
+  // that save can never happen, so the dashboard discards the draft instead —
+  // otherwise the encrypted persisted draft would block recording forever.
+  ipcMain.on('recording:discard-note-draft', (event, input?: { noteId?: string }) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) return
+    if (recordingDraftAccountId !== getCurrentAuthUserId()) return
+    if (!recordingNoteDraft || input?.noteId !== recordingNoteDraft.noteId) return
+    // Never discard the live session's draft out from under an active recording.
+    if (
+      recordingUiSnapshot.session
+      && recordingUiSnapshot.session.phase !== 'complete'
+      && recordingUiSnapshot.session.sessionId === recordingNoteDraft.sessionId
+    ) return
+    publishRecordingNoteDraft(null)
+    flushRecordingDraftPersistence()
   })
 
   ipcMain.on('recording:publish-session', (event, session: RecordingSessionSnapshot) => {

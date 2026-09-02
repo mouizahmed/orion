@@ -35,6 +35,7 @@ export const electronDesktopApi: DesktopApi = {
     getNoteDraft: () => window.recordingControl?.getNoteDraft?.() ?? missingApi('recordingControl.getNoteDraft'),
     updateNoteDraft: (draft) => window.recordingControl?.updateNoteDraft?.(draft),
     acknowledgeNoteDraft: (draft) => window.recordingControl?.acknowledgeNoteDraft?.(draft),
+    discardNoteDraft: (noteId) => window.recordingControl?.discardNoteDraft?.(noteId),
     setDraftFlushProvider: (provider) => window.recordingControl?.setDraftFlushProvider?.(provider) ?? (() => undefined),
     onStart: (callback) => window.recordingControl?.onStart?.(callback) ?? (() => undefined),
     onStop: (callback) => window.recordingControl?.onStop?.(callback) ?? (() => undefined),

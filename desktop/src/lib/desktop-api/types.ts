@@ -94,6 +94,7 @@ export type DesktopApi = {
     getNoteDraft: () => Promise<RecordingNoteDraft | null>
     updateNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
     acknowledgeNoteDraft: (draft: Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'>) => void
+    discardNoteDraft: (noteId: string) => void
     setDraftFlushProvider: (provider: () => Pick<RecordingNoteDraft, 'sessionId' | 'noteId' | 'value'> | null) => () => void
     onStart: (callback: (input: { sessionId: string; noteId: string; noteTitle: string; startedAt: number }) => void) => () => void
     onStop: (callback: (input: { stoppedAt: number }) => void) => () => void
