@@ -17,6 +17,12 @@ export type TranscriptPhase =
 
 export type RecordingAudioSource = 'microphone' | 'system'
 
+export type RecordingAudioLevels = {
+  sessionId: string
+  microphoneRms: number
+  systemRms: number
+}
+
 export type RecordingSessionSnapshot = {
   sessionId: string
   noteId: string
@@ -58,6 +64,15 @@ export type RecordingNoteDraft = {
   noteId: string
   value: string
   version: number
+}
+
+export type RecordingRecoveryNotice = {
+  sessionId: string
+  noteId: string
+  status: 'starting' | 'recording' | 'finalizing'
+  startedAt: number
+  lastActivityAt: number
+  draftRecovered: boolean
 }
 
 export type RecordingSurface = 'dashboard' | 'overlay'

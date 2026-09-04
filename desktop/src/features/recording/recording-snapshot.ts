@@ -31,7 +31,7 @@ const ALLOWED_PHASE_UPDATES: Record<RecordingPhase, ReadonlySet<RecordingPhase>>
   stopping: new Set(['stopping', 'finalizing', 'error']),
   finalizing: new Set(['finalizing', 'complete', 'error']),
   complete: new Set(['complete']),
-  error: new Set(['error', 'stopping']),
+  error: new Set(['error', 'recording', 'stopping']),
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

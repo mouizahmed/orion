@@ -44,6 +44,7 @@ const IMPORTED_AVATAR_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/gi
 const AUTH_SERVICE_UNAVAILABLE_MESSAGE = 'Authentication service is unavailable.'
 
 type AuthStateCallbacks = {
+  beforeSignOut?: () => Promise<void>
   onSignedIn?: () => void
   onSignedOut?: () => void
   onOAuthPending?: () => void
@@ -171,9 +172,17 @@ let activeLoginTimer: ReturnType<typeof setTimeout> | null = null
 let callbackExchangeInProgress = false
 let queuedAuthCallback: string | null = null
 let validationOperation: Promise<void> | null = null
+let explicitSignOutPending = false
+let implicitAuthLossPending = false
+let implicitAuthLossOperation: Promise<void> | null = null
+let pendingImplicitAuthSnapshot: AuthSnapshot | null = null
 
 export function isRendererAuthenticated(): boolean {
   return snapshot.status === 'authenticated' && Boolean(snapshot.user)
+}
+
+export function isAuthTeardownPending(): boolean {
+  return explicitSignOutPending || implicitAuthLossPending
 }
 
 export function getCurrentAuthToken(): string | null {
@@ -204,6 +213,33 @@ function publish(next: AuthSnapshot) {
   else if (next.status === 'anonymous' || next.status === 'blocked' || next.status === 'service-unavailable') callbacks.onSignedOut?.()
 }
 
+async function publishImplicitAuthLoss(next: AuthSnapshot): Promise<void> {
+  if (snapshot.status !== 'authenticated' || explicitSignOutPending) {
+    publish(next)
+    return
+  }
+
+  pendingImplicitAuthSnapshot = next
+  if (!implicitAuthLossOperation) {
+    implicitAuthLossPending = true
+    const operation = (async () => {
+      try {
+        await callbacks.beforeSignOut?.()
+      } catch (error) {
+        console.error('Could not finalize the active recording before authentication ended:', error)
+      }
+      const target = pendingImplicitAuthSnapshot
+      pendingImplicitAuthSnapshot = null
+      if (target && snapshot.status === 'authenticated') publish(target)
+    })().finally(() => {
+      implicitAuthLossPending = false
+      if (implicitAuthLossOperation === operation) implicitAuthLossOperation = null
+    })
+    implicitAuthLossOperation = operation
+  }
+  await implicitAuthLossOperation
+}
+
 function asUser(payload: unknown): AuthUser {
   const data = payload as Record<string, unknown>
   const id = typeof data.id === 'string' ? data.id : ''
@@ -215,8 +251,16 @@ function asUser(payload: unknown): AuthUser {
   return { id, email, name, plan, picture }
 }
 
-async function bootstrap(session: Session, shouldContinue: () => boolean = () => true): Promise<void> {
+async function bootstrap(
+  session: Session,
+  shouldContinue: () => boolean = () => true,
+  waitForAuthTeardown = true,
+): Promise<void> {
   if (!shouldContinue()) return
+  const publishAuthLoss = async (next: AuthSnapshot) => {
+    const operation = publishImplicitAuthLoss(next)
+    if (waitForAuthTeardown) await operation
+  }
   // Startup and OAuth completion need an explicit loading state. Background
   // revalidation should keep an already-authenticated renderer stable until
   // the backend returns the authoritative next state.
@@ -238,24 +282,30 @@ async function bootstrap(session: Session, shouldContinue: () => boolean = () =>
     }
     const message = typeof payload.message === 'string' ? payload.message : 'Authentication failed.'
     if (response.status === 503) {
-      publish({ status: 'service-unavailable', user: null, error: message, loginProvider: null })
+      await publishAuthLoss({ status: 'service-unavailable', user: null, error: message, loginProvider: null })
       return
     }
     if (response.status === 403) {
-      publish({ status: 'blocked', user: null, error: message, loginProvider: null })
+      await publishAuthLoss({ status: 'blocked', user: null, error: message, loginProvider: null })
       return
     }
     await client?.auth.signOut({ scope: 'local' })
     if (!shouldContinue()) return
-    publish({ status: 'anonymous', user: null, error: message, loginProvider: null })
+    await publishAuthLoss({ status: 'anonymous', user: null, error: message, loginProvider: null })
   } catch {
     if (!shouldContinue()) return
-    publish({ status: 'service-unavailable', user: null, error: 'Authentication service is unavailable.', loginProvider: null })
+    await publishAuthLoss({ status: 'service-unavailable', user: null, error: 'Authentication service is unavailable.', loginProvider: null })
   }
 }
 
-function validateSession(session: Session, shouldContinue?: () => boolean): Promise<void> {
-  if (shouldContinue) return bootstrap(session, shouldContinue)
+function validateSession(
+  session: Session,
+  shouldContinue?: () => boolean,
+  waitForAuthTeardown = true,
+): Promise<void> {
+  if (shouldContinue || !waitForAuthTeardown) {
+    return bootstrap(session, shouldContinue, waitForAuthTeardown)
+  }
   if (validationOperation) return validationOperation
   validationOperation = bootstrap(session).finally(() => { validationOperation = null })
   return validationOperation
@@ -564,42 +614,66 @@ export async function handleAuthProtocolCallback(rawUrl: string): Promise<void> 
 }
 
 async function currentToken(forceRefresh: boolean): Promise<string> {
+  if (isAuthTeardownPending() && currentAccessToken) return currentAccessToken
   if (!client) throw new Error(AUTH_SERVICE_UNAVAILABLE_MESSAGE)
   if (snapshot.status === 'service-unavailable') throw new Error(AUTH_SERVICE_UNAVAILABLE_MESSAGE)
   if (snapshot.status !== 'authenticated') throw new Error('Authentication is required')
   const result = forceRefresh ? await client.auth.refreshSession() : await client.auth.getSession()
   if (result.error && isAuthRetryableFetchError(result.error)) {
-    publish({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
+    void publishImplicitAuthLoss({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
     throw new Error(AUTH_SERVICE_UNAVAILABLE_MESSAGE)
   }
   if (result.error || !result.data.session) {
+    void publishImplicitAuthLoss({ status: 'anonymous', user: null, error: 'Your session expired. Please sign in again.', loginProvider: null })
     await client.auth.signOut({ scope: 'local' })
-    publish({ status: 'anonymous', user: null, error: 'Your session expired. Please sign in again.', loginProvider: null })
     throw new Error('Your session expired. Please sign in again.')
   }
-  if (forceRefresh) await validateSession(result.data.session)
-  if (snapshot.status !== 'authenticated') throw new Error(snapshot.error || 'Authentication is unavailable')
+  if (forceRefresh) await validateSession(result.data.session, undefined, false)
+  if (isAuthTeardownPending() || snapshot.status !== 'authenticated') {
+    throw new Error(snapshot.error || 'Authentication is unavailable')
+  }
   currentAccessToken = result.data.session.access_token
   return currentAccessToken
 }
 
-async function localLogout() {
-  await clearActiveLogin()
-  const { error } = await client!.auth.signOut({ scope: 'local' })
-  publish({ status: 'anonymous', user: null, error: null, loginProvider: null })
-  if (error) console.warn('The local session was cleared but server-side session revocation was unavailable')
+async function prepareExplicitSignOut() {
+  if (isAuthTeardownPending()) throw new Error('Sign out is already in progress')
+  explicitSignOutPending = true
+  try {
+    await callbacks.beforeSignOut?.()
+  } catch (error) {
+    explicitSignOutPending = false
+    throw error
+  }
+}
+
+async function localLogout(prepared = false) {
+  if (!prepared) await prepareExplicitSignOut()
+  try {
+    await clearActiveLogin()
+    const { error } = await client!.auth.signOut({ scope: 'local' })
+    publish({ status: 'anonymous', user: null, error: null, loginProvider: null })
+    if (error) console.warn('The local session was cleared but server-side session revocation was unavailable')
+  } finally {
+    explicitSignOutPending = false
+  }
 }
 
 async function globalLogout() {
   const token = await currentToken(false)
-  const response = await fetch(`${config.backendUrl}/api/auth/logout-all`, {
-    method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    if (response.status === 401) await localLogout()
-    throw new Error(response.status === 503 ? 'Authentication service is unavailable.' : `Sign out failed (${response.status})`)
+  await prepareExplicitSignOut()
+  try {
+    const response = await fetch(`${config.backendUrl}/api/auth/logout-all`, {
+      method: 'POST', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    })
+    if (!response.ok) {
+      if (response.status === 401) await localLogout(true)
+      throw new Error(response.status === 503 ? 'Authentication service is unavailable.' : `Sign out failed (${response.status})`)
+    }
+    await localLogout(true)
+  } finally {
+    explicitSignOutPending = false
   }
-  await localLogout()
 }
 
 function validSupabaseProjectUrl(raw: string): boolean {
@@ -631,7 +705,7 @@ export async function setupAuthHandlers(nextCallbacks: AuthStateCallbacks = {}) 
 
   client.auth.onAuthStateChange((event, session) => {
     if (event === 'SIGNED_OUT') {
-      publish({ status: 'anonymous', user: null, error: null, loginProvider: null })
+      void publishImplicitAuthLoss({ status: 'anonymous', user: null, error: null, loginProvider: null })
     } else if ((event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') && session) {
       setTimeout(() => { void validateSession(session) }, 0)
     }
@@ -650,12 +724,12 @@ export async function setupAuthHandlers(nextCallbacks: AuthStateCallbacks = {}) 
     if (!known(event.sender)) return rejected()
     const { data, error } = await client!.auth.getSession()
     if (error && isAuthRetryableFetchError(error)) {
-      publish({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
+      await publishImplicitAuthLoss({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
       return publicSnapshot()
     }
     if (error || !data.session) {
       await client!.auth.signOut({ scope: 'local' })
-      publish({ status: 'anonymous', user: null, error: 'Your session expired. Please sign in again.', loginProvider: null })
+      await publishImplicitAuthLoss({ status: 'anonymous', user: null, error: 'Your session expired. Please sign in again.', loginProvider: null })
       return publicSnapshot()
     }
     await validateSession(data.session)
@@ -664,10 +738,10 @@ export async function setupAuthHandlers(nextCallbacks: AuthStateCallbacks = {}) 
 
   publish({ status: 'validating', user: null, error: null, loginProvider: null })
   const { data, error } = await client.auth.getSession()
-  if (error && isAuthRetryableFetchError(error)) publish({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
+  if (error && isAuthRetryableFetchError(error)) await publishImplicitAuthLoss({ status: 'service-unavailable', user: null, error: AUTH_SERVICE_UNAVAILABLE_MESSAGE, loginProvider: null })
   else if (error) {
     await client.auth.signOut({ scope: 'local' })
-    publish({ status: 'anonymous', user: null, error: 'Stored session could not be restored.', loginProvider: null })
+    await publishImplicitAuthLoss({ status: 'anonymous', user: null, error: 'Stored session could not be restored.', loginProvider: null })
   }
   else if (data.session) await validateSession(data.session)
   else if (hasPendingLogin && activeLogin) publish({ status: 'oauth-pending', user: null, error: null, loginProvider: activeLogin.provider })

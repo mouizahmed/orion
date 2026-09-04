@@ -20,6 +20,7 @@ import type {
 import { useRecordingElapsedTime } from '@/features/recording/components/useRecordingElapsedTime'
 import { cn } from '@/lib/utils'
 import { desktopApi } from '@/lib/desktop-api'
+import { useRecordingAudioLevel } from '@/features/recording/use-recording-audio-level'
 
 type RecordingOverlayHeaderProps = {
   collapsed: boolean
@@ -49,6 +50,7 @@ export default function RecordingOverlayHeader({
 }: RecordingOverlayHeaderProps) {
   const elapsedMs = useRecordingElapsedTime(session)
   const status = getRecordingOverlayStatus(session)
+  const audioLevel = useRecordingAudioLevel(session.sessionId)
   const ending = session.phase === 'stopping' || session.phase === 'finalizing' || session.phase === 'complete'
 
   return (
@@ -85,7 +87,7 @@ export default function RecordingOverlayHeader({
           )}
           title={status.label}
         >
-          <RecordingBars isRecording={status.activityActive} className="h-4 w-4 scale-75" />
+          <RecordingBars isRecording={status.activityActive} level={audioLevel} className="h-4 w-4 scale-75" />
         </span>
         <Button
           type="button"

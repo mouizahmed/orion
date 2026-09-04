@@ -16,6 +16,8 @@ go.work.sum
 database_design.md
 database_schema.sql
 /backend/cmd/url-extractor
+/desktop/native/audio-engine/target/
+/desktop/native/macos-system-audio/target/
 
 .claude/
 .runtime-logs/

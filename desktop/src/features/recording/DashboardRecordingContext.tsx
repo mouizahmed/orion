@@ -1,15 +1,21 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import type { RecordingNoteDraft, RecordingUiSnapshot } from '@/features/recording/recording-types'
 import { desktopApi } from '@/lib/desktop-api'
 import { applyRecordingTranscriptUpdate } from '@/features/recording/recording-state'
 import { useRecordingNoteDraftFeed } from '@/features/recording/use-recording-note-draft-feed'
+import type { RecordingRecoveryNotice } from '@/features/recording/recording-types'
+import { toast } from 'sonner'
+import { useAuth } from '@/features/auth/AuthContext'
+import { queryKeys } from '@/lib/query-keys'
 
 const EMPTY_SNAPSHOT: RecordingUiSnapshot = { session: null, transcript: [] }
 
 type DashboardRecordingContextValue = {
   snapshot: RecordingUiSnapshot
   noteDraft: RecordingNoteDraft | null
+  recoveryNotice: RecordingRecoveryNotice | null
   showOverlay: () => Promise<void>
   resume: (noteId: string, noteTitle: string, noteMarkdown: string) => Promise<void>
   updateNoteDraft: (noteId: string, value: string) => void
@@ -28,6 +34,9 @@ const DashboardRecordingSessionContext = createContext<DashboardRecordingSession
 export function DashboardRecordingProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<RecordingUiSnapshot>(EMPTY_SNAPSHOT)
   const [noteDraft, setNoteDraft] = useState<RecordingNoteDraft | null>(null)
+  const [recoveryNotice, setRecoveryNotice] = useState<RecordingRecoveryNotice | null>(null)
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
   const sessionRef = useRef(snapshot.session)
   const noteDraftRef = useRef(noteDraft)
   sessionRef.current = snapshot.session
@@ -89,6 +98,64 @@ export function DashboardRecordingProvider({ children }: { children: ReactNode }
   // the swap are part of the draft the incoming editor hydrates from.
   useEffect(() => desktopApi.recording.setDraftFlushProvider(() => flushValueRef.current), [])
 
+  useEffect(() => {
+    let active = true
+    let receivedEvent = false
+    const present = (notice: RecordingRecoveryNotice | null) => {
+      setRecoveryNotice(notice)
+      if (!notice) return
+      const toastId = `recording-recovery-${notice.sessionId}`
+      toast.warning('Unfinished recording found', {
+        id: toastId,
+        description: notice.draftRecovered
+          ? 'Recover the saved transcript and draft, then Resume creates a new session.'
+          : 'Recover any saved transcript, then Resume creates a new session.',
+        duration: Infinity,
+        action: {
+          label: 'Recover',
+          onClick: () => {
+            toast.loading('Recovering recording…', { id: toastId })
+            void desktopApi.recording.recoverLastRecording(notice.sessionId).then(async (result) => {
+              if (user?.id) {
+                await queryClient.invalidateQueries({
+                  queryKey: queryKeys.noteTranscript(user.id, result.noteId),
+                }).catch((error) => {
+                  console.error('Failed to refresh recovered transcript', error)
+                })
+              }
+              desktopApi.recording.acknowledgeRecoveryNotice(notice.sessionId)
+              desktopApi.dashboard.open(result.noteId)
+              toast.success('Recording recovered', {
+                id: toastId,
+                description: 'Saved transcript is refreshed. Resume starts a new recording.',
+              })
+            }).catch((error) => {
+              toast.error('Could not recover recording', {
+                id: `${toastId}-error`,
+                description: error instanceof Error ? error.message : 'Try again.',
+                duration: 12_000,
+              })
+              present(notice)
+            })
+          },
+        },
+      })
+    }
+    const unsubscribe = desktopApi.recording.onRecoveryNotice((notice) => {
+      receivedEvent = true
+      present(notice)
+    })
+    void desktopApi.recording.getRecoveryNotice().then((notice) => {
+      if (active && !receivedEvent) present(notice)
+    }).catch((error) => {
+      console.error('Failed to load recording recovery state', error)
+    })
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [queryClient, user?.id])
+
   useRecordingNoteDraftFeed(useCallback((next: RecordingNoteDraft | null) => {
     if (!next) {
       flushValueRef.current = null
@@ -127,8 +194,9 @@ export function DashboardRecordingProvider({ children }: { children: ReactNode }
   const value = useMemo<DashboardRecordingContextValue>(() => ({
     snapshot,
     noteDraft,
+    recoveryNotice,
     ...controls,
-  }), [controls, noteDraft, snapshot])
+  }), [controls, noteDraft, recoveryNotice, snapshot])
 
   const hasPendingDraft = Boolean(noteDraft)
   const sessionValue = useMemo<DashboardRecordingSessionContextValue>(() => ({

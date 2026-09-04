@@ -2,6 +2,7 @@ package storage
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -15,12 +16,13 @@ import (
 )
 
 type B2Client struct {
-	bucketName  string
-	bucketID    string
-	apiURL      string
-	downloadURL string
-	authToken   string
-	httpClient  *http.Client
+	bucketName   string
+	bucketID     string
+	apiURL       string
+	downloadURL  string
+	authToken    string
+	httpClient   *http.Client
+	uploadClient *http.Client
 }
 
 // B2 Native API structures
@@ -76,9 +78,10 @@ type B2CancelLargeFileResponse struct {
 
 func NewB2Client() (*B2Client, error) {
 	b2Client := &B2Client{
-		bucketName: os.Getenv("B2_BUCKET_NAME"),
-		bucketID:   os.Getenv("B2_BUCKET_ID"),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		bucketName:   os.Getenv("B2_BUCKET_NAME"),
+		bucketID:     os.Getenv("B2_BUCKET_ID"),
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		uploadClient: &http.Client{Timeout: 30 * time.Minute},
 	}
 
 	// Authorize with B2 Native API
@@ -92,9 +95,10 @@ func NewB2Client() (*B2Client, error) {
 
 func NewB2ClientFor(bucketName, bucketID string) (*B2Client, error) {
 	b2Client := &B2Client{
-		bucketName: bucketName,
-		bucketID:   bucketID,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		bucketName:   bucketName,
+		bucketID:     bucketID,
+		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		uploadClient: &http.Client{Timeout: 30 * time.Minute},
 	}
 
 	if err := b2Client.authorizeB2(); err != nil {
@@ -171,8 +175,7 @@ func (b *B2Client) StartLargeFile(fileName, contentType string) (*B2StartLargeFi
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("start large file failed: %s", string(body))
+		return nil, b2StatusError("start large file", resp.StatusCode)
 	}
 
 	var startResp B2StartLargeFileResponse
@@ -203,8 +206,7 @@ func (b *B2Client) GetUploadPartURL(fileID string) (*B2GetUploadPartURLResponse,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get upload part URL failed: %s", string(body))
+		return nil, b2StatusError("get upload part URL", resp.StatusCode)
 	}
 
 	var urlResp B2GetUploadPartURLResponse
@@ -238,8 +240,7 @@ func (b *B2Client) UploadPart(uploadURL, authToken string, partNumber int, data 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("upload part failed: %s", string(body))
+		return "", b2StatusError("upload part", resp.StatusCode)
 	}
 
 	return sha1Hash, nil
@@ -269,8 +270,7 @@ func (b *B2Client) FinishLargeFile(fileID string, partSha1Array []string) (*B2Fi
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("finish large file failed: %s", string(body))
+		return nil, b2StatusError("finish large file", resp.StatusCode)
 	}
 
 	var finishResp B2FinishLargeFileResponse
@@ -304,8 +304,7 @@ func (b *B2Client) CancelLargeFile(fileID string) (*B2CancelLargeFileResponse, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("cancel large file failed: %s", string(body))
+		return nil, b2StatusError("cancel large file", resp.StatusCode)
 	}
 
 	var cancelResp B2CancelLargeFileResponse
@@ -356,8 +355,7 @@ func (b *B2Client) GetUploadURL() (*B2GetUploadURLResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get upload URL failed: %s", string(body))
+		return nil, b2StatusError("get upload URL", resp.StatusCode)
 	}
 
 	var uploadResp B2GetUploadURLResponse
@@ -392,8 +390,7 @@ func (b *B2Client) UploadFile(uploadURL, authToken, fileName, contentType string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("upload file failed: %s", string(body))
+		return nil, b2StatusError("upload file", resp.StatusCode)
 	}
 
 	var uploadResp B2UploadFileResponse
@@ -401,6 +398,52 @@ func (b *B2Client) UploadFile(uploadURL, authToken, fileName, contentType string
 		return nil, err
 	}
 
+	return &uploadResp, nil
+}
+
+// UploadReader streams a size- and checksum-declared object without retaining
+// its contents in backend memory. Backblaze verifies the supplied SHA-1.
+func (b *B2Client) UploadReader(
+	ctx context.Context,
+	uploadURL string,
+	authToken string,
+	fileName string,
+	contentType string,
+	contentLength int64,
+	contentSHA1 string,
+	fileInfo map[string]string,
+	reader io.Reader,
+) (*B2UploadFileResponse, error) {
+	if contentLength <= 0 {
+		return nil, fmt.Errorf("upload content length must be positive")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, reader)
+	if err != nil {
+		return nil, err
+	}
+	req.ContentLength = contentLength
+	req.Header.Set("Authorization", authToken)
+	req.Header.Set("X-Bz-File-Name", url.PathEscape(fileName))
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-Bz-Content-Sha1", contentSHA1)
+	for key, value := range fileInfo {
+		req.Header.Set("X-Bz-Info-"+key, url.PathEscape(value))
+	}
+
+	resp, err := b.uploadClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, b2StatusError("stream upload", resp.StatusCode)
+	}
+
+	var uploadResp B2UploadFileResponse
+	decoder := json.NewDecoder(io.LimitReader(resp.Body, 64*1024))
+	if err := decoder.Decode(&uploadResp); err != nil {
+		return nil, err
+	}
 	return &uploadResp, nil
 }
 
@@ -431,8 +474,7 @@ func (b *B2Client) DeleteFile(fileName string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("failed to list file: %s", string(body))
+		return b2StatusError("list file", resp.StatusCode)
 	}
 
 	var listResp struct {
@@ -446,8 +488,8 @@ func (b *B2Client) DeleteFile(fileName string) error {
 		return err
 	}
 
-	if len(listResp.Files) == 0 {
-		return fmt.Errorf("file not found: %s", fileName)
+	if len(listResp.Files) == 0 || listResp.Files[0].FileName != fileName {
+		return nil
 	}
 
 	fileID := listResp.Files[0].FileID
@@ -469,8 +511,7 @@ func (b *B2Client) DeleteFile(fileName string) error {
 	defer deleteResp.Body.Close()
 
 	if deleteResp.StatusCode != 200 {
-		body, _ := io.ReadAll(deleteResp.Body)
-		return fmt.Errorf("failed to delete file: %s", string(body))
+		return b2StatusError("delete file", deleteResp.StatusCode)
 	}
 
 	return nil
@@ -511,8 +552,7 @@ func (b *B2Client) GetSignedDownloadURL(b2FileName string, validSeconds int) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("b2_get_download_authorization failed (%d): %s", resp.StatusCode, string(body))
+		return "", b2StatusError("get download authorization", resp.StatusCode)
 	}
 
 	var authResp B2GetDownloadAuthResponse
@@ -544,4 +584,10 @@ func (b *B2Client) GetFileURL(fileName string) string {
 	}
 	encodedFileName := strings.Join(segments, "/")
 	return fmt.Sprintf("%s/file/%s/%s", b.downloadURL, url.PathEscape(b.bucketName), encodedFileName)
+}
+
+func b2StatusError(operation string, statusCode int) error {
+	// B2 response bodies are provider-controlled and may include private object
+	// names or request context. Status plus operation is sufficient telemetry.
+	return fmt.Errorf("B2 %s failed with status %d", operation, statusCode)
 }

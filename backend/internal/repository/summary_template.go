@@ -126,6 +126,29 @@ func (r *SummaryTemplateRepository) List(ctx context.Context, accountID string) 
 	return templates, nil
 }
 
+func (r *SummaryTemplateRepository) FindForFolder(ctx context.Context, accountID, folderID string) (*models.SummaryTemplate, error) {
+	template, err := scanSummaryTemplate(r.db.QueryRowContext(ctx, `
+		SELECT template.id, template.account_id, template.name, template.prompt,
+		       template.created_at, template.updated_at
+		FROM public.account_summary_template_folders AS assignment
+		JOIN public.account_summary_templates AS template
+		  ON template.id = assignment.summary_template_id
+		 AND template.account_id = assignment.account_id
+		JOIN public.folders AS folder
+		  ON folder.id = assignment.folder_id
+		 AND folder.user_id = assignment.account_id
+		 AND folder.deleted_at IS NULL
+		WHERE assignment.account_id = $1 AND assignment.folder_id = $2
+	`, accountID, folderID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find summary template for folder: %w", err)
+	}
+	return template, nil
+}
+
 func lockSummaryTemplateFolders(ctx context.Context, tx *sql.Tx, accountID string, folderIDs []string) error {
 	rows, err := tx.QueryContext(ctx, `
 		SELECT id

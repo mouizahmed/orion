@@ -1,11 +1,13 @@
 import { BrowserWindow, ipcMain, type WebContents } from 'electron'
 import { randomUUID } from 'node:crypto'
-import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '../src/features/recording/recording-types'
+import type { RecordingAudioLevels, RecordingNoteDraft, RecordingRecoveryNotice, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '../src/features/recording/recording-types'
 import { applyRecordingTranscriptUpdate } from '../src/features/recording/recording-state'
-import { canApplyRecordingUiSnapshot, isRecordingSessionSnapshot, isRecordingTranscriptSegment } from '../src/features/recording/recording-snapshot'
 import { createWindow, destroyOverlayWindow, getDashboardWindow, getWindow, isDashboardRendererSender, isOverlayRendererSender, revealDashboardWindow, setDashboardHiddenHandler, showAuthWindow } from './window'
-import { getCurrentAuthUserId, isRendererAuthenticated } from './auth-handlers'
+import { getCurrentAuthUserId, isAuthTeardownPending, isRendererAuthenticated } from './auth-handlers'
 import { loadRecordingDraft, saveRecordingDraft } from './recording-draft-store'
+import { createAudioEngineManager, type AudioEngineManager } from './audio-engine-manager'
+import { createAudioEngineRecordingSessionClient, type BackendRecordingSession } from './audio-engine-recording-session'
+import type { RecordingDspConfiguration } from '../src/features/recording/recording-diagnostics-types'
 
 const EMPTY_RECORDING_UI_SNAPSHOT: RecordingUiSnapshot = { session: null, transcript: [] }
 const MAX_RECORDING_NOTE_DRAFT_LENGTH = 5_000_000
@@ -16,10 +18,76 @@ let recordingNoteDraftVersion = 0
 let overlayRendererReadyId: number | null = null
 let recordingStartPending = false
 let recordingDraftPersistenceTimer: ReturnType<typeof setTimeout> | null = null
+let audioEngineManager: AudioEngineManager | null = null
+let recordingRecoveryNotice: RecordingRecoveryNotice | null = null
+let recordingRecoverySession: BackendRecordingSession | null = null
+let recordingRecoveryOperation: Promise<{ noteId: string }> | null = null
+let recordingRecoveryGeneration = 0
+let overlayRecoveryRevealSessionId: string | null = null
+let overlayRendererRecoverySessionId: string | null = null
 const overlayReadyWaiters = new Map<number, Set<() => void>>()
 const overlaySurfaceReadyWaiters = new Map<string, Set<() => void>>()
 const observedOverlayRenderers = new Set<number>()
 const draftFlushWaiters = new Map<string, () => void>()
+
+function sendToRenderer(contents: WebContents, channel: string, payload: unknown) {
+  if (contents.isDestroyed() || contents.isLoadingMainFrame()) return
+  try {
+    contents.send(channel, payload)
+  } catch (error) {
+    console.warn(`Could not send ${channel} to renderer ${contents.id}`, error)
+  }
+}
+
+function sendRecordingSessionToRenderers(
+  session: RecordingSessionSnapshot | null,
+  { notifyDashboard = true }: { notifyDashboard?: boolean } = {},
+) {
+  const dashboard = getDashboardWindow()
+  if (notifyDashboard && dashboard && !dashboard.isDestroyed()) {
+    sendToRenderer(dashboard.webContents, 'recording:session', session)
+  }
+  const overlay = getWindow()
+  if (overlay && !overlay.isDestroyed() && overlay.webContents.id === overlayRendererReadyId) {
+    sendToRenderer(overlay.webContents, 'recording:session', session)
+  }
+}
+
+function sendRecordingTranscriptUpdateToRenderers(segment: RecordingTranscriptSegment) {
+  const dashboard = getDashboardWindow()
+  if (dashboard && !dashboard.isDestroyed()) {
+    sendToRenderer(dashboard.webContents, 'recording:transcript-update', segment)
+  }
+  const overlay = getWindow()
+  if (overlay && !overlay.isDestroyed() && overlay.webContents.id === overlayRendererReadyId) {
+    sendToRenderer(overlay.webContents, 'recording:transcript-update', segment)
+  }
+}
+
+function publishRecordingAudioLevels(levels: RecordingAudioLevels) {
+  if (recordingUiSnapshot.session?.sessionId !== levels.sessionId) return
+  const dashboard = getDashboardWindow()
+  if (dashboard && !dashboard.isDestroyed()) {
+    sendToRenderer(dashboard.webContents, 'recording:audio-level', levels)
+  }
+  const overlay = getWindow()
+  if (overlay && !overlay.isDestroyed() && overlay.webContents.id === overlayRendererReadyId) {
+    sendToRenderer(overlay.webContents, 'recording:audio-level', levels)
+  }
+}
+
+function publishRecordingTranscriptUpdate(segment: RecordingTranscriptSegment) {
+  const session = recordingUiSnapshot.session
+  if (
+    !session
+    || segment.sessionId !== session.sessionId
+    || segment.noteId !== session.noteId
+  ) return
+  const transcript = applyRecordingTranscriptUpdate(recordingUiSnapshot.transcript, segment)
+  if (transcript === recordingUiSnapshot.transcript) return
+  recordingUiSnapshot = { session, transcript }
+  sendRecordingTranscriptUpdateToRenderers(segment)
+}
 
 function publishRecordingUiSnapshot(
   snapshot: RecordingUiSnapshot,
@@ -27,10 +95,7 @@ function publishRecordingUiSnapshot(
 ) {
   const previous = recordingUiSnapshot
   recordingUiSnapshot = snapshot
-  const dashboard = getDashboardWindow()
-  if (notifyDashboard && dashboard && !dashboard.isDestroyed()) {
-    dashboard.webContents.send('recording:session', snapshot.session)
-  }
+  sendRecordingSessionToRenderers(snapshot.session, { notifyDashboard })
 
   if (
     snapshot.session?.phase === 'finalizing'
@@ -43,12 +108,52 @@ function publishRecordingUiSnapshot(
     snapshot.session?.phase === 'complete'
     && previous.session?.phase !== 'complete'
   ) {
+    overlayRecoveryRevealSessionId = null
+    overlayRendererRecoverySessionId = null
     flushRecordingDraftPersistence()
     setTimeout(() => {
       if (recordingUiSnapshot.session?.sessionId === snapshot.session?.sessionId) {
         destroyOverlayWindow()
       }
     }, 0)
+  }
+}
+
+function getAudioEngineManager() {
+  audioEngineManager ??= createAudioEngineManager({
+    onSessionChanged: (session) => {
+      const transcript = recordingUiSnapshot.session?.sessionId === session.sessionId
+        ? recordingUiSnapshot.transcript
+        : []
+      publishRecordingUiSnapshot({ session, transcript })
+    },
+    onTranscriptUpdate: publishRecordingTranscriptUpdate,
+    onAudioLevels: publishRecordingAudioLevels,
+  })
+  return audioEngineManager
+}
+
+function parseDspConfiguration(input: unknown): RecordingDspConfiguration {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('A valid DSP configuration is required')
+  }
+  const configuration = input as Record<string, unknown>
+  const keys = [
+    'voiceActivityDetection',
+    'automaticGainControl',
+    'noiseSuppression',
+    'echoCancellation',
+  ] as const
+  for (const key of keys) {
+    if (typeof configuration[key] !== 'boolean') {
+      throw new Error(`DSP configuration ${key} must be a boolean`)
+    }
+  }
+  return {
+    voiceActivityDetection: configuration.voiceActivityDetection as boolean,
+    automaticGainControl: configuration.automaticGainControl as boolean,
+    noiseSuppression: configuration.noiseSuppression as boolean,
+    echoCancellation: configuration.echoCancellation as boolean,
   }
 }
 
@@ -63,11 +168,24 @@ function publishRecordingNoteDraft(draft: RecordingNoteDraft | null, excludeSend
   }
   const dashboard = getDashboardWindow()
   if (dashboard && !dashboard.isDestroyed() && dashboard.webContents.id !== excludeSenderId) {
-    dashboard.webContents.send('recording:note-draft', draft)
+    sendToRenderer(dashboard.webContents, 'recording:note-draft', draft)
   }
   const overlay = getWindow()
-  if (overlay && !overlay.isDestroyed() && overlay.webContents.id !== excludeSenderId) {
-    overlay.webContents.send('recording:note-draft', draft)
+  if (
+    overlay
+    && !overlay.isDestroyed()
+    && overlay.webContents.id === overlayRendererReadyId
+    && overlay.webContents.id !== excludeSenderId
+  ) {
+    sendToRenderer(overlay.webContents, 'recording:note-draft', draft)
+  }
+}
+
+function publishRecordingRecoveryNotice(notice: RecordingRecoveryNotice | null) {
+  recordingRecoveryNotice = notice
+  const dashboard = getDashboardWindow()
+  if (dashboard && !dashboard.isDestroyed()) {
+    sendToRenderer(dashboard.webContents, 'recording:recovery-notice', notice)
   }
 }
 
@@ -204,8 +322,127 @@ function revealOverlayWindow(overlay: BrowserWindow) {
 }
 
 export function resetRecordingUiSnapshot({ clearDraft = true }: { clearDraft?: boolean } = {}) {
+  recordingRecoveryGeneration += 1
+  recordingRecoveryNotice = null
+  recordingRecoverySession = null
+  recordingRecoveryOperation = null
+  audioEngineManager?.dispose()
+  audioEngineManager = null
+  overlayRecoveryRevealSessionId = null
+  overlayRendererRecoverySessionId = null
   publishRecordingUiSnapshot(EMPTY_RECORDING_UI_SNAPSHOT)
   if (clearDraft) publishRecordingNoteDraft(null)
+}
+
+export async function hydrateRecordingRecoveryForCurrentAccount(): Promise<void> {
+  restoreRecordingDraftForCurrentAccount()
+  const accountId = getCurrentAuthUserId()
+  if (!accountId) return
+  const generation = ++recordingRecoveryGeneration
+  const active = await createAudioEngineRecordingSessionClient().getActive()
+  if (
+    generation !== recordingRecoveryGeneration
+    || getCurrentAuthUserId() !== accountId
+  ) return
+  if (!active) {
+    recordingRecoverySession = null
+    publishRecordingRecoveryNotice(null)
+    return
+  }
+  if (active.userId !== accountId.toLowerCase()) {
+    throw new Error('Recording recovery returned another account')
+  }
+  if (!['starting', 'recording', 'finalizing'].includes(active.status)) {
+    throw new Error('Recording recovery returned a terminal session')
+  }
+  recordingRecoverySession = active
+  publishRecordingRecoveryNotice({
+    sessionId: active.clientSessionId,
+    noteId: active.noteId,
+    status: active.status as RecordingRecoveryNotice['status'],
+    startedAt: Date.parse(active.startedAt),
+    lastActivityAt: Date.parse(active.lastActivityAt),
+    draftRecovered: Boolean(
+      recordingNoteDraft
+      && recordingNoteDraft.sessionId === active.clientSessionId
+      && recordingNoteDraft.noteId === active.noteId
+    ),
+  })
+}
+
+function recoverDiscoveredRecording(sessionId: string): Promise<{ noteId: string }> {
+  if (recordingRecoveryOperation) return recordingRecoveryOperation
+  const discovered = recordingRecoverySession
+  const accountId = getCurrentAuthUserId()
+  if (!accountId || !discovered || discovered.clientSessionId !== sessionId) {
+    return Promise.reject(new Error('Recording recovery is no longer available'))
+  }
+  if (
+    recordingStartPending
+    || (recordingUiSnapshot.session && recordingUiSnapshot.session.phase !== 'complete')
+  ) {
+    return Promise.reject(new Error('Stop the current recording before recovering another session'))
+  }
+  const generation = recordingRecoveryGeneration
+  const operation = (async () => {
+    const client = createAudioEngineRecordingSessionClient()
+    const active = await client.getActive()
+    if (
+      generation !== recordingRecoveryGeneration
+      || getCurrentAuthUserId() !== accountId
+    ) throw new Error('Recording recovery was superseded')
+    if (active && active.clientSessionId !== sessionId) {
+      throw new Error('A different recording is now active')
+    }
+    if (active && active.userId !== accountId.toLowerCase()) {
+      throw new Error('Recording recovery returned another account')
+    }
+    if (active) await client.recover(active)
+    if (
+      generation !== recordingRecoveryGeneration
+      || getCurrentAuthUserId() !== accountId
+    ) throw new Error('Recording recovery was superseded')
+    recordingRecoveryGeneration += 1
+    recordingRecoverySession = null
+    publishRecordingRecoveryNotice(null)
+    return { noteId: discovered.noteId }
+  })()
+  const tracked = operation.finally(() => {
+    if (recordingRecoveryOperation === tracked) recordingRecoveryOperation = null
+  })
+  recordingRecoveryOperation = tracked
+  return tracked
+}
+
+export async function stopRecordingBeforeSignOut(): Promise<void> {
+  await flushOutgoingDashboardDraft()
+  const manager = audioEngineManager
+  const session = recordingUiSnapshot.session
+  if (!manager || !session || session.phase === 'complete') return
+  try {
+    await manager.stop(Date.now())
+  } catch (error) {
+    console.error('Could not finalize the active recording before sign out:', error)
+    if (audioEngineManager === manager) resetRecordingUiSnapshot({ clearDraft: false })
+  }
+}
+
+export async function prepareRecordingForAppQuit(): Promise<void> {
+  await Promise.all([
+    flushOutgoingDashboardDraft(),
+    flushOutgoingOverlayDraft(),
+  ])
+  flushRecordingDraftPersistence()
+  const manager = audioEngineManager
+  const session = recordingUiSnapshot.session
+  if (!manager || !session || session.phase === 'complete') return
+  await manager.stop(Date.now())
+}
+
+export function disposeRecordingForAppQuit(): void {
+  audioEngineManager?.dispose()
+  audioEngineManager = null
+  flushRecordingDraftPersistence()
 }
 
 function releaseOverlayReadyWaiters(senderId: number) {
@@ -213,27 +450,83 @@ function releaseOverlayReadyWaiters(senderId: number) {
   overlayReadyWaiters.delete(senderId)
 }
 
+function isOverlayRecoverySession(session: RecordingSessionSnapshot | null) {
+  return Boolean(
+    session
+    && (session.phase === 'starting' || session.phase === 'recording' || session.phase === 'error'),
+  )
+}
+
+function markOverlayRendererUnavailable(sender: WebContents) {
+  const senderId = sender.id
+  if (overlayRendererReadyId === senderId) overlayRendererReadyId = null
+
+  const interruptedSession = recordingUiSnapshot.session
+  const overlay = getWindow()
+  if (
+    isOverlayRecoverySession(interruptedSession)
+    && overlay
+    && !overlay.isDestroyed()
+    && overlay.webContents.id === senderId
+    && overlay.isVisible()
+  ) {
+    overlayRecoveryRevealSessionId = interruptedSession?.sessionId ?? null
+  }
+  return interruptedSession
+}
+
+function recreateUnavailableOverlayRenderer(sender: WebContents) {
+  const interruptedSession = markOverlayRendererUnavailable(sender)
+  if (
+    !isRendererAuthenticated()
+    || !isOverlayRecoverySession(interruptedSession)
+    || overlayRendererRecoverySessionId === interruptedSession?.sessionId
+  ) return
+
+  overlayRendererRecoverySessionId = interruptedSession?.sessionId ?? null
+  setTimeout(() => {
+    const currentSession = recordingUiSnapshot.session
+    if (
+      !isRendererAuthenticated()
+      || !isOverlayRecoverySession(currentSession)
+      || currentSession?.sessionId !== interruptedSession?.sessionId
+    ) {
+      if (overlayRendererRecoverySessionId === interruptedSession?.sessionId) {
+        overlayRendererRecoverySessionId = null
+      }
+      return
+    }
+
+    const overlay = getWindow()
+    if (overlay && !overlay.isDestroyed() && overlay.webContents.id !== sender.id) {
+      overlayRendererRecoverySessionId = null
+      return
+    }
+
+    try {
+      if (overlay && !overlay.isDestroyed()) destroyOverlayWindow()
+      createWindow({ show: false })
+    } catch (error) {
+      overlayRendererRecoverySessionId = null
+      console.error('Could not recreate the recording overlay window', error)
+    }
+  }, 0)
+}
+
 function markOverlayRendererReady(sender: WebContents) {
   const senderId = sender.id
   overlayRendererReadyId = senderId
+  console.info(`Recording overlay renderer ready (pid ${sender.getOSProcessId()})`)
 
   if (!observedOverlayRenderers.has(senderId)) {
     observedOverlayRenderers.add(senderId)
-    const recoverFromUnavailableRenderer = () => {
-      if (overlayRendererReadyId === senderId) overlayRendererReadyId = null
-      const interruptedSession = recordingUiSnapshot.session
-      if (interruptedSession && interruptedSession.phase !== 'complete') {
-        publishRecordingUiSnapshot(EMPTY_RECORDING_UI_SNAPSHOT)
-        revealDashboardWindow(interruptedSession.noteId)
-      }
-    }
-    sender.on('did-start-loading', recoverFromUnavailableRenderer)
+    sender.on('did-start-loading', () => markOverlayRendererUnavailable(sender))
     sender.on('did-finish-load', () => {
       if (overlayRendererReadyId === senderId) releaseOverlayReadyWaiters(senderId)
     })
-    sender.on('render-process-gone', recoverFromUnavailableRenderer)
+    sender.on('render-process-gone', () => recreateUnavailableOverlayRenderer(sender))
     sender.once('destroyed', () => {
-      recoverFromUnavailableRenderer()
+      markOverlayRendererUnavailable(sender)
       observedOverlayRenderers.delete(senderId)
       overlayReadyWaiters.delete(senderId)
     })
@@ -365,10 +658,29 @@ export function setupRecordingIpc() {
     const sessionId = input?.sessionId
     if (!sessionId || recordingUiSnapshot.session?.sessionId !== sessionId) return
     releaseOverlaySurfaceReadyWaiters(sessionId)
+    if (overlayRendererRecoverySessionId === sessionId) {
+      overlayRendererRecoverySessionId = null
+    }
+    if (overlayRecoveryRevealSessionId !== sessionId) return
+    overlayRecoveryRevealSessionId = null
+    const dashboard = getDashboardWindow()
+    if (dashboard && !dashboard.isDestroyed() && dashboard.isVisible()) return
+    const overlay = getWindow()
+    if (
+      overlay
+      && !overlay.isDestroyed()
+      && overlayRendererReadyId === overlay.webContents.id
+    ) {
+      revealOverlayWindow(overlay)
+    }
   })
 
   ipcMain.handle('recording:start', async (event, input?: { noteId?: string; noteTitle?: string; noteMarkdown?: string }) => {
-    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) {
+    if (
+      !isDashboardRendererSender(event.sender)
+      || !isRendererAuthenticated()
+      || isAuthTeardownPending()
+    ) {
       throw new Error('Unauthorized IPC sender')
     }
     const noteId = input?.noteId?.trim()
@@ -392,7 +704,7 @@ export function setupRecordingIpc() {
     recordingStartPending = true
     try {
       await waitForOverlayRenderer(overlay)
-      if (!isRendererAuthenticated() || overlay.isDestroyed()) {
+      if (!isRendererAuthenticated() || isAuthTeardownPending() || overlay.isDestroyed()) {
         throw new Error('Recording overlay became unavailable')
       }
       if (recordingUiSnapshot.session && recordingUiSnapshot.session.phase !== 'complete') {
@@ -401,24 +713,7 @@ export function setupRecordingIpc() {
 
       const startedAt = Date.now()
       const startInput = { sessionId: randomUUID(), noteId, noteTitle, startedAt }
-      publishRecordingUiSnapshot(
-        {
-          session: {
-            ...startInput,
-            phase: 'starting',
-            transcriptPhase: 'connecting',
-            stoppedAt: null,
-            micMuted: false,
-            systemAudioMuted: false,
-            recoverableError: null,
-          },
-          transcript: [],
-        },
-        // This bootstrap state only guards the main-process start transaction.
-        // Broadcasting it while the dashboard is visible makes its dock animate
-        // immediately before the window is hidden.
-        { notifyDashboard: false },
-      )
+      const engineStart = getAudioEngineManager().start(startInput)
       recordingDraftAccountId = accountId
       publishRecordingNoteDraft({
         sessionId: startInput.sessionId,
@@ -428,9 +723,8 @@ export function setupRecordingIpc() {
       })
 
       const surfaceReady = waitForOverlaySurface(startInput.sessionId)
-      overlay.webContents.send('recording:start', startInput)
       try {
-        await surfaceReady
+        await Promise.all([engineStart, surfaceReady])
       } catch (error) {
         resetRecordingUiSnapshot()
         destroyOverlayWindow()
@@ -480,23 +774,31 @@ export function setupRecordingIpc() {
     ) {
       throw new Error('Unauthorized IPC sender')
     }
-    let session = recordingUiSnapshot.session
+    const session = recordingUiSnapshot.session
     if (!session || session.phase === 'stopping' || session.phase === 'finalizing' || session.phase === 'complete') return
-    const overlay = getWindow()
-    if (!overlay || overlay.isDestroyed()) throw new Error('Recording overlay is unavailable')
-    await waitForOverlayRenderer(overlay)
-    session = recordingUiSnapshot.session
-    if (!session || session.phase === 'stopping' || session.phase === 'finalizing' || session.phase === 'complete') return
-    const stoppedAt = Date.now()
-    publishRecordingUiSnapshot({
-      ...recordingUiSnapshot,
-      session: {
-        ...session,
-        phase: 'stopping',
-        stoppedAt,
-      },
-    })
-    overlay.webContents.send('recording:stop', { stoppedAt })
+    await getAudioEngineManager().stop(Date.now())
+  })
+
+  ipcMain.handle('recording:set-microphone-muted', async (event, input?: { muted?: unknown }) => {
+    if (
+      (!isOverlayRendererSender(event.sender) && !isDashboardRendererSender(event.sender))
+      || !isRendererAuthenticated()
+    ) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    if (typeof input?.muted !== 'boolean') throw new Error('A valid microphone mute state is required')
+    await getAudioEngineManager().setMicrophoneMuted(input.muted)
+  })
+
+  ipcMain.handle('recording:set-system-audio-muted', async (event, input?: { muted?: unknown }) => {
+    if (
+      (!isOverlayRendererSender(event.sender) && !isDashboardRendererSender(event.sender))
+      || !isRendererAuthenticated()
+    ) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    if (typeof input?.muted !== 'boolean') throw new Error('A valid system-audio mute state is required')
+    await getAudioEngineManager().setSystemAudioMuted(input.muted)
   })
 
   ipcMain.handle('recording:get-snapshot', (event) => {
@@ -507,6 +809,48 @@ export function setupRecordingIpc() {
       throw new Error('Unauthorized IPC sender')
     }
     return recordingUiSnapshot
+  })
+
+  ipcMain.handle('recording:get-recovery-notice', (event) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    return recordingRecoveryNotice
+  })
+
+  ipcMain.handle('recording:recover-last', async (event, input?: { sessionId?: unknown }) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    if (typeof input?.sessionId !== 'string') {
+      throw new Error('A valid recovery session is required')
+    }
+    return recoverDiscoveredRecording(input.sessionId)
+  })
+
+  ipcMain.on('recording:ack-recovery-notice', (event, input?: { sessionId?: unknown }) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) return
+    if (
+      typeof input?.sessionId !== 'string'
+      || recordingRecoveryNotice?.sessionId !== input.sessionId
+    ) return
+    publishRecordingRecoveryNotice(null)
+  })
+
+  ipcMain.handle('recording-diagnostics:get-dsp-state', async (event) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    if (!audioEngineManager) throw new Error('There is no active recording')
+    return audioEngineManager.getDspState()
+  })
+
+  ipcMain.handle('recording-diagnostics:set-dsp-configuration', async (event, input: unknown) => {
+    if (!isDashboardRendererSender(event.sender) || !isRendererAuthenticated()) {
+      throw new Error('Unauthorized IPC sender')
+    }
+    if (!audioEngineManager) throw new Error('There is no active recording')
+    return audioEngineManager.setDspConfiguration(parseDspConfiguration(input))
   })
 
   ipcMain.handle('recording:get-note-draft', (event) => {
@@ -580,32 +924,11 @@ export function setupRecordingIpc() {
     flushRecordingDraftPersistence()
   })
 
-  ipcMain.on('recording:publish-session', (event, session: RecordingSessionSnapshot) => {
-    if (!isOverlayRendererSender(event.sender) || !isRendererAuthenticated()) return
-    if (!isRecordingSessionSnapshot(session)) return
-    const transcript = recordingUiSnapshot.session?.sessionId === session.sessionId
-      ? recordingUiSnapshot.transcript
-      : []
-    const next = { session, transcript }
-    if (!canApplyRecordingUiSnapshot(recordingUiSnapshot, next)) return
-    publishRecordingUiSnapshot(next)
+  ipcMain.on('recording:publish-session', () => {
+    // Retained as an inert compatibility endpoint. Main is the sole phase author.
   })
 
-  ipcMain.on('recording:publish-transcript-update', (event, segment: RecordingTranscriptSegment) => {
-    if (!isOverlayRendererSender(event.sender) || !isRendererAuthenticated()) return
-    const session = recordingUiSnapshot.session
-    if (
-      !session
-      || !isRecordingTranscriptSegment(segment)
-      || segment.sessionId !== session.sessionId
-      || segment.noteId !== session.noteId
-    ) return
-    const transcript = applyRecordingTranscriptUpdate(recordingUiSnapshot.transcript, segment)
-    if (transcript === recordingUiSnapshot.transcript) return
-    recordingUiSnapshot = { session, transcript }
-    const dashboard = getDashboardWindow()
-    if (dashboard && !dashboard.isDestroyed()) {
-      dashboard.webContents.send('recording:transcript-update', segment)
-    }
+  ipcMain.on('recording:publish-transcript-update', () => {
+    // Retained as an inert compatibility endpoint. Main owns transcript fan-out.
   })
 }

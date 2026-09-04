@@ -24,8 +24,10 @@ const (
 )
 
 type wsAuthMessage struct {
-	Type  string `json:"type"`
-	Token string `json:"token"`
+	Type               string `json:"type"`
+	Token              string `json:"token"`
+	RecordingSessionID string `json:"recording_session_id,omitempty"`
+	AudioStorage       string `json:"audio_storage,omitempty"`
 }
 
 type wsAuthError struct {
@@ -45,33 +47,41 @@ func (e *wsAuthError) Unwrap() error {
 // authenticateWSConn applies the same active-principal checks as HTTP after a
 // bounded first-message authentication handshake.
 func authenticateWSConn(conn *websocket.Conn, service *orionauth.PrincipalService) (*orionauth.Principal, string, error) {
+	principal, token, _, err := authenticateWSConnWithMessage(conn, service)
+	return principal, token, err
+}
+
+func authenticateWSConnWithMessage(
+	conn *websocket.Conn,
+	service *orionauth.PrincipalService,
+) (*orionauth.Principal, string, wsAuthMessage, error) {
 	_ = conn.SetReadDeadline(time.Now().Add(authTimeout))
 	messageType, payload, err := conn.ReadMessage()
 	if err != nil {
-		return nil, "", newWSAuthError("auth_message_missing", "Authentication message was not received.", err)
+		return nil, "", wsAuthMessage{}, newWSAuthError("auth_message_missing", "Authentication message was not received.", err)
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 	if messageType != websocket.TextMessage {
-		return nil, "", newWSAuthError("auth_message_invalid", "Authentication message is invalid.", nil)
+		return nil, "", wsAuthMessage{}, newWSAuthError("auth_message_invalid", "Authentication message is invalid.", nil)
 	}
 
 	var authMsg wsAuthMessage
 	if err := json.Unmarshal(payload, &authMsg); err != nil {
-		return nil, "", newWSAuthError("auth_message_invalid", "Authentication message is invalid.", err)
+		return nil, "", wsAuthMessage{}, newWSAuthError("auth_message_invalid", "Authentication message is invalid.", err)
 	}
 	if authMsg.Type != "auth" || strings.TrimSpace(authMsg.Token) == "" {
-		return nil, "", newWSAuthError("auth_message_invalid", "Authentication message is invalid.", nil)
+		return nil, "", wsAuthMessage{}, newWSAuthError("auth_message_invalid", "Authentication message is invalid.", nil)
 	}
 
 	principal, err := service.Resolve(context.Background(), authMsg.Token)
 	if err != nil {
 		var principalErr *orionauth.PrincipalError
 		if errors.As(err, &principalErr) {
-			return nil, "", newWSAuthError(string(principalErr.Code), principalErr.Message, err)
+			return nil, "", wsAuthMessage{}, newWSAuthError(string(principalErr.Code), principalErr.Message, err)
 		}
-		return nil, "", newWSAuthError(string(orionauth.PrincipalServiceUnavailable), "Authentication service is unavailable.", err)
+		return nil, "", wsAuthMessage{}, newWSAuthError(string(orionauth.PrincipalServiceUnavailable), "Authentication service is unavailable.", err)
 	}
-	return principal, authMsg.Token, nil
+	return principal, authMsg.Token, authMsg, nil
 }
 
 func newWSAuthError(code, message string, cause error) *wsAuthError {
@@ -99,6 +109,18 @@ func wsCloseForError(err error) (int, string) {
 			return wsCloseUsageLimit, "usage limit exceeded"
 		case "usage_service_unavailable":
 			return websocket.CloseTryAgainLater, "usage authorization unavailable"
+		case "recording_session_required", "recording_session_invalid", "recording_session_unavailable":
+			return wsCloseForbidden, "recording session unavailable"
+		case "recording_session_service_unavailable":
+			return websocket.CloseTryAgainLater, "recording session service unavailable"
+		case "recording_finalization_unavailable":
+			return websocket.CloseTryAgainLater, "recording finalization unavailable"
+		case "recording_storage_unavailable":
+			return websocket.CloseTryAgainLater, "recording storage unavailable"
+		case "recording_storage_invalid":
+			return websocket.CloseProtocolError, "recording storage invalid"
+		case "audio_frame_invalid":
+			return websocket.CloseProtocolError, "audio frame invalid"
 		case string(orionauth.PrincipalUserSuspended),
 			string(orionauth.PrincipalUserDeleted),
 			string(orionauth.PrincipalUserInactive):

@@ -14,6 +14,7 @@ import { ViewSwitch } from '@/components/ui/view-switch'
 import { toast } from 'sonner'
 import MarkdownEditor from '@/features/notes/MarkdownEditor'
 import NoteAssistantDock from '@/features/notes/NoteAssistantDock'
+import NoteMeetingArtifactsSummary from '@/features/notes/NoteMeetingArtifactsSummary'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import NoteAttendeesDropdown from '@/features/notes/NoteAttendeesDropdown'
 import { FolderOptionsList } from '@/features/notes/FolderOptionsList'
@@ -25,6 +26,8 @@ import { reconcileCanonicalDraft } from '@/features/notes/draft-reconciliation'
 import { useDashboardRecording } from '@/features/recording/DashboardRecordingContext'
 import { getRecordingOverlayStatus } from '@/features/recording/recording-overlay-presenter'
 import { isRecordingCaptureActive } from '@/features/recording/recording-state'
+import type { MeetingArtifactsResult } from '@/features/notes/api/meeting-artifacts-client'
+import { formatMeetingArtifactsMarkdown } from '@/features/notes/meeting-artifacts-markdown'
 
 
 type MeetingOption = {
@@ -67,6 +70,7 @@ export default function NoteEditorView({
   const {
     snapshot,
     noteDraft: recordingNoteDraft,
+    recoveryNotice,
     resume,
     updateNoteDraft: updateRecordingNoteDraft,
     acknowledgeNoteDraft,
@@ -83,6 +87,10 @@ export default function NoteEditorView({
   const [draftNote, setDraftNote] = useState('')
   const [hydratedNoteId, setHydratedNoteId] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<NoteView>('notes')
+  const [generatedArtifacts, setGeneratedArtifacts] = useState<{
+    noteId: string
+    result: MeetingArtifactsResult
+  } | null>(null)
   const [shareDialogOpen, setShareDialogOpen] = useState(false)
 
   const [meetingPickerOpen, setMeetingPickerOpen] = useState(false)
@@ -136,6 +144,7 @@ export default function NoteEditorView({
 
   useEffect(() => {
     setActiveView('notes')
+    setGeneratedArtifacts(null)
   }, [selectedId])
 
   // Folder moves can also originate from the sidebar while this editor stays open.
@@ -330,6 +339,32 @@ export default function NoteEditorView({
     setDraftNote(value)
     if (selectedId) updateRecordingNoteDraft(selectedId, value)
   }, [selectedId, updateRecordingNoteDraft])
+
+  const handleInsertMeetingArtifacts = useCallback((result: MeetingArtifactsResult) => {
+    if (!selectedId) return
+    let insertion: string
+    try {
+      insertion = formatMeetingArtifactsMarkdown(result)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not add meeting notes')
+      return
+    }
+    setDraftNote((current) => {
+      const separator = current.length === 0 || current.endsWith('\n\n')
+        ? ''
+        : current.endsWith('\n') ? '\n' : '\n\n'
+      const next = `${current}${separator}${insertion}`
+      updateRecordingNoteDraft(selectedId, next)
+      return next
+    })
+    setActiveView('notes')
+    toast.success('Meeting notes added')
+  }, [selectedId, updateRecordingNoteDraft])
+
+  const handleMeetingArtifactsGenerated = useCallback((result: MeetingArtifactsResult) => {
+    if (!selectedId) return
+    setGeneratedArtifacts({ noteId: selectedId, result })
+  }, [selectedId])
 
   if (!selectedId) return null
   const noteIsLoading = selectedNoteLoading || hydratedNoteId !== selectedId
@@ -546,14 +581,21 @@ export default function NoteEditorView({
                   <div className="flex min-h-[47px] shrink-0 items-start border-b border-neutral-200/80 bg-white p-[7px_8px] dark:border-white/10 dark:bg-[#171417]">
                     {noteViewSwitch}
                   </div>
-                  <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
-                    <div className="max-w-xs">
-                      <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No summary yet</p>
-                      <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                        A summary generated from the transcript will appear here.
-                      </p>
+                  {generatedArtifacts?.noteId === selectedId ? (
+                    <NoteMeetingArtifactsSummary
+                      result={generatedArtifacts.result}
+                      onInsert={handleInsertMeetingArtifacts}
+                    />
+                  ) : (
+                    <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-center">
+                      <div className="max-w-xs">
+                        <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">No summary yet</p>
+                        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                          Generate meeting notes from the saved transcript to review them here.
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </TabsContent>
             </>
@@ -566,12 +608,15 @@ export default function NoteEditorView({
             noteId={selectedId}
             noteTitle={draftTitle || selectedNote.title}
             isRecording={recordingSessionActive}
-            canResumeRecording={!activeRecordingSession && !recordingNoteDraft}
+            canResumeRecording={!activeRecordingSession && !recordingNoteDraft && !recoveryNotice}
             recordingIndicatorActive={recordingIndicatorActive}
+            recordingSessionId={recordingSession?.sessionId}
             canStopRecording={canStopRecording}
             canShowRecordingOverlay={canShowRecordingOverlay}
             liveSegments={recordingSession ? snapshot.transcript : undefined}
             transcriptPhase={recordingSession?.transcriptPhase}
+            onMeetingArtifactsGenerated={handleMeetingArtifactsGenerated}
+            onInsertMeetingArtifacts={handleInsertMeetingArtifacts}
             onResumeRecording={async () => {
               try {
                 await resume(selectedId, draftTitle || selectedNote.title, draftNote)

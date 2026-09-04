@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import AuthApp from './app/AuthApp.tsx'
-import RecordingOverlayApp from './app/RecordingOverlayApp.tsx'
+import RecordingOverlayApp, { RecordingOverlayFixtureApp } from './app/RecordingOverlayApp.tsx'
 import DashboardApp from './app/DashboardApp.tsx'
 import ChatFoundationPreview from './features/chat/dev/ChatFoundationPreview.tsx'
 import './index.css'
@@ -26,12 +26,16 @@ function syncSystemThemeToDom() {
 const params = new URLSearchParams(window.location.search)
 const view = params.get('view')
 const isChatFoundationPreview = import.meta.env.DEV && view === 'chat-foundation'
+const isRecordingFixturePreview = import.meta.env.DEV && view === 'recording-fixture'
+const isDevelopmentPreview = isChatFoundationPreview || isRecordingFixturePreview
 
-if (!isChatFoundationPreview) syncSystemThemeToDom()
+if (!isDevelopmentPreview) syncSystemThemeToDom()
 
 const RootComponent =
   isChatFoundationPreview
     ? <ChatFoundationPreview />
+    : isRecordingFixturePreview
+      ? <RecordingOverlayFixtureApp />
     : view === 'dashboard'
       ? <DashboardApp />
       : view === 'auth'
@@ -44,7 +48,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   </React.StrictMode>,
 )
 
-if (!isChatFoundationPreview) {
+if (!isDevelopmentPreview) {
   desktopApi.appEvents.onMainProcessMessage((message) => {
     console.log(message)
   })

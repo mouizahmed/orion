@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useRecordingElapsedTime } from '@/features/recording/components/useRecordingElapsedTime'
 import { formatRecordingElapsedTime, getRecordingOverlayStatus } from '@/features/recording/recording-overlay-presenter'
 import type { RecordingSessionSnapshot } from '@/features/recording/recording-types'
+import { useRecordingAudioLevel } from '@/features/recording/use-recording-audio-level'
 
 export default function RecordingStatusPill({
   session,
@@ -18,6 +19,7 @@ export default function RecordingStatusPill({
 }) {
   const elapsedMs = useRecordingElapsedTime(session)
   const status = getRecordingOverlayStatus(session)
+  const audioLevel = useRecordingAudioLevel(session.sessionId)
   const canStop = session.phase === 'starting' || session.phase === 'recording' || session.phase === 'error'
 
   return (
@@ -36,6 +38,7 @@ export default function RecordingStatusPill({
       >
         <RecordingBars
           isRecording={status.activityActive}
+          level={audioLevel}
           className="shrink-0 text-[#7c3aed] dark:text-[#9f73f2]"
         />
         <span className="hidden min-w-0 flex-1 truncate text-left text-xs font-medium sm:inline">

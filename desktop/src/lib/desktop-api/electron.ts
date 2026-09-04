@@ -27,8 +27,16 @@ export const electronDesktopApi: DesktopApi = {
   recording: {
     start: (input) => window.recordingControl?.start?.(input) ?? missingApi('recordingControl.start'),
     stop: () => window.recordingControl?.stop?.() ?? missingApi('recordingControl.stop'),
+    setMicrophoneMuted: (muted) => window.recordingControl?.setMicrophoneMuted?.(muted)
+      ?? missingApi('recordingControl.setMicrophoneMuted'),
+    setSystemAudioMuted: (muted) => window.recordingControl?.setSystemAudioMuted?.(muted)
+      ?? missingApi('recordingControl.setSystemAudioMuted'),
     showOverlay: () => window.recordingControl?.showOverlay?.() ?? missingApi('recordingControl.showOverlay'),
     getSnapshot: () => window.recordingControl?.getSnapshot?.() ?? missingApi('recordingControl.getSnapshot'),
+    getRecoveryNotice: () => window.recordingControl?.getRecoveryNotice?.() ?? missingApi('recordingControl.getRecoveryNotice'),
+    recoverLastRecording: (sessionId) => window.recordingControl?.recoverLastRecording?.(sessionId)
+      ?? missingApi('recordingControl.recoverLastRecording'),
+    acknowledgeRecoveryNotice: (sessionId) => window.recordingControl?.acknowledgeRecoveryNotice?.(sessionId),
     publishSession: (session) => window.recordingControl?.publishSession?.(session),
     publishTranscriptUpdate: (segment) => window.recordingControl?.publishTranscriptUpdate?.(segment),
     markSurfaceReady: (sessionId) => window.recordingControl?.markSurfaceReady?.(sessionId),
@@ -41,7 +49,9 @@ export const electronDesktopApi: DesktopApi = {
     onStop: (callback) => window.recordingControl?.onStop?.(callback) ?? (() => undefined),
     onSession: (callback) => window.recordingControl?.onSession?.(callback) ?? (() => undefined),
     onTranscriptUpdate: (callback) => window.recordingControl?.onTranscriptUpdate?.(callback) ?? (() => undefined),
+    onAudioLevels: (callback) => window.recordingControl?.onAudioLevels?.(callback) ?? (() => undefined),
     onNoteDraft: (callback) => window.recordingControl?.onNoteDraft?.(callback) ?? (() => undefined),
+    onRecoveryNotice: (callback) => window.recordingControl?.onRecoveryNotice?.(callback) ?? (() => undefined),
   },
   recordingSettings: {
     isAvailable: () => Boolean(window.recordingSettings),
@@ -49,6 +59,14 @@ export const electronDesktopApi: DesktopApi = {
     update: (settings) => window.recordingSettings?.update?.(settings) ?? missingApi('recordingSettings.update'),
     pickLocalPath: () =>
       window.recordingSettings?.pickLocalPath?.() ?? missingApi('recordingSettings.pickLocalPath'),
+  },
+  recordingDiagnostics: {
+    isAvailable: () => Boolean(window.recordingDiagnostics),
+    getDspState: () => window.recordingDiagnostics?.getDspState?.()
+      ?? missingApi('recordingDiagnostics.getDspState'),
+    setDspConfiguration: (configuration) =>
+      window.recordingDiagnostics?.setDspConfiguration?.(configuration)
+      ?? missingApi('recordingDiagnostics.setDspConfiguration'),
   },
   auth: {
     loginWithGoogle: () => window.electronAPI?.authenticateWithGoogle?.() ?? missingApi('electronAPI.authenticateWithGoogle'),

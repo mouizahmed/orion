@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { RecordingSettings } from '@/lib/desktop-api'
 import { SettingRow, ToggleSwitch } from '@/features/settings/components/SettingsPrimitives'
+import { RecordingDiagnosticsSettings } from '@/features/settings/sections/preferences/RecordingDiagnosticsSettings'
 
 export function PreferencesSettings({
   recordingSettings,
@@ -56,11 +57,17 @@ export function PreferencesSettings({
             label="Storage location"
             value="Where to store recorded audio"
             action={
-              <Select value={recordingSettings.storageLocation} onValueChange={(value) => void updateRecordingSettings({ storageLocation: value === 'local' ? 'local' : 'server' })}>
+              <Select
+                value={recordingSettings.storageLocation}
+                onValueChange={(value) => void updateRecordingSettings({
+                  storageLocation: value === 'local' || value === 'none' ? value : 'server',
+                })}
+              >
                 <SelectTrigger className="w-40" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}><SelectValue /></SelectTrigger>
               <SelectContent align="start">
                   <SelectItem value="server">Orion server</SelectItem>
                   <SelectItem value="local">Local only</SelectItem>
+                  <SelectItem value="none">Do not store audio</SelectItem>
                 </SelectContent>
               </Select>
             }
@@ -94,6 +101,7 @@ export function PreferencesSettings({
           />
         </div>
       </div>
+      <RecordingDiagnosticsSettings />
     </div>
   )
 }

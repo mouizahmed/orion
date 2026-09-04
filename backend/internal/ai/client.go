@@ -26,7 +26,7 @@ type ToolCall struct {
 }
 
 type Message struct {
-	Role       string     // "user" | "assistant" | "tool"
+	Role       string // "user" | "assistant" | "tool"
 	Content    string
 	ToolCalls  []ToolCall // non-empty on assistant messages that invoked tools
 	ToolCallID string     // set on role="tool" result messages
@@ -89,6 +89,21 @@ func NewClient() *Client {
 }
 
 func (c *Client) Generate(ctx context.Context, systemPrompt, userContent string) (string, error) {
+	return c.generate(ctx, systemPrompt, userContent, nil)
+}
+
+func (c *Client) GenerateJSON(ctx context.Context, systemPrompt, userContent string) (string, error) {
+	return c.generate(ctx, systemPrompt, userContent, &openai.ChatCompletionResponseFormat{
+		Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+	})
+}
+
+func (c *Client) generate(
+	ctx context.Context,
+	systemPrompt string,
+	userContent string,
+	responseFormat *openai.ChatCompletionResponseFormat,
+) (string, error) {
 	messages := []openai.ChatCompletionMessage{}
 	if systemPrompt != "" {
 		messages = append(messages, openai.ChatCompletionMessage{
@@ -102,9 +117,10 @@ func (c *Client) Generate(ctx context.Context, systemPrompt, userContent string)
 	})
 
 	resp, err := c.openaiClient.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:     c.generateModel,
-		Messages:  messages,
-		MaxTokens: 4096,
+		Model:          c.generateModel,
+		Messages:       messages,
+		MaxTokens:      4096,
+		ResponseFormat: responseFormat,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate: %w", err)

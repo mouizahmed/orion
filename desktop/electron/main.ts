@@ -25,9 +25,11 @@ import {
 } from './window'
 import { setupAttachmentHandlers } from './attachments'
 import { setupIpcHandlers } from './ipc-handlers'
-import { flushRecordingDraftPersistence, getPendingRecordingNoteId, resetRecordingUiSnapshot, revealDashboardWithDraftFlush } from './recording-ipc'
+import { disposeRecordingForAppQuit, flushRecordingDraftPersistence, getPendingRecordingNoteId, hydrateRecordingRecoveryForCurrentAccount, prepareRecordingForAppQuit, resetRecordingUiSnapshot, revealDashboardWithDraftFlush, stopRecordingBeforeSignOut } from './recording-ipc'
 import { config } from './config'
 import { destroyTray, setupTray } from './tray'
+import { cleanupStaleLocalAudioStaging } from './audio-engine-recording-output'
+import { getRecordingSettings } from './recording-settings-ipc'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -87,6 +89,30 @@ setupProtocolHandler()
 // This is critical for protocol handling (orion:// URLs)
 const gotTheLock = app.requestSingleInstanceLock()
 let isQuitting = false
+let quitBarrierRunning = false
+let quitBarrierComplete = false
+const RECORDING_QUIT_GRACE_MS = 15_000
+
+async function completeRecordingQuitBarrier() {
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  const outcome = await Promise.race([
+    prepareRecordingForAppQuit().then(
+      () => ({ kind: 'complete' as const }),
+      (error: unknown) => ({ kind: 'failed' as const, error }),
+    ),
+    new Promise<{ kind: 'timeout' }>((resolve) => {
+      timeout = setTimeout(() => resolve({ kind: 'timeout' }), RECORDING_QUIT_GRACE_MS)
+    }),
+  ])
+  if (timeout) clearTimeout(timeout)
+  if (outcome.kind === 'failed') {
+    console.error('Could not finalize the active recording before app quit:', outcome.error)
+    disposeRecordingForAppQuit()
+  } else if (outcome.kind === 'timeout') {
+    console.warn(`Active recording finalization exceeded the ${RECORDING_QUIT_GRACE_MS}ms quit grace period`)
+    disposeRecordingForAppQuit()
+  }
+}
 
 if (!gotTheLock) {
   // Another instance is already running, quit this one
@@ -97,6 +123,11 @@ if (!gotTheLock) {
 
   app.whenReady().then(async () => {
     configureContentSecurityPolicy()
+
+    const recordingSettings = getRecordingSettings()
+    await cleanupStaleLocalAudioStaging(recordingSettings.localRecordingsPath).catch((error) => {
+      console.error('Failed to clean interrupted local recording audio:', error)
+    })
 
     // Route renderer getDisplayMedia() requests through Electron desktopCapturer on Windows.
     if (process.platform === 'win32') {
@@ -170,9 +201,13 @@ if (!gotTheLock) {
     await setupAuthHandlers({
       isKnownRendererSender,
       isAuthRendererSender,
+      beforeSignOut: stopRecordingBeforeSignOut,
       onSignedIn: () => {
         closeAuthWindow()
         revealDashboardWindow(getPendingRecordingNoteId())
+        void hydrateRecordingRecoveryForCurrentAccount().catch((error) => {
+          console.error('Could not discover an unfinished recording:', error)
+        })
       },
       onSignedOut: () => {
         resetRecordingUiSnapshot({ clearDraft: false })
@@ -226,6 +261,23 @@ app.on('activate', () => {
       showAuthWindow()
     }
   }
+})
+
+app.on('before-quit', (event) => {
+  isQuitting = true
+  setAppQuitting(true)
+  if (quitBarrierComplete || quitBarrierRunning) {
+    if (quitBarrierRunning) event.preventDefault()
+    return
+  }
+
+  event.preventDefault()
+  quitBarrierRunning = true
+  void completeRecordingQuitBarrier().finally(() => {
+    quitBarrierRunning = false
+    quitBarrierComplete = true
+    app.quit()
+  })
 })
 
 app.on('will-quit', () => {

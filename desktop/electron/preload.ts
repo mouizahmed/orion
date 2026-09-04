@@ -1,9 +1,10 @@
 import { ipcRenderer, contextBridge } from 'electron'
 import type { IpcRendererEvent } from 'electron'
-import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '../src/features/recording/recording-types'
+import type { RecordingAudioLevels, RecordingNoteDraft, RecordingRecoveryNotice, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '../src/features/recording/recording-types'
+import type { RecordingDspConfiguration, RecordingDspState } from '../src/features/recording/recording-diagnostics-types'
 
 type RecordingSettings = {
-  storageLocation: 'server' | 'local'
+  storageLocation: 'server' | 'local' | 'none'
   localRecordingsPath: string
 }
 
@@ -144,8 +145,18 @@ contextBridge.exposeInMainWorld('editorContextMenu', {
 contextBridge.exposeInMainWorld('recordingControl', {
   start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => ipcRenderer.invoke('recording:start', input) as Promise<void>,
   stop: () => ipcRenderer.invoke('recording:stop') as Promise<void>,
+  setMicrophoneMuted: (muted: boolean) => ipcRenderer.invoke('recording:set-microphone-muted', { muted }) as Promise<void>,
+  setSystemAudioMuted: (muted: boolean) => ipcRenderer.invoke('recording:set-system-audio-muted', { muted }) as Promise<void>,
   showOverlay: () => ipcRenderer.invoke('recording:show-overlay') as Promise<void>,
   getSnapshot: () => ipcRenderer.invoke('recording:get-snapshot') as Promise<RecordingUiSnapshot>,
+  getRecoveryNotice: () => ipcRenderer.invoke('recording:get-recovery-notice') as Promise<RecordingRecoveryNotice | null>,
+  recoverLastRecording: (sessionId: string) => ipcRenderer.invoke(
+    'recording:recover-last',
+    { sessionId },
+  ) as Promise<{ noteId: string }>,
+  acknowledgeRecoveryNotice: (sessionId: string) => {
+    ipcRenderer.send('recording:ack-recovery-notice', { sessionId })
+  },
   publishSession: (session: RecordingSessionSnapshot) => ipcRenderer.send('recording:publish-session', session),
   publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => ipcRenderer.send('recording:publish-transcript-update', segment),
   markSurfaceReady: (sessionId: string) => ipcRenderer.send('recording:surface-ready', { sessionId }),
@@ -193,10 +204,20 @@ contextBridge.exposeInMainWorld('recordingControl', {
     ipcRenderer.on('recording:transcript-update', listener)
     return () => ipcRenderer.off('recording:transcript-update', listener)
   },
+  onAudioLevels: (callback: (levels: RecordingAudioLevels) => void) => {
+    const listener = (_event: IpcRendererEvent, levels: RecordingAudioLevels) => callback(levels)
+    ipcRenderer.on('recording:audio-level', listener)
+    return () => ipcRenderer.off('recording:audio-level', listener)
+  },
   onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => {
     const listener = (_event: IpcRendererEvent, draft: RecordingNoteDraft | null) => callback(draft)
     ipcRenderer.on('recording:note-draft', listener)
     return () => ipcRenderer.off('recording:note-draft', listener)
+  },
+  onRecoveryNotice: (callback: (notice: RecordingRecoveryNotice | null) => void) => {
+    const listener = (_event: IpcRendererEvent, notice: RecordingRecoveryNotice | null) => callback(notice)
+    ipcRenderer.on('recording:recovery-notice', listener)
+    return () => ipcRenderer.off('recording:recovery-notice', listener)
   },
 })
 
@@ -210,6 +231,16 @@ contextBridge.exposeInMainWorld('recordingSettings', {
     ipcRenderer.invoke('recording-settings:update', settings) as Promise<RecordingSettings>,
   pickLocalPath: () =>
     ipcRenderer.invoke('recording-settings:pick-local-path') as Promise<RecordingSettings>,
+})
+
+contextBridge.exposeInMainWorld('recordingDiagnostics', {
+  getDspState: () =>
+    ipcRenderer.invoke('recording-diagnostics:get-dsp-state') as Promise<RecordingDspState>,
+  setDspConfiguration: (configuration: RecordingDspConfiguration) =>
+    ipcRenderer.invoke(
+      'recording-diagnostics:set-dsp-configuration',
+      configuration,
+    ) as Promise<RecordingDspState>,
 })
 // Authentication API
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -250,5 +281,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // Expose environment info
 contextBridge.exposeInMainWorld('env', {
-  platform: process.platform
+  platform: process.platform,
 })

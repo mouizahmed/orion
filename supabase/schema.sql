@@ -915,22 +915,32 @@ create table public.transcript_segments (
   start_time double precision,
   end_time double precision,
   segment_index integer not null,
+  session_id uuid,
+  words jsonb,
+  provider text,
+  provider_segment_id text,
   created_at timestamptz not null default now(),
-  unique (note_id, channel, segment_index)
+  unique (session_id, channel, segment_index)
 );
 
 create table public.note_recording_sessions (
   id uuid primary key default gen_random_uuid(),
   note_id uuid not null,
   user_id uuid not null references public.users(id) on delete cascade,
-  status text not null default 'active' check (status in ('active', 'paused', 'stopped')),
+  status text not null default 'starting'
+    check (status in ('starting', 'recording', 'finalizing', 'complete', 'failed', 'abandoned')),
   started_at timestamptz not null default now(),
-  paused_at timestamptz,
   stopped_at timestamptz,
-  transcript_chunks jsonb not null default '[]'::jsonb,
   last_activity_at timestamptz not null default now(),
+  client_session_id text not null unique,
+  finalized_at timestamptz,
+  audio_stored text not null default 'none'
+    check (audio_stored in ('none', 'local', 'uploaded')),
   foreign key (note_id, user_id) references public.notes(id, user_id) on delete cascade
 );
+
+alter table public.transcript_segments
+  add foreign key (session_id) references public.note_recording_sessions(id);
 
 create table public.note_attachments (
   id uuid primary key default gen_random_uuid(),
@@ -1010,6 +1020,9 @@ create index notes_calendar_event_owner_idx on public.notes (calendar_event_id, 
 create index note_attendees_note_idx on public.note_attendees (note_id);
 create index recording_sessions_note_owner_idx on public.note_recording_sessions (note_id, user_id);
 create index recording_sessions_user_idx on public.note_recording_sessions (user_id);
+create unique index one_active_recording_per_user
+  on public.note_recording_sessions (user_id)
+  where status in ('starting', 'recording', 'finalizing');
 create index note_attachments_note_owner_idx on public.note_attachments (note_id, user_id);
 create index note_attachments_user_idx on public.note_attachments (user_id);
 create index conversations_user_idx on public.conversations (user_id);

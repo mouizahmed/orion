@@ -26,9 +26,10 @@ const (
 
 // Job is a unit of work for the indexing worker.
 type Job struct {
-	Type   JobType `json:"type"`
-	UserID string  `json:"user_id"`
-	ID     string  `json:"id"`
+	Type    JobType `json:"type"`
+	UserID  string  `json:"user_id"`
+	ID      string  `json:"id"`
+	DedupID string  `json:"-"`
 }
 
 // Queue is a Redis-backed job queue with deduplication.
@@ -44,7 +45,11 @@ func NewQueue(redisClient *redis.Client) *Queue {
 
 // Enqueue adds a job if no dedup key exists for this (type, id) pair.
 func (q *Queue) Enqueue(ctx context.Context, job Job) error {
-	dedupKey := fmt.Sprintf("indexer:dedup:%s:%s", job.Type, job.ID)
+	dedupID := job.ID
+	if job.DedupID != "" {
+		dedupID = job.DedupID
+	}
+	dedupKey := fmt.Sprintf("indexer:dedup:%s:%s", job.Type, dedupID)
 
 	// SetNX returns true if key was set (no duplicate)
 	set, err := q.redis.SetNX(ctx, dedupKey, "1", dedupTTL).Result()
@@ -57,10 +62,15 @@ func (q *Queue) Enqueue(ctx context.Context, job Job) error {
 
 	data, err := json.Marshal(job)
 	if err != nil {
+		_ = q.redis.Del(ctx, dedupKey).Err()
 		return fmt.Errorf("marshal job: %w", err)
 	}
 
-	return q.redis.LPush(ctx, q.listKey, data).Err()
+	if err := q.redis.LPush(ctx, q.listKey, data).Err(); err != nil {
+		_ = q.redis.Del(ctx, dedupKey).Err()
+		return err
+	}
+	return nil
 }
 
 // Dequeue blocks up to 5 seconds waiting for a job.

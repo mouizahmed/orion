@@ -137,38 +137,41 @@ export function createWindow(options: { show?: boolean } = {}) {
     },
     backgroundColor: '#00000000',
   })
+  const overlayWindow = win
 
-  preventRefreshShortcuts(win)
-  routeExternalLinksToBrowser(win)
+  preventRefreshShortcuts(overlayWindow)
+  routeExternalLinksToBrowser(overlayWindow)
 
   // Make window visible on all workspaces/desktops
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
 
   // Platform-specific configuration
   if (process.platform === 'darwin') {
     // macOS: hide from mission control
-    win.setHiddenInMissionControl(true)
+    overlayWindow.setHiddenInMissionControl(true)
   } else if (process.platform === 'win32') {
     // Windows: set highest always-on-top level
-    win.setAlwaysOnTop(true, 'screen-saver')
+    overlayWindow.setAlwaysOnTop(true, 'screen-saver')
   }
 
   // Test active push message to Renderer-process.
-  win.webContents.on('did-finish-load', () => {
-    win?.webContents.send('main-process-message', new Date().toLocaleString())
+  overlayWindow.webContents.on('did-finish-load', () => {
+    if (!overlayWindow.isDestroyed()) {
+      overlayWindow.webContents.send('main-process-message', new Date().toLocaleString())
+    }
   })
 
-  win.on('closed', () => {
-    win = null
+  overlayWindow.on('closed', () => {
+    if (win === overlayWindow) win = null
   })
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(VITE_DEV_SERVER_URL)
+    overlayWindow.loadURL(VITE_DEV_SERVER_URL)
   } else {
-    win.loadFile(path.join(RENDERER_DIST, 'index.html'))
+    overlayWindow.loadFile(path.join(RENDERER_DIST, 'index.html'))
   }
 
-  return win
+  return overlayWindow
 }
 
 export function createAuthWindow(options: { show?: boolean } = {}) {

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 
 type RecordingBarsProps = Omit<ComponentPropsWithoutRef<'span'>, 'children'> & {
   isRecording?: boolean
+  level?: number
 }
 
 const bars = [12, 20, 8]
@@ -16,11 +17,15 @@ const waveforms = [
 
 export function RecordingBars({
   isRecording = false,
+  level,
   className,
   ...props
 }: RecordingBarsProps) {
   const reduceMotion = useReducedMotion()
-  const animate = isRecording && !reduceMotion
+  const animate = isRecording && level === undefined && !reduceMotion
+  const normalizedLevel = level === undefined || !isRecording
+    ? null
+    : Math.max(0, Math.min(1, (20 * Math.log10(Math.max(level, 0.001)) + 60) / 60))
 
   return (
     <span
@@ -34,7 +39,9 @@ export function RecordingBars({
           animate={{
             height: animate
               ? waveforms[index].map((scale) => Math.round(height * scale))
-              : height,
+              : normalizedLevel === null
+                ? height
+                : Math.max(3, Math.round(height * (0.2 + normalizedLevel * waveforms[index][2] * 0.8))),
           }}
           transition={animate
             ? {
@@ -43,7 +50,7 @@ export function RecordingBars({
                 ease: 'easeInOut',
                 delay: index * -0.11,
               }
-            : { duration: 0.15 }}
+            : { duration: reduceMotion ? 0 : 0.08 }}
           className="block w-[2px] rounded-full bg-current"
           style={{ height }}
         />

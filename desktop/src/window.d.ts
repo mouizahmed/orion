@@ -7,7 +7,8 @@ import type {
   IntegrationResult,
   RecordingSettings,
 } from '@/lib/desktop-api'
-import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
+import type { RecordingAudioLevels, RecordingNoteDraft, RecordingRecoveryNotice, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
+import type { RecordingDspConfiguration, RecordingDspState } from '@/features/recording/recording-diagnostics-types'
 import type { LiveInsight, LiveResponseSuggestion } from './types/live-insight'
 
 interface AppEventsControl {
@@ -29,8 +30,13 @@ interface DashboardControl {
 interface RecordingControl {
   start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => Promise<void>
   stop: () => Promise<void>
+  setMicrophoneMuted: (muted: boolean) => Promise<void>
+  setSystemAudioMuted: (muted: boolean) => Promise<void>
   showOverlay: () => Promise<void>
   getSnapshot: () => Promise<RecordingUiSnapshot>
+  getRecoveryNotice: () => Promise<RecordingRecoveryNotice | null>
+  recoverLastRecording: (sessionId: string) => Promise<{ noteId: string }>
+  acknowledgeRecoveryNotice: (sessionId: string) => void
   publishSession: (session: RecordingSessionSnapshot) => void
   publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => void
   markSurfaceReady: (sessionId: string) => void
@@ -43,13 +49,20 @@ interface RecordingControl {
   onStop: (callback: (input: { stoppedAt: number }) => void) => () => void
   onSession: (callback: (session: RecordingSessionSnapshot | null) => void) => () => void
   onTranscriptUpdate: (callback: (segment: RecordingTranscriptSegment) => void) => () => void
+  onAudioLevels: (callback: (levels: RecordingAudioLevels) => void) => () => void
   onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => () => void
+  onRecoveryNotice: (callback: (notice: RecordingRecoveryNotice | null) => void) => () => void
 }
 
 interface RecordingSettingsControl {
   get: () => Promise<RecordingSettings>
   update: (settings: Partial<RecordingSettings>) => Promise<RecordingSettings>
   pickLocalPath: () => Promise<RecordingSettings>
+}
+
+interface RecordingDiagnosticsControl {
+  getDspState: () => Promise<RecordingDspState>
+  setDspConfiguration: (configuration: RecordingDspConfiguration) => Promise<RecordingDspState>
 }
 
 interface AttachmentsControl {
@@ -101,6 +114,7 @@ declare global {
     electronAPI?: ElectronAPI
     recordingControl?: RecordingControl
     recordingSettings?: RecordingSettingsControl
+    recordingDiagnostics?: RecordingDiagnosticsControl
     attachments?: AttachmentsControl
     editorContextMenu?: EditorContextMenuControl
     liveInsights?: LiveInsightsControl

@@ -22,11 +22,21 @@ export interface TranscriptSegmentPayload {
 export interface TranscriptSegment {
   id: string
   note_id: string
+  session_id?: string
+  client_session_id?: string
   channel: number
   text: string
   start_time?: number
   end_time?: number
   segment_index: number
+  words?: Array<{
+    word: string
+    start: number
+    end: number
+    confidence: number
+  }>
+  provider?: string
+  provider_segment_id?: string
   created_at: string
 }
 

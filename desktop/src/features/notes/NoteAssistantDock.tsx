@@ -8,6 +8,7 @@ import NoteAssistantSurface, {
   TRANSCRIPT_FOOTER_HEIGHT,
 } from '@/features/notes/NoteAssistantSurface'
 import NoteTranscriptPanel from '@/features/notes/NoteTranscriptPanel'
+import type { MeetingArtifactsResult } from '@/features/notes/api/meeting-artifacts-client'
 import {
   getNoteAssistantChatLabel,
   noteAssistantReducer,
@@ -25,11 +26,14 @@ type NoteAssistantDockProps = {
   isRecording?: boolean
   canResumeRecording?: boolean
   recordingIndicatorActive?: boolean
+  recordingSessionId?: string | null
   canStopRecording?: boolean
   canShowRecordingOverlay?: boolean
   liveSegments?: readonly RecordingTranscriptSegment[]
   transcriptPhase?: TranscriptPhase
   onResumeRecording?: () => void
+  onMeetingArtifactsGenerated: (result: MeetingArtifactsResult) => void
+  onInsertMeetingArtifacts: (result: MeetingArtifactsResult) => void
 }
 
 function blurActiveElement() {
@@ -43,11 +47,14 @@ export default function NoteAssistantDock({
   isRecording = false,
   canResumeRecording = true,
   recordingIndicatorActive = isRecording,
+  recordingSessionId = null,
   canStopRecording = isRecording,
   canShowRecordingOverlay = isRecording,
   liveSegments,
   transcriptPhase,
   onResumeRecording,
+  onMeetingArtifactsGenerated,
+  onInsertMeetingArtifacts,
 }: NoteAssistantDockProps) {
   const [assistant, dispatchAssistant] = useReducer(noteAssistantReducer, null)
   const [trackHeight, setTrackHeight] = useState(0)
@@ -130,6 +137,7 @@ export default function NoteAssistantDock({
               chatActive={chatActive}
               chatLabel={chatDockLabel}
               isRecording={recordingIndicatorActive}
+              recordingSessionId={recordingSessionId}
               recordingSessionActive={isRecording}
               canStopRecording={canStopRecording}
               canShowRecordingOverlay={canShowRecordingOverlay}
@@ -153,6 +161,7 @@ export default function NoteAssistantDock({
               <NoteTranscriptPanel
                 expanded={panelVisible}
                 expandedHeight={transcriptPanelHeight}
+                noteId={noteId}
                 isRecording={isRecording}
                 canResumeRecording={canResumeRecording}
                 loading={transcriptQuery.isLoading}
@@ -161,6 +170,8 @@ export default function NoteAssistantDock({
                 transcriptPhase={transcriptPhase}
                 onAnimationComplete={finishPanelAnimation}
                 onClose={closeAssistant}
+                onMeetingArtifactsGenerated={onMeetingArtifactsGenerated}
+                onInsertMeetingArtifacts={onInsertMeetingArtifacts}
                 onResumeRecording={onResumeRecording}
               />
             )}

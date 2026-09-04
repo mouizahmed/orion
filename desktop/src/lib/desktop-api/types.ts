@@ -1,4 +1,5 @@
-import type { RecordingNoteDraft, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
+import type { RecordingAudioLevels, RecordingNoteDraft, RecordingRecoveryNotice, RecordingSessionSnapshot, RecordingTranscriptSegment, RecordingUiSnapshot } from '@/features/recording/recording-types'
+import type { RecordingDspConfiguration, RecordingDspState } from '@/features/recording/recording-diagnostics-types'
 
 export type AuthResult =
   | {
@@ -48,7 +49,7 @@ export type IntegrationConnectionCompletedEvent = {
 }
 
 export type RecordingSettings = {
-  storageLocation: 'server' | 'local'
+  storageLocation: 'server' | 'local' | 'none'
   localRecordingsPath: string
 }
 
@@ -86,8 +87,13 @@ export type DesktopApi = {
   recording: {
     start: (input: { noteId: string; noteTitle: string; noteMarkdown: string }) => Promise<void>
     stop: () => Promise<void>
+    setMicrophoneMuted: (muted: boolean) => Promise<void>
+    setSystemAudioMuted: (muted: boolean) => Promise<void>
     showOverlay: () => Promise<void>
     getSnapshot: () => Promise<RecordingUiSnapshot>
+    getRecoveryNotice: () => Promise<RecordingRecoveryNotice | null>
+    recoverLastRecording: (sessionId: string) => Promise<{ noteId: string }>
+    acknowledgeRecoveryNotice: (sessionId: string) => void
     publishSession: (session: RecordingSessionSnapshot) => void
     publishTranscriptUpdate: (segment: RecordingTranscriptSegment) => void
     markSurfaceReady: (sessionId: string) => void
@@ -100,13 +106,20 @@ export type DesktopApi = {
     onStop: (callback: (input: { stoppedAt: number }) => void) => () => void
     onSession: (callback: (session: RecordingSessionSnapshot | null) => void) => () => void
     onTranscriptUpdate: (callback: (segment: RecordingTranscriptSegment) => void) => () => void
+    onAudioLevels: (callback: (levels: RecordingAudioLevels) => void) => () => void
     onNoteDraft: (callback: (draft: RecordingNoteDraft | null) => void) => () => void
+    onRecoveryNotice: (callback: (notice: RecordingRecoveryNotice | null) => void) => () => void
   }
   recordingSettings: {
     isAvailable: () => boolean
     get: () => Promise<RecordingSettings>
     update: (settings: Partial<RecordingSettings>) => Promise<RecordingSettings>
     pickLocalPath: () => Promise<RecordingSettings>
+  }
+  recordingDiagnostics: {
+    isAvailable: () => boolean
+    getDspState: () => Promise<RecordingDspState>
+    setDspConfiguration: (configuration: RecordingDspConfiguration) => Promise<RecordingDspState>
   }
   auth: {
     loginWithGoogle: () => Promise<AuthResult>

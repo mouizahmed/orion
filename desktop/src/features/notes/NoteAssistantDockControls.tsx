@@ -4,12 +4,14 @@ import { motion } from 'motion/react'
 import { RecordingBars } from '@/components/ui/recording-bars'
 import { ASSISTANT_DOCK_FADE_TRANSITION } from '@/features/notes/NoteAssistantSurface'
 import { cn } from '@/lib/utils'
+import { useRecordingAudioLevel } from '@/features/recording/use-recording-audio-level'
 
 type NoteAssistantDockControlsProps = {
   assistantActive: boolean
   chatActive: boolean
   chatLabel: string
   isRecording: boolean
+  recordingSessionId: string | null
   recordingSessionActive: boolean
   canStopRecording: boolean
   canShowRecordingOverlay: boolean
@@ -26,6 +28,7 @@ export default function NoteAssistantDockControls({
   chatActive,
   chatLabel,
   isRecording,
+  recordingSessionId,
   recordingSessionActive,
   canStopRecording,
   canShowRecordingOverlay,
@@ -36,6 +39,7 @@ export default function NoteAssistantDockControls({
   onShowOverlay,
   onStopRecording,
 }: NoteAssistantDockControlsProps) {
+  const audioLevel = useRecordingAudioLevel(recordingSessionId)
   const transcriptOpen = transcriptActive && panelVisible
   const transcriptHidden = chatActive && panelVisible
 
@@ -82,6 +86,7 @@ export default function NoteAssistantDockControls({
           >
             <RecordingBars
               isRecording={isRecording}
+              level={audioLevel}
               className="h-6 w-6 overflow-visible text-[#7c3aed] dark:text-[#9f73f2]"
             />
             <motion.span

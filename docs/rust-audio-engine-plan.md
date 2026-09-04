@@ -1,6 +1,6 @@
 # Production Audio Engine Implementation Plan
 
-**Status:** Proposed  
+**Status:** Superseded as the execution plan by [`rust-audio-engine-final-plan.md`](./rust-audio-engine-final-plan.md), which integrates this architecture with the shipped recording session host, draft channel, and UI contract. This document remains the component-level reference for detailed DSP requirements, device handling, and the applicable portions of the manual QA matrix. Its generic STT-provider abstraction and speaker-diarization/name-mapping sections are explicitly superseded and are not implementation requirements.
 **Updated:** 2026-05-01  
 **Scope:** Build a production-ready native audio, transcription, speaker attribution, and AI meeting pipeline for Orion. The old app can be used as reference, but the new implementation does not need to preserve old capture code, stale abstractions, or current WebSocket contracts.
 

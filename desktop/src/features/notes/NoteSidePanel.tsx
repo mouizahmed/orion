@@ -72,7 +72,7 @@ export default function NoteSidePanel({
           className="min-h-0 overflow-y-auto p-2.5 data-[state=inactive]:hidden sidebar-scrollbar"
         >
           <InfoBanner className="mb-2">
-            The transcript may show repeated sentences without headphones, but your final notes will be unaffected. For the best experience, use headphones.
+            System audio may be repeated if it also reaches your microphone. Use headphones for the cleanest transcript.
           </InfoBanner>
           <SavedTranscriptView
             segments={transcriptSegments}

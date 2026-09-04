@@ -28,6 +28,10 @@ import (
 	"github.com/mouizahmed/justscribe-backend/internal/middleware"
 	"github.com/mouizahmed/justscribe-backend/internal/profile"
 	"github.com/mouizahmed/justscribe-backend/internal/queue"
+	"github.com/mouizahmed/justscribe-backend/internal/recordingaudio"
+	"github.com/mouizahmed/justscribe-backend/internal/recordingfinalizer"
+	"github.com/mouizahmed/justscribe-backend/internal/recordingjanitor"
+	"github.com/mouizahmed/justscribe-backend/internal/recordingstorage"
 	"github.com/mouizahmed/justscribe-backend/internal/repository"
 	"github.com/mouizahmed/justscribe-backend/internal/resourceevents"
 	"github.com/mouizahmed/justscribe-backend/internal/retrieval"
@@ -90,6 +94,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("Invalid Stripe billing configuration: %v", err)
 	}
+	recordingJanitorConfig, err := recordingjanitor.LoadConfig()
+	if err != nil {
+		log.Fatalf("Invalid recording janitor configuration: %v", err)
+	}
+	recordingAudioSpool, err := recordingaudio.NewStore(recordingaudio.LoadConfig())
+	if err != nil {
+		log.Fatalf("Failed to initialize recording audio spool: %v", err)
+	}
+	defer func() {
+		if err := recordingAudioSpool.Close(); err != nil {
+			log.Printf("Failed to close recording audio spool: %v", err)
+		}
+	}()
 	billingRuntime := billing.NewRuntime(billingConfig)
 	if billingRuntime.Enabled() {
 		log.Printf("Stripe billing enabled in %s mode", billingRuntime.Mode())
@@ -146,6 +163,7 @@ func main() {
 
 	// Initialize AI services
 	aiClient := ai.NewClient()
+	meetingArtifactGenerator := ai.NewMeetingArtifactGenerator(aiClient)
 
 	// Initialize embedder (graceful: nil if OPENAI_API_KEY not set)
 	embedder, _ := memory.NewEmbedder()
@@ -198,6 +216,11 @@ func main() {
 
 	// Initialize queue and worker
 	indexQueue := queue.NewQueue(redisClient)
+	recordingAudioFinalizer, err := recordingstorage.NewFinalizer(recordingAudioSpool, b2Client)
+	if err != nil {
+		log.Fatalf("Failed to initialize recording audio finalizer: %v", err)
+	}
+	recordingFinalizer := recordingfinalizer.New(recordingRepo, indexQueue, resourceEventPublisher, recordingAudioFinalizer)
 	w := worker.NewWorker(indexQueue, embedder, pineconeClient, noteRepo, transcriptRepo)
 	integrationWorker := integrationworker.New(integrationControlPlaneRepo, calendarSyncService, resourceEventPublisher, func(userID string, syncing, stale bool) {
 		wsHub.SendToUser(userID, map[string]any{
@@ -206,12 +229,14 @@ func main() {
 		})
 	})
 	integrationWorker.SetSubscriptionLifecycle(calendarPushService)
+	recordingJanitor := recordingjanitor.New(recordingRepo, recordingAudioFinalizer, recordingJanitorConfig)
 	workerCtx, cancelWorker := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancelWorker()
 	go w.Start(workerCtx)
 	go integrationWorker.Start(workerCtx)
 	go billingEventProcessor.Start(workerCtx)
 	go billingReconciler.Start(workerCtx)
+	go recordingJanitor.Start(workerCtx)
 	resourceEventSubscriberDone := make(chan struct{})
 	go func() {
 		defer close(resourceEventSubscriberDone)
@@ -233,13 +258,15 @@ func main() {
 	emailDraftSettingsHandler := handlers.NewEmailDraftSettingsHandler(emailDraftSettingsRepo, resourceEventPublisher)
 	extractFieldsHandler := handlers.NewExtractFieldsHandler(extractFieldRepo, resourceEventPublisher)
 	summaryTemplatesHandler := handlers.NewSummaryTemplatesHandler(summaryTemplateRepo, resourceEventPublisher)
+	meetingArtifactsHandler := handlers.NewMeetingArtifactsHandler(noteRepo, transcriptRepo, summaryTemplateRepo, meetingArtifactGenerator)
 	billingHandler := handlers.NewBillingHandler(checkoutService, portalService, billingStatusService, billingWebhookService)
 	folderHandler := handlers.NewFoldersHandler(folderRepo, resourceEventPublisher)
-	notesHandler := handlers.NewNotesHandler(noteRepo, folderRepo, recordingRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, indexQueue, resourceEventPublisher)
+	notesHandler := handlers.NewNotesHandler(noteRepo, folderRepo, b2Client, noteAttachmentRepo, noteAttendeeRepo, indexQueue, resourceEventPublisher)
+	recordingsHandler := handlers.NewRecordingsHandler(noteRepo, recordingRepo, recordingFinalizer)
 	noteAttendeesHandler := handlers.NewNoteAttendeesHandler(noteRepo, noteAttendeeRepo, resourceEventPublisher)
 	dashboardHandler := handlers.NewDashboardHandler(noteRepo)
 
-	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, wsHub)
+	transcriptionHandler := handlers.NewTranscriptionHandler(principalService, accountUsageRepo, accountVocabularyRepo, recordingRepo, transcriptRepo, recordingFinalizer, recordingAudioSpool, wsHub)
 	transcriptHandler := handlers.NewTranscriptHandler(transcriptRepo, noteRepo, indexQueue)
 	wsHandler := handlers.NewWsHandler(wsHub, principalService)
 	calendarHandler := handlers.NewCalendarHandler(integrationConnectionRepo, calendarPreferenceRepo, calendarCacheRepo, calendarSyncService, integrationControlPlaneRepo, wsHub, resourceEventPublisher)
@@ -314,7 +341,7 @@ func main() {
 		authenticated.PATCH("/extract-fields/:fieldID", extractFieldsHandler.Update)
 		authenticated.DELETE("/extract-fields/:fieldID", extractFieldsHandler.Delete)
 
-		// Summary templates are configuration only; meeting processing does not consume them yet.
+		// Summary templates configure transcript-derived meeting artifacts for assigned folders.
 		authenticated.GET("/summary-templates", summaryTemplatesHandler.List)
 		authenticated.POST("/summary-templates", summaryTemplatesHandler.Create)
 		authenticated.PATCH("/summary-templates/:templateID", summaryTemplatesHandler.Update)
@@ -340,8 +367,14 @@ func main() {
 		authenticated.POST("/notes/:noteID/images", notesHandler.UploadImage)
 		authenticated.GET("/notes/:noteID/images/:imageID", notesHandler.ProxyImage)
 		authenticated.DELETE("/notes/:noteID/images/:imageID", notesHandler.DeleteImage)
-		authenticated.POST("/notes/:noteID/recording/start", notesHandler.StartRecording)
-		authenticated.POST("/notes/:noteID/recording/:sessionID/stop", notesHandler.StopRecording)
+		authenticated.POST("/notes/:noteID/meeting-artifacts", meetingArtifactsHandler.Generate)
+
+		// Recording lifecycle routes are session-scoped; heartbeats travel on the audio WebSocket.
+		authenticated.POST("/recordings", recordingsHandler.Create)
+		authenticated.GET("/recordings/active", recordingsHandler.GetActive)
+		authenticated.GET("/recordings/:sessionID", recordingsHandler.Get)
+		authenticated.POST("/recordings/:sessionID/finalize", recordingsHandler.Finalize)
+		authenticated.PATCH("/recordings/:sessionID", recordingsHandler.Update)
 
 		// Note attendee routes
 		authenticated.GET("/notes/:noteID/attendees", noteAttendeesHandler.ListAttendees)

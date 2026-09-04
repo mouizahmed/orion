@@ -4,6 +4,7 @@
   "appId": "YourAppID",
   "asar": true,
   "productName": "YourAppName",
+  "electronDist": "node_modules/electron/dist",
   "directories": {
     "output": "release/${version}"
   },
@@ -11,9 +12,19 @@
     "dist",
     "dist-electron"
   ],
+  "beforePack": "build/prepare-audio-runtime.cjs",
   "mac": {
+    "extendInfo": {
+      "NSMicrophoneUsageDescription": "Orion uses the microphone to record and transcribe your meetings.",
+      "NSAudioCaptureUsageDescription": "Orion captures meeting audio from other applications so it can create a complete transcript."
+    },
     "target": [
-      "dmg"
+      {
+        "target": "dmg",
+        "arch": [
+          "arm64"
+        ]
+      }
     ],
     "artifactName": "${productName}-Mac-${version}-Installer.${ext}"
   },

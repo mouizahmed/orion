@@ -33,7 +33,6 @@ func backendBaseURL() string {
 type NotesHandler struct {
 	noteRepo         *repository.NoteRepository
 	folderRepo       *repository.FolderRepository
-	recordingRepo    *repository.RecordingSessionRepository
 	b2Client         *storage.B2Client
 	attachmentRepo   *repository.NoteAttachmentRepository
 	noteAttendeeRepo *repository.NoteAttendeeRepository
@@ -61,10 +60,6 @@ type UpdateCalendarLinkRequest struct {
 	ExpectedRevision *int64  `json:"expected_revision"`
 }
 
-type StopRecordingRequest struct {
-	FinalTranscript *string `json:"final_transcript"`
-}
-
 type SearchResponse struct {
 	Query      string          `json:"query"`
 	Notes      []models.Note   `json:"notes"`
@@ -84,11 +79,10 @@ type SearchSectionMeta struct {
 	HasMore    bool `json:"has_more"`
 }
 
-func NewNotesHandler(noteRepo *repository.NoteRepository, folderRepo *repository.FolderRepository, recordingRepo *repository.RecordingSessionRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, q *queue.Queue, events resourceevents.Publisher) *NotesHandler {
+func NewNotesHandler(noteRepo *repository.NoteRepository, folderRepo *repository.FolderRepository, b2Client *storage.B2Client, attachmentRepo *repository.NoteAttachmentRepository, noteAttendeeRepo *repository.NoteAttendeeRepository, q *queue.Queue, events resourceevents.Publisher) *NotesHandler {
 	return &NotesHandler{
 		noteRepo:         noteRepo,
 		folderRepo:       folderRepo,
-		recordingRepo:    recordingRepo,
 		b2Client:         b2Client,
 		attachmentRepo:   attachmentRepo,
 		noteAttendeeRepo: noteAttendeeRepo,
@@ -580,80 +574,6 @@ func (h *NotesHandler) DeleteNote(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
-}
-
-func (h *NotesHandler) StartRecording(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	noteID := strings.TrimSpace(c.Param("noteID"))
-	if noteID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
-		return
-	}
-
-	if _, err := h.noteRepo.GetNoteByID(userID, noteID); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "note not found"})
-		return
-	}
-
-	active, err := h.recordingRepo.GetActiveSession(noteID, userID)
-	if err != nil {
-		log.Printf("recording: failed to check active session: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start recording"})
-		return
-	}
-	if active != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "recording already active"})
-		return
-	}
-
-	session, err := h.recordingRepo.CreateSession(noteID, userID)
-	if err != nil {
-		log.Printf("recording: failed to create session: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start recording"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"session": session})
-}
-
-func (h *NotesHandler) StopRecording(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-		return
-	}
-
-	noteID := strings.TrimSpace(c.Param("noteID"))
-	if noteID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "note id is required"})
-		return
-	}
-
-	sessionID := strings.TrimSpace(c.Param("sessionID"))
-	if sessionID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "session id is required"})
-		return
-	}
-
-	var req StopRecordingRequest
-	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
-		return
-	}
-
-	session, err := h.recordingRepo.StopSession(sessionID, noteID, userID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"session": session,
-	})
 }
 
 func (h *NotesHandler) GetNotesByEvent(c *gin.Context) {

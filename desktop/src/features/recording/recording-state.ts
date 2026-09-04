@@ -14,10 +14,12 @@ export type StartRecordingInput = {
 
 export type RecordingSessionAction =
   | { type: 'started' }
+  | { type: 'recover' }
   | { type: 'stop'; now: number }
   | { type: 'finalize' }
   | { type: 'complete' }
   | { type: 'fail'; message: string }
+  | { type: 'warn'; message: string }
   | { type: 'set-transcript-phase'; phase: TranscriptPhase }
   | { type: 'set-microphone-muted'; muted: boolean }
   | { type: 'set-system-audio-muted'; muted: boolean }
@@ -52,11 +54,16 @@ export function recordingSessionReducer(
       return state.phase === 'starting'
         ? { ...state, phase: 'recording', recoverableError: null }
         : state
+    case 'recover':
+      return state.phase === 'error'
+        ? { ...state, phase: 'recording', recoverableError: null }
+        : state
     case 'stop': {
       if (!canStop(state.phase)) return state
       return {
         ...state,
         phase: 'stopping',
+        transcriptPhase: 'finalizing',
         stoppedAt: action.now,
         recoverableError: null,
       }
@@ -72,6 +79,9 @@ export function recordingSessionReducer(
     case 'fail':
       if (state.phase === 'complete') return state
       return { ...state, phase: 'error', recoverableError: action.message }
+    case 'warn':
+      if (state.phase === 'complete') return state
+      return { ...state, recoverableError: action.message }
     case 'set-transcript-phase':
       return state.phase === 'complete' && action.phase !== 'complete'
         ? state
