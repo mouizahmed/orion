@@ -3,6 +3,7 @@ import path from 'node:path'
 import { handleAuthProtocolCallback, isRendererAuthenticated } from './auth-handlers'
 
 let authCallbackWindow: BrowserWindow | null = null
+let authCallbackInProgress = false
 let revealIntegrationWindow: (() => void) | null = null
 let revealBillingWindow: (() => void) | null = null
 type IntegrationProvider = 'google' | 'microsoft'
@@ -46,6 +47,10 @@ export function cancelIntegrationOAuthTransaction(state: string) {
 
 export function setAuthCallbackWindow(win: BrowserWindow | null) {
   authCallbackWindow = win
+}
+
+export function isAuthCallbackInProgress() {
+  return authCallbackInProgress
 }
 
 export function setIntegrationWindowRevealHandler(handler: (() => void) | null) {
@@ -101,11 +106,22 @@ async function handleProtocolUrl(rawUrl: string) {
   try { parsed = new URL(rawUrl) } catch { return }
 
   if (parsed.protocol === 'orion:' && parsed.hostname === 'auth' && parsed.pathname === '/callback') {
-    await handleAuthProtocolCallback(rawUrl)
-    // A cancelled or expired PKCE transaction must reject the callback, but
-    // activating the protocol should still bring the sign-in window forward.
-    // Successful authentication already creates and focuses the dashboard.
-    if (!isRendererAuthenticated()) revealAuthWindow()
+    authCallbackInProgress = true
+    try {
+      // The callback handler publishes `validating` before its first network
+      // await. Reveal the window after that state has been queued so the
+      // callback transition is the first UI state the user sees.
+      const callback = handleAuthProtocolCallback(rawUrl)
+      revealAuthWindow()
+      await callback
+
+      // A cancelled or expired PKCE transaction must reject the callback, but
+      // activating the protocol should still bring the sign-in window forward.
+      // Successful authentication already creates and focuses the dashboard.
+      if (!isRendererAuthenticated()) revealAuthWindow()
+    } finally {
+      authCallbackInProgress = false
+    }
     return
   }
   if (parsed.protocol === 'orion:' && parsed.hostname === 'integrations' && parsed.pathname === '/callback') {

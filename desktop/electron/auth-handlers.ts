@@ -220,7 +220,7 @@ async function bootstrap(session: Session, shouldContinue: () => boolean = () =>
   // Startup and OAuth completion need an explicit loading state. Background
   // revalidation should keep an already-authenticated renderer stable until
   // the backend returns the authoritative next state.
-  if (snapshot.status !== 'authenticated') {
+  if (snapshot.status !== 'authenticated' && snapshot.status !== 'validating') {
     publish({ status: 'validating', user: null, error: null, loginProvider: null })
   }
   try {
@@ -508,6 +508,7 @@ export async function handleAuthProtocolCallback(rawUrl: string): Promise<void> 
   }
   login.callbackStarted = true
   callbackExchangeInProgress = true
+  publish({ status: 'validating', user: null, error: null, loginProvider: null })
   try {
     const { data, error } = await client.auth.exchangeCodeForSession(code, flowId ? { flowId } : undefined)
     if (!isActiveLogin(login)) {

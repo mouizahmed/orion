@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build:audio-engine": "cargo build --locked --manifest-path native/audio-engine/Cargo.toml",
-    "predev": "npm run build:audio-engine",
+    "predev": "node scripts/ensure-dev-protocol.mjs && npm run build:audio-engine",
     "dev": "vite",
     "build": "tsc && vite build && electron-builder",
     "lint": "eslint . --ext ts,tsx --ignore-pattern dist --ignore-pattern dist-electron --report-unused-disable-directives --max-warnings 0",

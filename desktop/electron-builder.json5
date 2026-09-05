@@ -4,6 +4,14 @@
   "appId": "YourAppID",
   "asar": true,
   "productName": "YourAppName",
+  "protocols": [
+    {
+      "name": "Orion",
+      "schemes": [
+        "orion"
+      ]
+    }
+  ],
   "directories": {
     "output": "release/${version}"
   },

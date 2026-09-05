@@ -8,6 +8,7 @@ import {
   setAuthCallbackWindow,
   setBillingWindowRevealHandler,
   setIntegrationWindowRevealHandler,
+  isAuthCallbackInProgress,
 } from './protocol-handler'
 import {
   closeAuthWindow,
@@ -225,6 +226,7 @@ app.on('activate', () => {
   // zero windows would leave the dock icon unable to reveal a window after
   // the user clicks its native X. Both helpers reuse an existing hidden
   // renderer and only create a window when none exists.
+  if (isAuthCallbackInProgress()) return
   if (isRendererAuthenticated()) {
     revealDashboardWindow(getPendingRecordingNoteId())
   } else {

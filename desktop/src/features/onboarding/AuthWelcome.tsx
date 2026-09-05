@@ -9,6 +9,10 @@ import { publicAssetUrl } from '@/lib/public-asset'
 
 const TERMS_URL = 'https://orion.app/terms'
 const PRIVACY_URL = 'https://orion.app/privacy'
+const AUTH_TITLE = 'Sign in to get started'
+const AUTH_SUBTEXT = 'Welcome to Orion. Your private AI notepad for calls, clear notes, follow-ups, and answers.'
+const SIGNING_IN_TITLE = 'Signing in...'
+const SIGNING_IN_SUBTEXT = 'Finishing your secure sign-in and getting Orion ready.'
 
 function TermsAgreement({
   checked,
@@ -75,6 +79,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [termsAttention, setTermsAttention] = useState(false)
   const serviceUnavailable = status === 'service-unavailable'
+  const showSigningInState = status === 'validating' || status === 'authenticated'
 
   const promptTermsAgreement = () => {
     setTermsAttention(false)
@@ -109,12 +114,12 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
 
         <div className="shrink-0 pb-3">
           <div className="text-[22px] font-semibold leading-tight text-neutral-950 dark:text-neutral-100">
-            Sign in to get started
+            {showSigningInState ? SIGNING_IN_TITLE : AUTH_TITLE}
           </div>
           <p className="mt-2 max-w-[440px] text-sm font-medium leading-6 text-neutral-600 dark:text-neutral-400">
-            Welcome to Orion. Your private AI notepad for calls, clear notes, follow-ups, and answers.
+            {showSigningInState ? SIGNING_IN_SUBTEXT : AUTH_SUBTEXT}
           </p>
-          {!serviceUnavailable ? (
+          {!serviceUnavailable && !showSigningInState ? (
             <TermsAgreement
               checked={acceptedTerms}
               disabled={loginLoading}
@@ -131,7 +136,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
         </div>
 
         <div className="mt-auto w-full">
-          {serviceUnavailable ? (
+          {showSigningInState ? null : serviceUnavailable ? (
             <Button
               type="button"
               className="h-10 w-full rounded-full px-6 text-sm [-webkit-app-region:no-drag]"
