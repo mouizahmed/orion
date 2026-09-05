@@ -12,8 +12,8 @@ export const OnboardingFrame = forwardRef<HTMLDivElement, OnboardingFrameProps>(
     <div
       ref={ref}
       data-overlay-visible
-      className="relative w-full overflow-hidden bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100"
-      style={{ minHeight: 500 }}
+      className="auth-root relative w-full overflow-hidden bg-[#eef1ee] text-neutral-900 dark:bg-[#0f0d10] dark:text-neutral-100"
+      style={{ minHeight: 540 }}
     >
       <div
         className="absolute inset-x-0 top-0 z-20 h-12 [-webkit-app-region:drag]"

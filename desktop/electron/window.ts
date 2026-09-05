@@ -19,6 +19,7 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 export let win: BrowserWindow | null = null
 let authWin: BrowserWindow | null = null
 let dashboardWin: BrowserWindow | null = null
+let allowAuthClose = false
 let allowDashboardClose = false
 let dashboardHiddenHandler: (() => void) | null = null
 let isAppQuitting = false
@@ -26,7 +27,7 @@ let isAppQuitting = false
 const TITLE_BAR_HEIGHT = 48
 const TITLE_BAR_BACKGROUND = '#ffffff00'
 const AUTH_WINDOW_WIDTH = 480
-const AUTH_WINDOW_HEIGHT = 500
+const AUTH_WINDOW_HEIGHT = 540
 const AUTH_WINDOW_MAX_WIDTH = 1254
 const AUTH_WINDOW_MAX_HEIGHT = 842
 
@@ -251,10 +252,21 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
   routeExternalLinksToBrowser(authWin)
   authWin.setMenuBarVisibility(false)
 
+  // Keep the auth renderer alive when the user clicks the native X so the
+  // tray's Log in action can reveal the same window without reloading it.
+  authWin.on('close', (event) => {
+    if (isAppQuitting || allowAuthClose) {
+      return
+    }
+    event.preventDefault()
+    authWin?.hide()
+  })
+
   authWin.on('closed', () => {
     nativeTheme.removeListener('updated', updateAuthTitleBarColors)
     setAuthCallbackWindow(null)
     authWin = null
+    allowAuthClose = false
   })
 
   nativeTheme.on('updated', updateAuthTitleBarColors)
@@ -272,6 +284,7 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
 
 export function closeAuthWindow() {
   if (!authWin || authWin.isDestroyed()) return
+  allowAuthClose = true
   authWin.close()
 }
 
@@ -320,9 +333,9 @@ export function createDashboardWindow(noteId?: string) {
   preventRefreshShortcuts(dashboardWin)
   routeExternalLinksToBrowser(dashboardWin)
 
-  // On Windows: clicking the window "X" should minimize-to-tray (hide),
-  // not quit the app. We'll allow programmatic closes (e.g. "Back to overlay")
-  // and app quit to proceed.
+  // Clicking the native window "X" should hide the dashboard on every
+  // platform, not destroy its renderer. Programmatic closes (e.g. during an
+  // auth transition) and app quit are still allowed to proceed.
   dashboardWin.on('close', (event) => {
     if (isAppQuitting || allowDashboardClose) {
       return

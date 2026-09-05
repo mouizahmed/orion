@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, session } from 'electron'
+import { app, desktopCapturer, session } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { getCurrentAuthToken, isRendererAuthenticated, setupAuthHandlers } from './auth-handlers'
@@ -27,7 +27,7 @@ import { setupAttachmentHandlers } from './attachments'
 import { setupIpcHandlers } from './ipc-handlers'
 import { flushRecordingDraftPersistence, getPendingRecordingNoteId, resetRecordingUiSnapshot, revealDashboardWithDraftFlush } from './recording-ipc'
 import { config } from './config'
-import { destroyTray, setupTray } from './tray'
+import { destroyTray, refreshTrayMenu, setupTray } from './tray'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -172,15 +172,18 @@ if (!gotTheLock) {
       isAuthRendererSender,
       onSignedIn: () => {
         closeAuthWindow()
+        refreshTrayMenu()
         revealDashboardWindow(getPendingRecordingNoteId())
       },
       onSignedOut: () => {
+        refreshTrayMenu()
         resetRecordingUiSnapshot({ clearDraft: false })
         closeDashboardWindow()
         destroyOverlayWindow()
         showAuthWindow()
       },
       onOAuthPending: () => {
+        refreshTrayMenu()
         resetRecordingUiSnapshot({ clearDraft: false })
         closeDashboardWindow()
         destroyOverlayWindow()
@@ -192,7 +195,8 @@ if (!gotTheLock) {
     // created lazily only after an authenticated recording start command.
     createAuthWindow({ show: false })
 
-    // Setup system tray (keep app running even if windows are closed)
+    // Keep the system tray/status item available while signed out so the user
+    // can reopen the login window or quit the application.
     setupTray({
       onQuit: () => {
         isQuitting = true
@@ -217,14 +221,14 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) {
-    if (isRendererAuthenticated()) {
-      revealDashboardWindow(getPendingRecordingNoteId())
-    } else {
-      showAuthWindow()
-    }
+  // A hidden window still counts as an open BrowserWindow, so checking for
+  // zero windows would leave the dock icon unable to reveal a window after
+  // the user clicks its native X. Both helpers reuse an existing hidden
+  // renderer and only create a window when none exists.
+  if (isRendererAuthenticated()) {
+    revealDashboardWindow(getPendingRecordingNoteId())
+  } else {
+    showAuthWindow()
   }
 })
 

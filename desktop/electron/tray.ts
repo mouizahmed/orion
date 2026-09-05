@@ -5,6 +5,7 @@ import { revealDashboardWithDraftFlush } from './recording-ipc'
 import { isRendererAuthenticated } from './auth-handlers'
 
 let tray: Tray | null = null
+let trayOptions: { onQuit: () => void } | null = null
 
 function getTrayIconPath() {
   const publicDir = process.env.VITE_PUBLIC
@@ -17,10 +18,40 @@ export function destroyTray() {
     tray.destroy()
     tray = null
   }
+  trayOptions = null
+}
+
+function buildTrayMenu(options: { onQuit: () => void }) {
+  const authenticated = isRendererAuthenticated()
+
+  return Menu.buildFromTemplate([
+    {
+      label: authenticated ? 'Open Dashboard' : 'Log in',
+      click: () => {
+        if (!isRendererAuthenticated()) {
+          showAuthWindow()
+          return
+        }
+        revealDashboardWithDraftFlush()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => options.onQuit(),
+    },
+  ])
+}
+
+export function refreshTrayMenu() {
+  if (!tray || !trayOptions) return
+  tray.setContextMenu(buildTrayMenu(trayOptions))
 }
 
 export function setupTray(options: { onQuit: () => void }) {
+  trayOptions = options
   if (tray) {
+    tray.setContextMenu(buildTrayMenu(options))
     return tray
   }
 
@@ -33,36 +64,14 @@ export function setupTray(options: { onQuit: () => void }) {
   tray = new Tray(trayImage)
   tray.setToolTip('Orion')
 
-  const buildMenu = () =>
-    Menu.buildFromTemplate([
-      {
-        label: 'Open Dashboard',
-        click: () => {
-          if (!isRendererAuthenticated()) {
-            showAuthWindow()
-            return
-          }
-          revealDashboardWithDraftFlush()
-        },
-      },
-      { type: 'separator' },
-      {
-        label: 'Quit',
-        click: () => options.onQuit(),
-      },
-    ])
-
-  tray.setContextMenu(buildMenu())
+  tray.setContextMenu(buildTrayMenu(options))
 
   tray.on('click', () => {
-    if (!isRendererAuthenticated()) {
-      showAuthWindow()
-      return
-    }
-
+    // While signed out, the tray icon only exposes the menu. The explicit
+    // "Log in" item is the action that reopens the auth window.
+    if (!isRendererAuthenticated()) return
     revealDashboardWithDraftFlush()
   })
 
   return tray
 }
-

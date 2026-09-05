@@ -85,6 +85,12 @@ body {
   -webkit-user-select: none;
 }
 
+.auth-root,
+.auth-root * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .dashboard-root :is(input, textarea, select, [contenteditable="true"], .mdx-content-editable) {
   user-select: text;
   -webkit-user-select: text;

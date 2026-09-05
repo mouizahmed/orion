@@ -97,7 +97,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
   return (
     <OnboardingFrame ref={ref}>
       <div
-        className="flex min-h-[452px] flex-col"
+        className="flex min-h-[492px] flex-col"
         style={{
           paddingInline: 'var(--app-content-inset)',
           paddingBottom: 'var(--app-content-inset)',
@@ -107,7 +107,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
           <OrionLogo className="h-44 w-44" />
         </div>
 
-        <div className="shrink-0 pb-4">
+        <div className="shrink-0 pb-3">
           <div className="text-[22px] font-semibold leading-tight text-neutral-950 dark:text-neutral-100">
             Sign in to get started
           </div>
@@ -124,7 +124,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
             />
           ) : null}
           {authError ? (
-            <div className="mt-3 max-w-[440px] rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
+            <div className="mt-3 w-full rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium leading-5 text-red-700 dark:text-red-200">
               {authError}
             </div>
           ) : null}
