@@ -613,6 +613,7 @@ export default function NoteEditorView({
             recordingSessionId={recordingSession?.sessionId}
             canStopRecording={canStopRecording}
             canShowRecordingOverlay={canShowRecordingOverlay}
+            recordingInterrupted={recordingSession?.phase === 'error'}
             liveSegments={recordingSession ? snapshot.transcript : undefined}
             transcriptPhase={recordingSession?.transcriptPhase}
             onMeetingArtifactsGenerated={handleMeetingArtifactsGenerated}

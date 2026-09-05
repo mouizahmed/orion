@@ -12,6 +12,8 @@ import type { RecordingUiController } from '@/features/recording/recording-types
 
 type OverlayRecordingController = RecordingUiController & { dispose(): void }
 
+const OVERLAY_WINDOW_INSET = 20
+
 function useOverlayWindowBounds(rootRef: RefObject<HTMLDivElement>) {
   useEffect(() => {
     const root = rootRef.current
@@ -64,7 +66,7 @@ export default function RecordingOverlayApp() {
   return (
     <RecordingUiProvider controller={controller}>
       <RecordingSurfaceReadyPublisher rootRef={rootRef} />
-      <div ref={rootRef} className="w-max p-3">
+      <div ref={rootRef} className="w-max" style={{ padding: OVERLAY_WINDOW_INSET }}>
         <RecordingOverlay />
       </div>
     </RecordingUiProvider>
@@ -84,7 +86,7 @@ export function RecordingOverlayFixtureApp() {
 
   return (
     <RecordingUiProvider controller={controller}>
-      <div ref={rootRef} className="w-max p-3">
+      <div ref={rootRef} className="w-max" style={{ padding: OVERLAY_WINDOW_INSET }}>
         <RecordingOverlay />
       </div>
     </RecordingUiProvider>

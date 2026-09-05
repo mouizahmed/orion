@@ -40,6 +40,7 @@ export default function NoteAssistantDockControls({
   onStopRecording,
 }: NoteAssistantDockControlsProps) {
   const audioLevel = useRecordingAudioLevel(recordingSessionId)
+  const sessionControlsVisible = recordingSessionActive || canShowRecordingOverlay
   const transcriptOpen = transcriptActive && panelVisible
   const transcriptHidden = chatActive && panelVisible
 
@@ -51,13 +52,13 @@ export default function NoteAssistantDockControls({
         transition={ASSISTANT_DOCK_FADE_TRANSITION}
         className={cn(
           'absolute bottom-0 left-0 z-30 flex h-14 items-stretch text-neutral-600 transition-[width] dark:text-neutral-300',
-          recordingSessionActive
+          sessionControlsVisible
             ? canShowRecordingOverlay ? 'w-[136px] gap-2' : 'w-24'
             : 'w-14',
           transcriptHidden ? 'pointer-events-none' : 'pointer-events-auto',
         )}
       >
-        {recordingSessionActive && canShowRecordingOverlay ? (
+        {sessionControlsVisible && canShowRecordingOverlay ? (
           <button
             type="button"
             onClick={onShowOverlay}
@@ -98,7 +99,7 @@ export default function NoteAssistantDockControls({
               <ChevronDown className="h-3 w-3" />
             </motion.span>
           </button>
-          {recordingSessionActive ? (
+          {sessionControlsVisible && canStopRecording ? (
             <button
               type="button"
               onClick={onStopRecording}
@@ -119,7 +120,7 @@ export default function NoteAssistantDockControls({
         transition={ASSISTANT_DOCK_FADE_TRANSITION}
         className={cn(
           'absolute inset-x-0 bottom-0 z-10 flex h-14',
-          recordingSessionActive
+          sessionControlsVisible
             ? canShowRecordingOverlay ? 'pl-36' : 'pl-24'
             : 'pl-16',
           assistantActive ? 'pointer-events-none' : 'pointer-events-auto',

@@ -17,6 +17,7 @@ import {
 } from './audio-engine-launch'
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000
+const MACOS_STARTUP_TIMEOUT_MS = 60_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 2_000
 const MAX_STDOUT_LINE_BYTES = 64
 const MAX_RESTART_ATTEMPTS = 1
@@ -81,7 +82,7 @@ class AudioEngineProcessSupervisor implements AudioEngineSupervisor {
     this.#runtimeDirectory = options.runtimeDirectory ?? app.getPath('temp')
     this.#startupTimeoutMs = positiveDuration(
       options.startupTimeoutMs,
-      DEFAULT_STARTUP_TIMEOUT_MS,
+      this.#platform === 'darwin' ? MACOS_STARTUP_TIMEOUT_MS : DEFAULT_STARTUP_TIMEOUT_MS,
       'startupTimeoutMs',
     )
     this.#shutdownTimeoutMs = positiveDuration(

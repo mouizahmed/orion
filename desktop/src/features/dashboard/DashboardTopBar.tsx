@@ -9,7 +9,6 @@ import { useWindowState } from '@/features/dashboard/useWindowState'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { desktopApi } from '@/lib/desktop-api'
 import { useAuth } from '@/features/auth/AuthContext'
-import { publicAssetUrl } from '@/lib/public-asset'
 import { useNoteQuery } from '@/features/notes/queries/useNotesQueries'
 import { useCalendarSyncMutation } from '@/features/calendar/useCalendarSyncMutation'
 import { useDashboardRecordingSession } from '@/features/recording/DashboardRecordingContext'
@@ -93,7 +92,7 @@ export default function DashboardTopBar({
 
   return (
     <div
-      className="relative flex h-12 w-full min-w-0 items-center gap-2 px-2 text-xs"
+      className="relative flex h-12 w-full min-w-0 items-center gap-1.5 px-2 text-xs"
       style={
         {
           paddingLeft: isMacOS && !isMaximized ? '80px' : undefined,
@@ -110,8 +109,7 @@ export default function DashboardTopBar({
           } as React.CSSProperties
         }
       />
-      <div className="relative z-10 flex min-w-0 items-center gap-2">
-        <img src={publicAssetUrl('orion-mark.svg')} alt="Orion Logo" className="h-6 w-6" />
+      <div className="relative z-10 flex min-w-0 items-center gap-1.5">
         <SidebarTrigger />
 
         <Button
@@ -147,7 +145,7 @@ export default function DashboardTopBar({
         }}
       />
 
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
+      <div className="relative z-10 flex shrink-0 items-center gap-1.5">
         {activeRecordingDisplay && !activeRecordingNoteVisible ? (
           <RecordingStatusPill
             session={activeRecordingDisplay}

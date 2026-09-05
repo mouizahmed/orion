@@ -4,7 +4,13 @@ This runbook starts Orion's four local development processes (API, web, desktop,
 
 ## Preferred: one-command controller
 
-Future agents and local developers should use the repository controller instead of rediscovering or manually coordinating the four processes:
+Future agents and local developers should use the repository controller instead of rediscovering or manually coordinating the four processes. On macOS, use the shell controller; on Windows, use the PowerShell controller:
+
+```bash
+./scripts/local-dev.sh start
+./scripts/local-dev.sh status
+./scripts/local-dev.sh stop
+```
 
 ```powershell
 .\scripts\local-dev.ps1 start
@@ -115,4 +121,4 @@ Press `Ctrl+C` in each terminal (Stripe listener, desktop, web, and backend). St
   and allow the backend to return it as `text/plain` quickly. Do not add user-session middleware to the
   provider webhook routes.
 
-Future agents should run `scripts\local-dev.ps1 start` instead of rediscovering the local process setup. Keep this document free of secrets, account IDs, credentials, and process/session IDs.
+Future agents should run the controller for their operating system instead of rediscovering the local process setup. Keep this document free of secrets, account IDs, credentials, and process/session IDs.

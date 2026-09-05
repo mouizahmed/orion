@@ -26,7 +26,8 @@ let isAppQuitting = false
 const TITLE_BAR_HEIGHT = 48
 const TITLE_BAR_BACKGROUND = '#ffffff00'
 const AUTH_WINDOW_WIDTH = 592
-const AUTH_WINDOW_HEIGHT = 562
+const AUTH_WINDOW_HEIGHT = process.platform === 'darwin' ? 640 : 562
+const AUTH_WINDOW_MIN_HEIGHT = 562
 const AUTH_WINDOW_MAX_WIDTH = 1254
 const AUTH_WINDOW_MAX_HEIGHT = 842
 
@@ -48,6 +49,16 @@ function updateDashboardTitleBarColors() {
   })
 }
 
+function updateAuthTitleBarColors() {
+  if (!authWin || authWin.isDestroyed()) return
+  const titleBarColors = getTitleBarColors()
+  authWin.setTitleBarOverlay({
+    color: titleBarColors.backgroundColor,
+    symbolColor: titleBarColors.symbolColor,
+    height: TITLE_BAR_HEIGHT,
+  })
+}
+
 function preventRefreshShortcuts(window: BrowserWindow) {
   window.webContents.on('before-input-event', (event, input) => {
     const key = input.key.toLowerCase()
@@ -56,6 +67,28 @@ function preventRefreshShortcuts(window: BrowserWindow) {
     if (isRefreshShortcut) {
       event.preventDefault()
     }
+  })
+}
+
+function lockOverlayZoom(window: BrowserWindow) {
+  const resetZoom = () => {
+    window.webContents.setZoomFactor(1)
+    void window.webContents.setVisualZoomLevelLimits(1, 1)
+  }
+
+  resetZoom()
+  window.webContents.on('did-finish-load', resetZoom)
+  window.webContents.on('zoom-changed', (event) => {
+    event.preventDefault()
+    resetZoom()
+  })
+  window.webContents.on('before-input-event', (event, input) => {
+    const key = input.key.toLowerCase()
+    const isZoomShortcut = (input.control || input.meta)
+      && (key === '+' || key === '=' || key === '-' || key === '_' || key === '0')
+    if (!isZoomShortcut) return
+    event.preventDefault()
+    resetZoom()
   })
 }
 
@@ -140,6 +173,7 @@ export function createWindow(options: { show?: boolean } = {}) {
   const overlayWindow = win
 
   preventRefreshShortcuts(overlayWindow)
+  lockOverlayZoom(overlayWindow)
   routeExternalLinksToBrowser(overlayWindow)
 
   // Make window visible on all workspaces/desktops
@@ -190,10 +224,9 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
     width: AUTH_WINDOW_WIDTH,
     height: AUTH_WINDOW_HEIGHT,
     minWidth: AUTH_WINDOW_WIDTH,
-    minHeight: AUTH_WINDOW_HEIGHT,
+    minHeight: AUTH_WINDOW_MIN_HEIGHT,
     maxWidth: AUTH_WINDOW_MAX_WIDTH,
     maxHeight: AUTH_WINDOW_MAX_HEIGHT,
-    frame: false,
     transparent: false,
     hasShadow: true,
     alwaysOnTop: false,
@@ -209,6 +242,12 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
       sandbox: true,
     },
     backgroundColor: '#171417',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: getTitleBarColors().backgroundColor,
+      symbolColor: getTitleBarColors().symbolColor,
+      height: TITLE_BAR_HEIGHT,
+    },
   })
 
   setAuthCallbackWindow(authWin)
@@ -217,9 +256,12 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
   authWin.setMenuBarVisibility(false)
 
   authWin.on('closed', () => {
+    nativeTheme.removeListener('updated', updateAuthTitleBarColors)
     setAuthCallbackWindow(null)
     authWin = null
   })
+
+  nativeTheme.on('updated', updateAuthTitleBarColors)
 
   if (VITE_DEV_SERVER_URL) {
     authWin.loadURL(`${VITE_DEV_SERVER_URL}?view=auth`)
@@ -405,4 +447,3 @@ export function setAuthWindow(window: BrowserWindow | null) {
 export function setDashboardWindow(window: BrowserWindow | null) {
   dashboardWin = window
 }
-

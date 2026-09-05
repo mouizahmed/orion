@@ -23,6 +23,7 @@ type NoteTranscriptPanelProps = {
   expandedHeight: number
   noteId: string
   isRecording: boolean
+  recordingInterrupted: boolean
   canResumeRecording: boolean
   loading: boolean
   segments: TranscriptSegment[]
@@ -40,6 +41,7 @@ export default function NoteTranscriptPanel({
   expandedHeight,
   noteId,
   isRecording,
+  recordingInterrupted,
   canResumeRecording,
   loading,
   segments,
@@ -185,15 +187,19 @@ export default function NoteTranscriptPanel({
           />
         ) : showingLiveTranscript ? (
           <div className="-mx-3 min-h-0 flex-1">
-            <InfoBanner className="mx-3 mb-3">
-              System audio may be repeated if it also reaches your microphone. Use headphones for the cleanest transcript.
+              <InfoBanner className="mx-3 mb-3">
+                {recordingInterrupted
+                  ? 'Recording was interrupted. Stop the current session from the recording controls before resuming.'
+                  : 'System audio may be repeated if it also reaches your microphone. Use headphones for the cleanest transcript.'}
             </InfoBanner>
             <LiveTranscriptViewport segments={liveSegments} transcriptPhase={transcriptPhase} />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto sidebar-scrollbar">
-            <InfoBanner className="mb-3">
-              System audio may be repeated if it also reaches your microphone. Use headphones for the cleanest transcript.
+              <InfoBanner className="mb-3">
+                {recordingInterrupted
+                  ? 'Recording was interrupted. Stop the current session from the recording controls before resuming.'
+                  : 'System audio may be repeated if it also reaches your microphone. Use headphones for the cleanest transcript.'}
             </InfoBanner>
             <SavedTranscriptView segments={segments} loading={loading} theme="light" />
           </div>

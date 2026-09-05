@@ -29,6 +29,7 @@ type NoteAssistantDockProps = {
   recordingSessionId?: string | null
   canStopRecording?: boolean
   canShowRecordingOverlay?: boolean
+  recordingInterrupted?: boolean
   liveSegments?: readonly RecordingTranscriptSegment[]
   transcriptPhase?: TranscriptPhase
   onResumeRecording?: () => void
@@ -50,6 +51,7 @@ export default function NoteAssistantDock({
   recordingSessionId = null,
   canStopRecording = isRecording,
   canShowRecordingOverlay = isRecording,
+  recordingInterrupted = false,
   liveSegments,
   transcriptPhase,
   onResumeRecording,
@@ -163,6 +165,7 @@ export default function NoteAssistantDock({
                 expandedHeight={transcriptPanelHeight}
                 noteId={noteId}
                 isRecording={isRecording}
+                recordingInterrupted={recordingInterrupted}
                 canResumeRecording={canResumeRecording}
                 loading={transcriptQuery.isLoading}
                 segments={transcriptQuery.data?.segments ?? []}

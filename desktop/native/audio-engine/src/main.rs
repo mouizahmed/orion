@@ -147,9 +147,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     let audio_mux = AudioFrameMux::start(audio, Arc::clone(&dropped_audio_frames))?;
     let (echo_reference_sender, echo_reference_receiver) = echo_reference_channel();
     let dsp_control = DspControl::default();
-    let system_audio = match MacOsSystemCapture::start(
-        audio_mux.source_sender(AudioSource::System)?,
-        echo_reference_sender,
+    // Starting the ScreenCaptureKit tap first can deadlock Core Audio while CPAL
+    // starts the microphone input unit on macOS. Open the microphone first.
+    let microphone = match MicrophoneCapture::start(
+        audio_mux.source_sender(AudioSource::Mic)?,
+        echo_reference_receiver,
         dsp_control.clone(),
         started_at,
         Arc::clone(&dropped_audio_frames),
@@ -161,9 +163,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             None
         }
     };
-    let microphone = match MicrophoneCapture::start(
-        audio_mux.source_sender(AudioSource::Mic)?,
-        echo_reference_receiver,
+    let system_audio = match MacOsSystemCapture::start(
+        audio_mux.source_sender(AudioSource::System)?,
+        echo_reference_sender,
         dsp_control.clone(),
         started_at,
         Arc::clone(&dropped_audio_frames),
