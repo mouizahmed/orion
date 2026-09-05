@@ -25,8 +25,8 @@ let isAppQuitting = false
 
 const TITLE_BAR_HEIGHT = 48
 const TITLE_BAR_BACKGROUND = '#ffffff00'
-const AUTH_WINDOW_WIDTH = 592
-const AUTH_WINDOW_HEIGHT = 562
+const AUTH_WINDOW_WIDTH = 480
+const AUTH_WINDOW_HEIGHT = 500
 const AUTH_WINDOW_MAX_WIDTH = 1254
 const AUTH_WINDOW_MAX_HEIGHT = 842
 
@@ -42,6 +42,16 @@ function updateDashboardTitleBarColors() {
   if (!dashboardWin || dashboardWin.isDestroyed()) return
   const titleBarColors = getTitleBarColors()
   dashboardWin.setTitleBarOverlay({
+    color: titleBarColors.backgroundColor,
+    symbolColor: titleBarColors.symbolColor,
+    height: TITLE_BAR_HEIGHT,
+  })
+}
+
+function updateAuthTitleBarColors() {
+  if (!authWin || authWin.isDestroyed()) return
+  const titleBarColors = getTitleBarColors()
+  authWin.setTitleBarOverlay({
     color: titleBarColors.backgroundColor,
     symbolColor: titleBarColors.symbolColor,
     height: TITLE_BAR_HEIGHT,
@@ -213,7 +223,6 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
     minHeight: AUTH_WINDOW_HEIGHT,
     maxWidth: AUTH_WINDOW_MAX_WIDTH,
     maxHeight: AUTH_WINDOW_MAX_HEIGHT,
-    frame: false,
     transparent: false,
     hasShadow: true,
     alwaysOnTop: false,
@@ -229,6 +238,12 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
       sandbox: true,
     },
     backgroundColor: '#171417',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: {
+      color: getTitleBarColors().backgroundColor,
+      symbolColor: getTitleBarColors().symbolColor,
+      height: TITLE_BAR_HEIGHT,
+    },
   })
 
   setAuthCallbackWindow(authWin)
@@ -237,9 +252,12 @@ export function createAuthWindow(options: { show?: boolean } = {}) {
   authWin.setMenuBarVisibility(false)
 
   authWin.on('closed', () => {
+    nativeTheme.removeListener('updated', updateAuthTitleBarColors)
     setAuthCallbackWindow(null)
     authWin = null
   })
+
+  nativeTheme.on('updated', updateAuthTitleBarColors)
 
   if (VITE_DEV_SERVER_URL) {
     authWin.loadURL(`${VITE_DEV_SERVER_URL}?view=auth`)

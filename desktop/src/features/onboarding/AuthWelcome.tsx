@@ -96,12 +96,18 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
 
   return (
     <OnboardingFrame ref={ref}>
-      <div className="flex min-h-[514px] flex-col px-6 pb-6">
+      <div
+        className="flex min-h-[452px] flex-col"
+        style={{
+          paddingInline: 'var(--app-content-inset)',
+          paddingBottom: 'var(--app-content-inset)',
+        }}
+      >
         <div className="flex min-h-0 flex-1 items-center justify-center pb-3 pt-3 [-webkit-app-region:drag]">
           <OrionLogo className="h-44 w-44" />
         </div>
 
-        <div className="shrink-0 pb-6">
+        <div className="shrink-0 pb-4">
           <div className="text-[22px] font-semibold leading-tight text-neutral-950 dark:text-neutral-100">
             Sign in to get started
           </div>
@@ -124,7 +130,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
           ) : null}
         </div>
 
-        <div className="mt-auto flex w-full justify-end">
+        <div className="mt-auto w-full">
           {serviceUnavailable ? (
             <Button
               type="button"
@@ -137,13 +143,13 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
             <Button
               type="button"
               variant="destructive"
-              className="h-10 rounded-full px-5 text-sm [-webkit-app-region:no-drag]"
+              className="h-10 w-full rounded-full px-5 text-sm [-webkit-app-region:no-drag]"
               onClick={cancelAuth}
             >
               Cancel
             </Button>
           ) : (
-            <div className="grid w-full max-w-[360px] grid-cols-2 gap-2">
+            <div className="grid w-full grid-cols-2 gap-2">
               <Button
                 type="button"
                 variant="secondary"
