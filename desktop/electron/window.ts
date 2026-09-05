@@ -59,6 +59,28 @@ function preventRefreshShortcuts(window: BrowserWindow) {
   })
 }
 
+function lockOverlayZoom(window: BrowserWindow) {
+  const resetZoom = () => {
+    window.webContents.setZoomFactor(1)
+    void window.webContents.setVisualZoomLevelLimits(1, 1)
+  }
+
+  resetZoom()
+  window.webContents.on('did-finish-load', resetZoom)
+  window.webContents.on('zoom-changed', (event) => {
+    event.preventDefault()
+    resetZoom()
+  })
+  window.webContents.on('before-input-event', (event, input) => {
+    const key = input.key.toLowerCase()
+    const isZoomShortcut = (input.control || input.meta)
+      && (key === '+' || key === '=' || key === '-' || key === '_' || key === '0')
+    if (!isZoomShortcut) return
+    event.preventDefault()
+    resetZoom()
+  })
+}
+
 export function isAppNavigationUrl(rawUrl: string) {
   try {
     const target = new URL(rawUrl)
@@ -139,6 +161,7 @@ export function createWindow(options: { show?: boolean } = {}) {
   })
 
   preventRefreshShortcuts(win)
+  lockOverlayZoom(win)
   routeExternalLinksToBrowser(win)
 
   // Make window visible on all workspaces/desktops
@@ -402,4 +425,3 @@ export function setAuthWindow(window: BrowserWindow | null) {
 export function setDashboardWindow(window: BrowserWindow | null) {
   dashboardWin = window
 }
-

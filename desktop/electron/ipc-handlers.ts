@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, screen } from 'electron'
 import { closeDashboardWindow, getDashboardWindow, isKnownRendererSender, isOverlayRendererSender, showAuthWindow } from './window'
 import { isRendererAuthenticated } from './auth-handlers'
 import { setupRecordingIpc } from './recording-ipc'
@@ -26,12 +26,18 @@ export function setupIpcHandlers() {
     if (!Number.isFinite(payload?.width) || !Number.isFinite(payload?.height)) return
     const width = Math.min(900, Math.max(240, Math.round(payload.width)))
     const height = Math.min(1_000, Math.max(60, Math.round(payload.height)))
-    const [currentWidth, currentHeight] = win.getSize()
+    const [currentWidth, currentHeight] = win.getContentSize()
     if (currentWidth === width && currentHeight === height) return
 
-    const [x, y] = win.getPosition()
-    // Keep top-left fixed; grow/shrink down/right.
-    win.setBounds({ x, y, width, height }, false)
+    win.setContentSize(width, height, false)
+
+    const bounds = win.getBounds()
+    const { workArea } = screen.getDisplayMatching(bounds)
+    const maxX = Math.max(workArea.x, workArea.x + workArea.width - bounds.width)
+    const maxY = Math.max(workArea.y, workArea.y + workArea.height - bounds.height)
+    const x = Math.min(Math.max(bounds.x, workArea.x), maxX)
+    const y = Math.min(Math.max(bounds.y, workArea.y), maxY)
+    if (x !== bounds.x || y !== bounds.y) win.setPosition(x, y, false)
   })
 
   ipcMain.on('window-minimize', (event) => {

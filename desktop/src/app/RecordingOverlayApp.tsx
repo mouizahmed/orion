@@ -10,6 +10,8 @@ import { createRecordingUiFixture } from '@/features/recording/dev/recording-ui-
 import { desktopApi } from '@/lib/desktop-api'
 import type { RecordingTranscriptSegment } from '@/features/recording/recording-types'
 
+const OVERLAY_WINDOW_INSET = 20
+
 function RecordingSnapshotPublisher() {
   const session = useRecordingSessionSnapshot()
   const sessionId = session?.sessionId
@@ -98,7 +100,7 @@ export default function RecordingOverlayApp() {
     <RecordingUiProvider controller={controller}>
       <RecordingSnapshotPublisher />
       <RecordingSurfaceReadyPublisher rootRef={rootRef} />
-      <div ref={rootRef} className="w-max p-3">
+      <div ref={rootRef} className="w-max" style={{ padding: OVERLAY_WINDOW_INSET }}>
         <RecordingOverlay />
       </div>
     </RecordingUiProvider>
