@@ -134,7 +134,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
           {serviceUnavailable ? (
             <Button
               type="button"
-              className="h-10 rounded-full px-6 text-sm [-webkit-app-region:no-drag]"
+              className="h-10 w-full rounded-full px-6 text-sm [-webkit-app-region:no-drag]"
               onClick={() => { void retryAuthentication() }}
             >
               Retry
