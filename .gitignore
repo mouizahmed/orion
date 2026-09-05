@@ -19,3 +19,5 @@ database_schema.sql
 
 .claude/
 .runtime-logs/
+
+/desktop/native/audio-engine/target/
