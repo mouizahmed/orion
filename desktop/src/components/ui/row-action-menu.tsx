@@ -2,6 +2,7 @@ import * as React from 'react'
 import { createPortal } from 'react-dom'
 import { MoreHorizontal } from 'lucide-react'
 
+import { dropdownSurfaceClassName } from '@/components/ui/dropdown-list'
 import { SidebarIconButton } from '@/components/ui/sidebar-button'
 import { cn } from '@/lib/utils'
 
@@ -214,7 +215,10 @@ export function RowActionMenu({
         top: popupPosition.y,
       } : undefined}
       className={cn(
-        'z-[70] min-w-[160px] overscroll-contain rounded-lg border border-neutral-200 bg-white/95 p-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100',
+        dropdownSurfaceClassName({
+          className: 'z-[70] overscroll-contain shadow-xl',
+          width: 'md',
+        }),
         popupAnchor
           ? 'fixed'
           : cn('absolute right-0', placement === 'row-end' ? 'top-8' : 'top-full'),

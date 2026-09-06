@@ -5,9 +5,8 @@ import { useRouter } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import Image from "next/image";
 import { Spinner } from "@/components/ui/spinner";
-import { pageBackground } from "@/lib/styles";
 
-const callbackShellClass = `flex min-h-screen items-center justify-center ${pageBackground} px-6 text-center`;
+const callbackShellClass = "flex min-h-screen items-center justify-center bg-zinc-950 px-6 text-center";
 
 type OpenAppCallbackProps = {
   protocolUrl: string | null;
@@ -49,11 +48,12 @@ export function OpenAppCallback({
       <div className={`${callbackShellClass} py-10`}>
         <div className="flex w-full max-w-xl flex-col items-center gap-6">
           <Image
-            src="/orion-mark.svg"
+            src="/orion-logo.svg"
             alt="Orion Logo"
-            width={80}
-            height={80}
-            className="rounded-md"
+            width={112}
+            height={112}
+            draggable={false}
+            className="pointer-events-none select-none rounded-md"
           />
 
           <div className="space-y-3">
@@ -90,11 +90,12 @@ export function OpenAppCallback({
     <div className={`${callbackShellClass} py-12`}>
       <div className="flex w-full max-w-2xl flex-col items-center gap-6">
         <Image
-          src="/orion-mark.svg"
+          src="/orion-logo.svg"
           alt="Orion Logo"
-          width={88}
-          height={88}
-          className="rounded-md"
+          width={128}
+          height={128}
+          draggable={false}
+          className="pointer-events-none select-none rounded-md"
         />
 
         <div className="space-y-3">

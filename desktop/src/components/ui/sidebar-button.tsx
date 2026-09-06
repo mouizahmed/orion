@@ -70,29 +70,3 @@ export function SidebarIconButton({
     </button>
   )
 }
-
-export function SidebarMenuItemButton({
-  destructive,
-  active,
-  className,
-  children,
-  ...props
-}: SidebarButtonProps & { destructive?: boolean; active?: boolean }) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-neutral-100 dark:hover:bg-white/10',
-        destructive
-          ? 'text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200'
-          : active
-            ? 'font-medium text-neutral-950 dark:text-white'
-            : 'text-neutral-600 dark:text-neutral-300',
-        className,
-      )}
-      {...props}
-    >
-      {children}
-    </button>
-  )
-}

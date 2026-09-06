@@ -10,7 +10,10 @@ let trayOptions: { onQuit: () => void } | null = null
 function getTrayIconPath() {
   const publicDir = process.env.VITE_PUBLIC
   if (!publicDir) return null
-  return path.join(publicDir, 'orion-app-icon.png')
+  const filename = process.platform === 'darwin'
+    ? 'orion-menubarTemplate.png'
+    : 'orion-app-icon.png'
+  return path.join(publicDir, filename)
 }
 
 export function destroyTray() {
@@ -60,8 +63,15 @@ export function setupTray(options: { onQuit: () => void }) {
   const iconPath = getTrayIconPath()
   const image = iconPath ? nativeImage.createFromPath(iconPath) : nativeImage.createEmpty()
 
-  // Windows tray often expects small icons; resize defensively.
-  const trayImage = image.isEmpty() ? image : image.resize({ width: 16, height: 16 })
+  let trayImage = image
+  if (!trayImage.isEmpty()) {
+    if (process.platform === 'darwin') {
+      trayImage.setTemplateImage(true)
+    } else {
+      // Windows tray often expects small icons; resize defensively.
+      trayImage = trayImage.resize({ width: 16, height: 16 })
+    }
+  }
 
   tray = new Tray(trayImage)
   tray.setToolTip('Orion')

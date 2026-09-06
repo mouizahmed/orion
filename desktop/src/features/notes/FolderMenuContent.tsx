@@ -1,4 +1,4 @@
-import { SidebarMenuItemButton } from '@/components/ui/sidebar-button'
+import { DropdownItem } from '@/components/ui/dropdown-list'
 
 export function FolderMenuContent({
   folderId,
@@ -15,12 +15,12 @@ export function FolderMenuContent({
 }) {
   return (
     <>
-      <SidebarMenuItemButton onClick={() => { onRename(folderId, folderName); close() }}>
+      <DropdownItem onClick={() => { onRename(folderId, folderName); close() }}>
         Rename
-      </SidebarMenuItemButton>
-      <SidebarMenuItemButton destructive onClick={() => { onDelete(folderId, folderName); close() }}>
+      </DropdownItem>
+      <DropdownItem destructive onClick={() => { onDelete(folderId, folderName); close() }}>
         Delete
-      </SidebarMenuItemButton>
+      </DropdownItem>
     </>
   )
 }

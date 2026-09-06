@@ -29,7 +29,7 @@ export default function Navbar() {
                 onContextMenu={(event) => event.preventDefault()}
               >
                 <Image
-                  src="/orion-mark.svg"
+                  src="/orion-logo.svg"
                   alt="Orion Logo"
                   width={32}
                   height={32}

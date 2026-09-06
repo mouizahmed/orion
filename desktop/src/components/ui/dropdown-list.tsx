@@ -53,7 +53,7 @@ function dropdownItemClassName({
   size = "md",
   destructive = false,
   layout = "single",
-  radius = "full",
+  radius = "md",
 }: {
   className?: string
   size?: DropdownSize
@@ -112,7 +112,7 @@ function DropdownItem({
   size = "md",
   destructive = false,
   layout = "single",
-  radius = "full",
+  radius,
   children,
   ...props
 }: React.ComponentProps<"button"> & {

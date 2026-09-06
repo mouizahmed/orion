@@ -109,7 +109,7 @@ const AuthWelcome = forwardRef<HTMLDivElement>(function AuthWelcome(_, ref) {
         }}
       >
         <div className="flex min-h-0 flex-1 items-center justify-center pb-3 pt-3 [-webkit-app-region:drag]">
-          <OrionLogo className="h-44 w-44" />
+          <OrionLogo className="h-56 w-56" />
         </div>
 
         <div className="shrink-0 pb-3">

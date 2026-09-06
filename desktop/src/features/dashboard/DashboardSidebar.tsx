@@ -314,7 +314,6 @@ export default function DashboardSidebar({
               <div className="my-1 h-px bg-neutral-200 dark:bg-white/10" />
               <DropdownItem
                 role="menuitem"
-                radius="md"
                 onClick={() => {
                   setProfileMenuOpen(false)
                   logout()
