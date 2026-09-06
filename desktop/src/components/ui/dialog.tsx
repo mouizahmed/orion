@@ -104,7 +104,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTML
           role="dialog"
           aria-modal="true"
           className={cn(
-            'fixed left-[50%] top-[50%] z-50 grid max-h-[90vh] w-[min(calc(100vw-32px),380px)] translate-x-[-50%] translate-y-[-50%] gap-2 overflow-y-auto rounded-xl border border-white/10 bg-[#171417]/95 p-3 text-neutral-100 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in-0 zoom-in-95 sidebar-scrollbar',
+            'fixed left-[50%] top-[50%] z-50 grid max-h-[90vh] w-[min(calc(100vw-32px),380px)] translate-x-[-50%] translate-y-[-50%] gap-2 overflow-y-auto rounded-xl border border-white/10 bg-[#171417]/95 p-3 text-neutral-100 shadow-2xl backdrop-blur-md duration-200 animate-in fade-in-0 zoom-in-95 sidebar-scrollbar [&_[data-slot=checkbox-dropdown-trigger]]:rounded-lg [&_[data-slot=input]]:rounded-lg [&_[data-slot=select-trigger]]:rounded-lg [&_textarea]:rounded-lg',
             className,
           )}
           onMouseDown={(e) => e.stopPropagation()}

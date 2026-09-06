@@ -33,10 +33,14 @@ export function DeleteConfirmationDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        {error ? <div className="text-xs leading-5 text-red-600 dark:text-red-400" role="alert">{error}</div> : null}
-        <div className="flex justify-end gap-2 pt-2">
+        <DialogDescription>{description}</DialogDescription>
+        {error ? (
+          <div className="text-xs leading-5 text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </div>
+        ) : null}
+        <div className="flex min-h-8 justify-end gap-2 pt-2">
           <Button type="button" variant="outline" disabled={deleting} onClick={onClose}>
             Keep it
           </Button>

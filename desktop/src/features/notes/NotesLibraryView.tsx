@@ -1,5 +1,5 @@
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, ArrowUpDown, ChevronRight, FileText, Folder, FolderPlus } from 'lucide-react'
+import { type CSSProperties, type ReactNode, useEffect, useMemo, useState } from 'react'
+import { ArrowDownUp, ArrowUpDown, ChevronRight, FileText, Folder, FolderPlus, Trash2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -29,7 +29,7 @@ import type { NoteSort, NoteSortDirection, NoteSummary } from '@/features/notes/
 
 function EmptyNotes({ folderName }: { folderName?: string }) {
   return (
-    <div className="flex min-h-40 flex-col items-center justify-center px-4 py-8 text-center">
+    <div className="flex min-h-40 flex-1 flex-col items-center justify-center px-4 py-8 text-center">
       <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-neutral-100 text-neutral-500 dark:border-white/10 dark:bg-white/5 dark:text-neutral-400">
         <FileText className="h-4 w-4" />
       </div>
@@ -37,6 +37,25 @@ function EmptyNotes({ folderName }: { folderName?: string }) {
       <p className="mt-1 text-xs text-neutral-500">
         {folderName ? `Create or move a note into ${folderName}.` : 'Notes without a folder will appear here.'}
       </p>
+    </div>
+  )
+}
+
+function NotesListSection({ title, children }: { title?: string; children: ReactNode }) {
+  return (
+    <section className="flex min-h-0 flex-1 flex-col">
+      {title ? <h3 className="px-2.5 pb-1.5 text-xs font-semibold text-neutral-400">{title}</h3> : null}
+      {children}
+    </section>
+  )
+}
+
+function NotesListSkeleton() {
+  return (
+    <div className="space-y-1" aria-hidden="true">
+      {[70, 55, 80, 65].map((width) => (
+        <div key={width} className="h-12 animate-pulse rounded-lg bg-neutral-100 dark:bg-white/5" style={{ width: `${width}%` }} />
+      ))}
     </div>
   )
 }
@@ -147,7 +166,7 @@ export default function NotesLibraryView() {
     <div className="flex h-full min-h-0 flex-col gap-2">
       <DashboardPanel className="flex min-h-0 flex-1 flex-col">
         <DashboardPanelHeader>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {selectedFolder ? (
               <div className="flex min-w-0 items-center gap-1.5">
                 <button
@@ -159,7 +178,50 @@ export default function NotesLibraryView() {
                   My Notes
                 </button>
                 <ChevronRight className="h-4 w-4 shrink-0 text-neutral-400" />
-                <DashboardPanelTitle className="truncate">{selectedFolder.name}</DashboardPanelTitle>
+                {renamingFolderId === selectedFolder.id ? (
+                  <input
+                    autoFocus
+                    value={folderRenameValue}
+                    onChange={(event) => setFolderRenameValue(event.target.value)}
+                    onBlur={() => void commitFolderRename(selectedFolder.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        event.currentTarget.blur()
+                      }
+                      if (event.key === 'Escape') {
+                        setRenamingFolderId(null)
+                        setFolderRenameValue('')
+                      }
+                    }}
+                    aria-label={`Rename ${selectedFolder.name}`}
+                    className="h-8 min-w-0 flex-1 truncate border-b border-violet-400 bg-transparent text-base font-medium leading-none text-neutral-900 outline-none dark:text-neutral-100"
+                    style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    className="min-w-0 truncate text-left text-base font-medium leading-none text-neutral-900 hover:text-violet-600 dark:text-neutral-100 dark:hover:text-violet-400"
+                    onClick={() => startFolderRename(selectedFolder.id, selectedFolder.name)}
+                    aria-label={`Rename ${selectedFolder.name}`}
+                    title="Rename folder"
+                    style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                  >
+                    {selectedFolder.name}
+                  </button>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-neutral-400 hover:text-red-600 dark:text-neutral-500 dark:hover:text-red-400"
+                  aria-label={`Delete ${selectedFolder.name}`}
+                  title="Delete folder"
+                  onClick={() => requestDeleteFolder(selectedFolder.id, selectedFolder.name)}
+                  style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </div>
             ) : (
               <DashboardPanelTitle>My Notes</DashboardPanelTitle>
@@ -210,30 +272,28 @@ export default function NotesLibraryView() {
           </div>
         </DashboardPanelHeader>
 
-        <DashboardPanelBody className="min-h-0 flex-1 p-2">
+        <DashboardPanelBody className="flex min-h-0 flex-1 flex-col p-2">
           {selectedFolder ? (
-            notesQuery.isLoading ? (
-              <div className="space-y-1">
-                {[70, 55, 80, 65].map((width) => (
-                  <div key={width} className="h-12 animate-pulse rounded-lg bg-neutral-100 dark:bg-white/5" style={{ width: `${width}%` }} />
-                ))}
-              </div>
-            ) : notes.length > 0 ? (
-              <div className="space-y-0.5">
-                {notes.map(renderNote)}
-                {notesQuery.hasNextPage ? (
-                  <LoadMoreButton
-                    isLoading={notesQuery.isFetchingNextPage}
-                    onClick={() => void notesQuery.fetchNextPage()}
-                  />
-                ) : null}
-              </div>
-            ) : (
-              <EmptyNotes folderName={selectedFolder.name} />
-            )
+            <NotesListSection>
+              {notesQuery.isLoading ? (
+                <NotesListSkeleton />
+              ) : notes.length > 0 ? (
+                <div className="space-y-0.5">
+                  {notes.map(renderNote)}
+                  {notesQuery.hasNextPage ? (
+                    <LoadMoreButton
+                      isLoading={notesQuery.isFetchingNextPage}
+                      onClick={() => void notesQuery.fetchNextPage()}
+                    />
+                  ) : null}
+                </div>
+              ) : (
+                <EmptyNotes folderName={selectedFolder.name} />
+              )}
+            </NotesListSection>
           ) : (
-            <div className="space-y-5">
-              <section>
+            <div className="flex min-h-0 flex-1 flex-col gap-5">
+              <section className="shrink-0">
                 <h3 className="px-2.5 pb-1.5 text-xs font-semibold text-neutral-400">Folders</h3>
                 {folders.length > 0 ? (
                   <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-3">
@@ -307,9 +367,10 @@ export default function NotesLibraryView() {
                 )}
               </section>
 
-              <section>
-                <h3 className="px-2.5 pb-1.5 text-xs font-semibold text-neutral-400">Notes</h3>
-                {notes.length > 0 ? (
+              <NotesListSection title="Notes">
+                {notesQuery.isLoading ? (
+                  <NotesListSkeleton />
+                ) : notes.length > 0 ? (
                   <div className="space-y-0.5">
                     {notes.map(renderNote)}
                     {notesQuery.hasNextPage ? (
@@ -322,7 +383,7 @@ export default function NotesLibraryView() {
                 ) : (
                   <EmptyNotes />
                 )}
-              </section>
+              </NotesListSection>
             </div>
           )}
         </DashboardPanelBody>

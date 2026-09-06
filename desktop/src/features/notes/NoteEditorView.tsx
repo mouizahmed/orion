@@ -45,17 +45,15 @@ const NOTE_VIEW_OPTIONS = [
   { value: 'summary', label: 'Summary' },
 ] as const
 
-function NoteLoadingIndicator() {
+function NoteLoadingSkeleton() {
   return (
-    <div
-      className="flex h-full min-h-40 items-center justify-center"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        <span>Loading note…</span>
-      </div>
+    <div className="h-full space-y-3 p-5" aria-hidden="true">
+      <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+      <div className="h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+      <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+      <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+      <div className="mt-6 h-3 w-full animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+      <div className="h-3 w-4/5 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
     </div>
   )
 }
@@ -524,7 +522,7 @@ export default function NoteEditorView({
         {/* Editor */}
         <div className="relative flex-1 min-h-0 overflow-hidden">
           {noteIsLoading ? (
-            <NoteLoadingIndicator />
+            <NoteLoadingSkeleton />
           ) : (
             <>
               <TabsContent value="notes" className="h-full min-h-0">

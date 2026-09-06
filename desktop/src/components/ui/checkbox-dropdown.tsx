@@ -103,6 +103,7 @@ export function CheckboxDropdown({
     <div ref={rootRef} className="relative">
       <button
         type="button"
+        data-slot="checkbox-dropdown-trigger"
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
