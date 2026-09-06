@@ -37,7 +37,7 @@ export default function DashboardTopBar({
   const activeRecordingDisplay = activeRecording && activeRecordingNoteQuery.data
     ? { ...activeRecording, noteTitle: activeRecordingNoteQuery.data.title }
     : activeRecording
-  const noteEditorVisible = !['settings', 'calendar', 'chat'].includes(mode) && Boolean(selectedId)
+  const noteEditorVisible = !['settings', 'chat'].includes(mode) && Boolean(selectedId)
   const activeRecordingNoteVisible = noteEditorVisible && selectedId === activeRecording?.noteId
 
   const closeCompactOverlay = () => {

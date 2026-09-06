@@ -1,7 +1,7 @@
 import { authenticatedFetch } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
-const MAX_EVENTS = 100
+const MAX_EVENTS = 10
 
 export type CalendarAttendee = {
   name?: string

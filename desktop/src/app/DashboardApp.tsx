@@ -65,19 +65,7 @@ function DashboardContent() {
   const initialNoteId = useDashboardNoteIdFromUrl()
   const [viewMode, setViewMode] = useState<DashboardViewMode>('home')
   const [settingsSection, setSettingsSection] = useState<DashboardSettingsSection>('account')
-  const [pendingCalendarEventId, setPendingCalendarEventId] = useState<string | null>(null)
   const handleOpenNotes = useCallback(() => setViewMode('notes'), [])
-
-  const handleOpenCalendar = useCallback((eventId?: string) => {
-    setViewMode('calendar')
-    setPendingCalendarEventId(eventId ?? null)
-  }, [])
-
-  useEffect(() => {
-    if (viewMode !== 'calendar') {
-      setPendingCalendarEventId(null)
-    }
-  }, [viewMode])
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -117,7 +105,6 @@ function DashboardContent() {
               selectedSettingsSection={settingsSection}
               onOpenHome={() => setViewMode('home')}
               onOpenNotes={handleOpenNotes}
-              onOpenCalendar={handleOpenCalendar}
               onOpenChat={() => setViewMode('chat')}
               onOpenSettings={() => setViewMode((current) => (current === 'settings' ? 'home' : 'settings'))}
               onCloseSettings={() => setViewMode('home')}
@@ -128,13 +115,11 @@ function DashboardContent() {
                 userId={user.id}
                 mode={viewMode}
                 selectedSettingsSection={settingsSection}
-                onOpenCalendar={handleOpenCalendar}
                 onOpenCalendarSettings={() => {
                   setSettingsSection('calendar')
                   setViewMode('settings')
                 }}
                 onOpenNotes={handleOpenNotes}
-                initialCalendarEventId={pendingCalendarEventId}
               />
             </div>
           </div>

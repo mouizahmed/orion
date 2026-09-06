@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ArrowDownUp, ArrowUpDown, FileText, RefreshCw, Settings2 } from 'lucide-react'
 
@@ -23,8 +23,11 @@ import { UpcomingMeetings } from '@/features/home/UpcomingMeetings'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { useCalendarEvents } from '@/features/calendar/useCalendarEvents'
+import type { CalendarEvent } from '@/features/calendar/useCalendarEvents'
+import { MeetingDetailsPanel } from '@/features/calendar/MeetingDetailsPanel'
 import { useActivityQuery } from '@/features/home/useActivityQuery'
 import type { ActivityRecord, ActivitySort, ActivitySortDirection } from '@/features/home/types'
+import { cn } from '@/lib/utils'
 
 function formatActivityDate(timestamp: number) {
   const date = new Date(timestamp)
@@ -70,19 +73,21 @@ function groupActivityByDate(activity: ActivityRecord[]) {
 }
 
 export default function HomeView({
-  onOpenCalendar,
   onOpenCalendarSettings,
+  onOpenNotes,
 }: {
-  onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
+  onOpenNotes?: () => void
 }) {
   const { user } = useAuth()
-  const { selectNote, requestDeleteNote, renameNote, moveNote, folders } = useDashboardNotes()
+  const { createNewNote, selectNote, requestDeleteNote, renameNote, moveNote, folders } = useDashboardNotes()
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
+  const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const meetingDetailsPanelRef = useRef<HTMLDivElement | null>(null)
   const activityQuery = useActivityQuery(user?.id, {
     sort: activitySort,
     direction: activitySortDirection,
@@ -114,12 +119,47 @@ export default function HomeView({
     refresh: refreshCalendar,
   } = useCalendarEvents()
 
+  const selectedEvent = useMemo(
+    () => calendarEvents.find((event) => event.id === selectedEventId) ?? null,
+    [calendarEvents, selectedEventId],
+  )
+
+  useEffect(() => {
+    if (selectedEventId && !calendarEvents.some((event) => event.id === selectedEventId)) {
+      setSelectedEventId(null)
+    }
+  }, [calendarEvents, selectedEventId])
+
+  useEffect(() => {
+    if (!selectedEvent) return
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (meetingDetailsPanelRef.current?.contains(event.target as Node)) return
+      if (event.target instanceof Element && event.target.closest('[data-calendar-event-row]')) return
+      setSelectedEventId(null)
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [selectedEvent])
+
+  const handleStartNote = useCallback(async (event: CalendarEvent) => {
+    const created = await createNewNote({
+      title: event.title,
+      calendarEventId: event.id,
+    })
+    if (created) {
+      selectNote(created.id)
+      onOpenNotes?.()
+    }
+  }, [createNewNote, onOpenNotes, selectNote])
+
   const groupedActivity = useMemo(() => groupActivityByDate(activity), [activity])
 
   if (!user) return null
 
   return (
-    <div className="grid h-full min-h-0 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
+    <div className="relative grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
       {/* Coming Up */}
       <div className="min-h-0">
         <DashboardPanel className="flex h-full min-h-0 flex-col">
@@ -145,14 +185,6 @@ export default function HomeView({
               >
                 <Settings2 className="h-3.5 w-3.5" />
               </Button>
-              <Button
-                onClick={() => onOpenCalendar?.()}
-                variant="secondary"
-                size="sm"
-                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              >
-                View all
-              </Button>
             </div>
           </DashboardPanelHeader>
           <DashboardPanelBody className="min-h-0 flex-1">
@@ -162,7 +194,8 @@ export default function HomeView({
               failed={Boolean(calendarError || calendarLastError)}
               errorMessage={calendarError ?? calendarLastError}
               onRetry={() => void refreshCalendar()}
-              onSelect={onOpenCalendar ? (event) => onOpenCalendar(event.id) : undefined}
+              selectedEventId={selectedEventId}
+              onSelect={(event) => setSelectedEventId((current) => current === event.id ? null : event.id)}
             />
           </DashboardPanelBody>
         </DashboardPanel>
@@ -284,6 +317,27 @@ export default function HomeView({
           )}
         </DashboardPanelBody>
       </DashboardPanel>
+
+      <div
+        ref={meetingDetailsPanelRef}
+        className={cn(
+          'absolute inset-y-0 right-0 z-20 overflow-hidden transition-all duration-200 ease-in-out',
+          selectedEvent ? 'w-[360px] max-w-full' : 'pointer-events-none w-0',
+        )}
+      >
+        <DashboardPanel className="h-full min-h-0 w-full">
+          <DashboardPanelBody className="h-full min-h-0 !overflow-hidden p-2">
+            {selectedEvent ? (
+              <MeetingDetailsPanel
+                event={selectedEvent}
+                onStartNote={handleStartNote}
+                onClose={() => setSelectedEventId(null)}
+                onSelectNote={onOpenNotes}
+              />
+            ) : null}
+          </DashboardPanelBody>
+        </DashboardPanel>
+      </div>
     </div>
   )
 }

@@ -1,5 +1,4 @@
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
-import { CalendarView } from '@/features/calendar/CalendarView'
 import HomeView from '@/features/home/HomeView'
 import NoteEditorView from '@/features/notes/NoteEditorView'
 import NotesLibraryView from '@/features/notes/NotesLibraryView'
@@ -12,10 +11,8 @@ type DashboardWorkspaceProps = {
   userId?: string
   mode?: DashboardViewMode
   selectedSettingsSection?: DashboardSettingsSection
-  onOpenCalendar?: (eventId?: string) => void
   onOpenCalendarSettings?: () => void
   onOpenNotes?: () => void
-  initialCalendarEventId?: string | null
 }
 
 function NotesLoadingView() {
@@ -43,27 +40,13 @@ export default function DashboardWorkspace({
   userId,
   mode = 'home',
   selectedSettingsSection = 'account',
-  onOpenCalendar,
   onOpenCalendarSettings,
   onOpenNotes,
-  initialCalendarEventId,
 }: DashboardWorkspaceProps) {
   const { selectedId, isLoading } = useDashboardNotes()
 
   if (mode === 'settings') {
     return <div className="h-full"><SettingsView selectedSection={selectedSettingsSection} /></div>
-  }
-
-  if (mode === 'calendar') {
-    return (
-      <div className="h-full">
-        <CalendarView
-          onOpenCalendarSettings={onOpenCalendarSettings}
-          onOpenNotes={onOpenNotes}
-          initialSelectedEventId={initialCalendarEventId}
-        />
-      </div>
-    )
   }
 
   if (mode === 'chat') {
@@ -74,5 +57,5 @@ export default function DashboardWorkspace({
   if (selectedId) return <NoteEditorView userId={userId} />
   if (mode === 'notes') return <NotesLibraryView />
 
-  return <div className="h-full"><HomeView onOpenCalendar={onOpenCalendar} onOpenCalendarSettings={onOpenCalendarSettings} /></div>
+  return <div className="h-full"><HomeView onOpenCalendarSettings={onOpenCalendarSettings} onOpenNotes={onOpenNotes} /></div>
 }

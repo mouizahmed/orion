@@ -36,6 +36,7 @@ export function UpcomingMeetings({
   errorMessage,
   onRetry,
   onSelect,
+  selectedEventId,
 }: {
   events: CalendarEvent[]
   loading: boolean
@@ -43,6 +44,7 @@ export function UpcomingMeetings({
   errorMessage?: string | null
   onRetry?: () => void
   onSelect?: (event: CalendarEvent) => void
+  selectedEventId?: string | null
 }) {
   const meetings = events.slice(0, 3)
 
@@ -114,9 +116,9 @@ export function UpcomingMeetings({
           return (
             <div
               key={group.key}
-              className={`flex items-start gap-2.5 pb-2 pl-2.5 pr-1.5 ${index === 0 ? 'pt-0' : 'pt-2'}`}
+              className={`grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-2.5 gap-y-0.5 pb-2 pl-2.5 pr-1.5 ${index === 0 ? 'pt-0' : 'pt-2'}`}
             >
-              <div>
+              <div className="row-start-1 self-center">
                 <div className="flex h-9 w-9 shrink-0 flex-col items-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 text-center dark:border-white/10 dark:bg-white/5">
                   <div className="w-full border-b border-neutral-200 bg-neutral-200/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-neutral-500 dark:border-white/10 dark:bg-white/8 dark:text-neutral-300">
                     {month}
@@ -124,22 +126,22 @@ export function UpcomingMeetings({
                   <div className="flex flex-1 items-center px-1.5 text-sm font-semibold leading-none text-neutral-800 dark:text-neutral-200">{day}</div>
                 </div>
               </div>
-              <div className="min-w-0 flex-1 space-y-0.5">
-                {group.meetings.length === 0 ? (
-                  <div className="flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
-                    {isToday ? 'No meetings today' : 'No meetings'}
-                  </div>
-                ) : (
-                  group.meetings.map((meeting) => (
+              {group.meetings.length === 0 ? (
+                <div className="col-start-2 flex min-h-9 items-center border-l-2 border-neutral-200 pl-3 text-xs font-medium text-neutral-500 dark:border-white/15 dark:text-neutral-400">
+                  {isToday ? 'No meetings today' : 'No meetings'}
+                </div>
+              ) : (
+                group.meetings.map((meeting) => (
+                  <div key={meeting.id} className="col-start-2 min-w-0">
                     <CalendarEventRow
-                      key={meeting.id}
                       event={meeting}
                       variant="border"
+                      selected={selectedEventId === meeting.id}
                       onClick={onSelect ? () => onSelect(meeting) : undefined}
                     />
-                  ))
-                )}
-              </div>
+                  </div>
+                ))
+              )}
             </div>
           )
         })}

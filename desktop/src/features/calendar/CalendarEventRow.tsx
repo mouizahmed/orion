@@ -23,6 +23,7 @@ export function CalendarEventRow({
       <button
         type="button"
         onClick={onClick}
+        data-calendar-event-row
         className={cn(
           'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors',
           selected ? 'bg-neutral-100 dark:bg-white/10' : 'hover:bg-neutral-100/70 dark:hover:bg-white/[0.06]',
@@ -44,6 +45,7 @@ export function CalendarEventRow({
     <button
       type="button"
       onClick={onClick}
+      data-calendar-event-row
       className={cn(
         'block w-full rounded-lg border border-transparent text-left transition-colors',
         selected ? 'bg-neutral-100 dark:bg-white/10' : 'hover:bg-neutral-100/70 dark:hover:bg-white/[0.06]',

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Home, MessageCircle, Settings, StickyNote } from 'lucide-react'
+import { Home, MessageCircle, Settings, StickyNote } from 'lucide-react'
 
 import { Sidebar as SidebarContainer, useSidebar } from '@/components/ui/sidebar'
 import { SidebarIconButton, SidebarRowButton, sidebarActiveClassName } from '@/components/ui/sidebar-button'
@@ -17,7 +17,6 @@ export default function DashboardSidebar({
   selectedSettingsSection = 'account',
   onOpenHome,
   onOpenNotes,
-  onOpenCalendar,
   onOpenChat,
   onOpenSettings,
   onCloseSettings,
@@ -27,7 +26,6 @@ export default function DashboardSidebar({
   selectedSettingsSection?: DashboardSettingsSection
   onOpenHome?: () => void
   onOpenNotes?: () => void
-  onOpenCalendar?: () => void
   onOpenChat?: () => void
   onOpenSettings?: () => void
   onCloseSettings?: () => void
@@ -140,13 +138,6 @@ export default function DashboardSidebar({
     closeCompactSidebar()
   }
 
-  const openCalendar = () => {
-    onOpenCalendar?.()
-    selectFolder(null)
-    selectNote(null)
-    closeCompactSidebar()
-  }
-
   const openNotesPage = () => {
     onOpenNotes?.()
     closeCompactSidebar()
@@ -181,12 +172,6 @@ export default function DashboardSidebar({
               label="Home"
               onClick={openHome}
               isActive={mode === 'home' && selectedId === null}
-            />
-            <NavButton
-              icon={CalendarDays}
-              label="Calendar"
-              onClick={openCalendar}
-              isActive={mode === 'calendar'}
             />
             <NavButton
               icon={StickyNote}
