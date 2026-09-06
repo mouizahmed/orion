@@ -1,6 +1,6 @@
 import { type CSSProperties, useMemo, useState } from 'react'
 
-import { ArrowDownUp, ArrowUpDown, FileText, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { ArrowDownUp, ArrowUpDown, FileText, RefreshCw, Settings2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { NoteMenuContent } from '@/features/notes/NoteMenuContent'
@@ -24,7 +24,7 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
 import { useCalendarEvents } from '@/features/calendar/useCalendarEvents'
 import { useActivityQuery } from '@/features/home/useActivityQuery'
-import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/features/home/types'
+import type { ActivityRecord, ActivitySort, ActivitySortDirection } from '@/features/home/types'
 
 function formatActivityDate(timestamp: number) {
   const date = new Date(timestamp)
@@ -77,17 +77,15 @@ export default function HomeView({
   onOpenCalendarSettings?: () => void
 }) {
   const { user } = useAuth()
-  const { selectNote, openCreateNoteDialog, requestDeleteNote, renameNote, moveNote, folders } = useDashboardNotes()
+  const { selectNote, requestDeleteNote, renameNote, moveNote, folders } = useDashboardNotes()
   const [activitySort, setActivitySort] = useState<ActivitySort>('updated')
   const [activitySortDirection, setActivitySortDirection] = useState<ActivitySortDirection>('desc')
-  const [activityScope, setActivityScope] = useState<ActivityScope>('owned')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
   const activityQuery = useActivityQuery(user?.id, {
     sort: activitySort,
     direction: activitySortDirection,
-    scope: activityScope,
   })
   const activity = useMemo(
     () => activityQuery.data?.pages.flatMap((page) => page.activity) ?? [],
@@ -121,10 +119,10 @@ export default function HomeView({
   if (!user) return null
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2">
+    <div className="grid h-full min-h-0 grid-rows-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
       {/* Coming Up */}
-      <div>
-        <DashboardPanel>
+      <div className="min-h-0">
+        <DashboardPanel className="flex h-full min-h-0 flex-col">
           <DashboardPanelHeader>
             <div className="flex min-w-0 items-baseline gap-2">
               <DashboardPanelTitle>Coming up</DashboardPanelTitle>
@@ -157,7 +155,7 @@ export default function HomeView({
               </Button>
             </div>
           </DashboardPanelHeader>
-          <DashboardPanelBody>
+          <DashboardPanelBody className="min-h-0 flex-1">
             <UpcomingMeetings
               events={calendarEvents}
               loading={calendarLoading}
@@ -171,7 +169,7 @@ export default function HomeView({
       </div>
 
       {/* Recent Activity */}
-      <DashboardPanel className="flex min-h-0 flex-1 flex-col">
+      <DashboardPanel className="flex h-full min-h-0 flex-col">
         <DashboardPanelHeader>
           <div className="min-w-0">
             <DashboardPanelTitle>Recent Activity</DashboardPanelTitle>
@@ -208,30 +206,6 @@ export default function HomeView({
                 <SelectItem value="title">Title</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={activityScope} onValueChange={(value) => setActivityScope(value as ActivityScope)}>
-              <SelectTrigger
-                size="sm"
-                aria-label="Filter recent activity"
-                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start">
-                <SelectItem value="all">All</SelectItem>
-                <SelectItem value="owned">Mine</SelectItem>
-                <SelectItem value="shared">Shared</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={openCreateNoteDialog}
-              variant="secondary"
-              size="sm"
-              className="shrink-0"
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New note
-            </Button>
           </div>
         </DashboardPanelHeader>
 

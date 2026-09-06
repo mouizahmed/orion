@@ -130,6 +130,7 @@ export function RowActionMenu({
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener(ROW_ACTION_MENU_OPEN_EVENT, handleAnotherMenuOpen)
+    window.addEventListener('blur', close)
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') close()
     }
@@ -140,6 +141,7 @@ export function RowActionMenu({
       document.removeEventListener('mousedown', close)
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener(ROW_ACTION_MENU_OPEN_EVENT, handleAnotherMenuOpen)
+      window.removeEventListener('blur', close)
     }
   }, [close, open])
 

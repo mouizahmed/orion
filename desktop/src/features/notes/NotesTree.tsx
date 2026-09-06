@@ -220,7 +220,7 @@ export function NotesTree({
                           className={cn(
                             'flex items-center rounded-md',
                             'hover:bg-neutral-100 dark:hover:bg-white/8',
-                            'group-data-[state=open]/row-action-menu:border group-data-[state=open]/row-action-menu:border-neutral-200 group-data-[state=open]/row-action-menu:bg-neutral-100 dark:group-data-[state=open]/row-action-menu:border-white/12 dark:group-data-[state=open]/row-action-menu:bg-white/10',
+                            'group-data-[state=open]/row-action-menu:bg-neutral-100 dark:group-data-[state=open]/row-action-menu:bg-white/8',
                           )}
                         >
                           <SidebarRowButton

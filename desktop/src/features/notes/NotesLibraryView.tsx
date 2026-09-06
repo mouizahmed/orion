@@ -1,7 +1,14 @@
 import { type CSSProperties, useEffect, useMemo, useState } from 'react'
-import { ChevronRight, FileText, Folder, FolderPlus, Plus } from 'lucide-react'
+import { ArrowDownUp, ArrowUpDown, ChevronRight, FileText, Folder, FolderPlus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   DashboardPanel,
   DashboardPanelBody,
@@ -17,8 +24,8 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { NoteMenuContent } from '@/features/notes/NoteMenuContent'
 import { NoteRow } from '@/features/notes/NoteRow'
 import { useDashboardNotes } from '@/features/notes/DashboardNotesContext'
-import { useNotesByFolderQuery } from '@/features/notes/queries/useNotesQueries'
-import type { NoteSummary } from '@/features/notes/types'
+import { useSortedNotesByFolderQuery } from '@/features/notes/queries/useNotesQueries'
+import type { NoteSort, NoteSortDirection, NoteSummary } from '@/features/notes/types'
 
 function EmptyNotes({ folderName }: { folderName?: string }) {
   return (
@@ -41,7 +48,6 @@ export default function NotesLibraryView() {
     selectedFolderId,
     selectFolder,
     selectNote,
-    openCreateNoteDialog,
     createFolder,
     renameFolder,
     requestDeleteFolder,
@@ -55,7 +61,12 @@ export default function NotesLibraryView() {
   const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null)
   const [folderRenameValue, setFolderRenameValue] = useState('')
   const [showMove, setShowMove] = useState(false)
-  const notesQuery = useNotesByFolderQuery(user?.id, selectedFolderId)
+  const [noteSort, setNoteSort] = useState<NoteSort>('updated')
+  const [noteSortDirection, setNoteSortDirection] = useState<NoteSortDirection>('desc')
+  const notesQuery = useSortedNotesByFolderQuery(user?.id, selectedFolderId, {
+    sort: noteSort,
+    direction: noteSortDirection,
+  })
 
   const selectedFolder = useMemo(
     () => folders.find((folder) => folder.id === selectedFolderId) ?? null,
@@ -135,7 +146,7 @@ export default function NotesLibraryView() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <DashboardPanel className="flex min-h-0 flex-1 flex-col">
-        <DashboardPanelHeader className="border-b border-neutral-200/70 dark:border-white/10">
+        <DashboardPanelHeader>
           <div className="min-w-0">
             {selectedFolder ? (
               <div className="flex min-w-0 items-center gap-1.5">
@@ -155,6 +166,35 @@ export default function NotesLibraryView() {
             )}
           </div>
           <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              aria-label={noteSortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              title={noteSortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'}
+              onClick={() => setNoteSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc')}
+              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+            >
+              {noteSortDirection === 'asc' ? (
+                <ArrowUpDown className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowDownUp className="h-3.5 w-3.5" />
+              )}
+            </Button>
+            <Select value={noteSort} onValueChange={(value) => setNoteSort(value as NoteSort)}>
+              <SelectTrigger
+                size="sm"
+                aria-label="Sort notes"
+                style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectItem value="updated">Last updated</SelectItem>
+                <SelectItem value="created">Created</SelectItem>
+                <SelectItem value="title">Title</SelectItem>
+              </SelectContent>
+            </Select>
             {!selectedFolder ? (
               <Button
                 type="button"
@@ -167,16 +207,6 @@ export default function NotesLibraryView() {
                 New folder
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={openCreateNoteDialog}
-              style={{ WebkitAppRegion: 'no-drag' } as CSSProperties}
-            >
-              <Plus />
-              New note
-            </Button>
           </div>
         </DashboardPanelHeader>
 

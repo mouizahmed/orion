@@ -33,6 +33,16 @@ type NoteActivityQuery struct {
 	CursorID        *string
 }
 
+type NoteSummaryQuery struct {
+	FolderID        *string
+	Unfiled         bool
+	Sort            string
+	Direction       string
+	Limit           int
+	CursorSortValue *string
+	CursorID        *string
+}
+
 func NewNoteRepository(db *database.DB) *NoteRepository {
 	return &NoteRepository{db: db}
 }
@@ -121,6 +131,41 @@ func (r *NoteRepository) CreateNote(note *models.Note) (*models.Note, error) {
 }
 
 func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, unfiled bool, limit int, cursorUpdatedAt *time.Time, cursorID *string) ([]models.NoteSummary, error) {
+	var cursorSortValue *string
+	if cursorUpdatedAt != nil {
+		value := cursorUpdatedAt.UTC().Format(time.RFC3339Nano)
+		cursorSortValue = &value
+	}
+	return r.ListNoteSummariesByUser(userID, NoteSummaryQuery{
+		FolderID:        folderID,
+		Unfiled:         unfiled,
+		Sort:            "updated",
+		Direction:       "desc",
+		Limit:           limit,
+		CursorSortValue: cursorSortValue,
+		CursorID:        cursorID,
+	})
+}
+
+func (r *NoteRepository) ListNoteSummariesByUser(userID string, query NoteSummaryQuery) ([]models.NoteSummary, error) {
+	sortColumn := "updated_at"
+	sortExpression := "updated_at"
+	switch query.Sort {
+	case "created":
+		sortColumn = "created_at"
+		sortExpression = "created_at"
+	case "title":
+		sortColumn = "LOWER(title)"
+		sortExpression = "LOWER(title)"
+	}
+
+	direction := "DESC"
+	comparison := "<"
+	if query.Direction == "asc" {
+		direction = "ASC"
+		comparison = ">"
+	}
+
 	baseQuery := `
 		SELECT id, folder_id, title, created_at, updated_at, calendar_event_id::text
 		FROM notes
@@ -131,20 +176,29 @@ func (r *NoteRepository) ListNotesByUserCursor(userID string, folderID *string, 
 	var err error
 	args := []interface{}{userID}
 	argPos := 2
-	if unfiled {
+	if query.Unfiled {
 		baseQuery += " AND folder_id IS NULL"
-	} else if folderID != nil {
+	} else if query.FolderID != nil {
 		baseQuery += fmt.Sprintf(" AND folder_id = $%d", argPos)
-		args = append(args, *folderID)
+		args = append(args, *query.FolderID)
 		argPos++
 	}
-	if cursorUpdatedAt != nil && cursorID != nil && *cursorID != "" {
-		baseQuery += fmt.Sprintf(" AND (updated_at, id) < ($%d, $%d)", argPos, argPos+1)
-		args = append(args, *cursorUpdatedAt, *cursorID)
+	if query.CursorSortValue != nil && query.CursorID != nil && *query.CursorID != "" {
+		if query.Sort == "title" {
+			baseQuery += fmt.Sprintf(" AND (%s, id) %s ($%d, $%d)", sortColumn, comparison, argPos, argPos+1)
+			args = append(args, strings.ToLower(*query.CursorSortValue), *query.CursorID)
+		} else {
+			cursorTime, err := time.Parse(time.RFC3339Nano, *query.CursorSortValue)
+			if err != nil {
+				return nil, fmt.Errorf("invalid note cursor time: %w", err)
+			}
+			baseQuery += fmt.Sprintf(" AND (%s, id) %s ($%d, $%d)", sortColumn, comparison, argPos, argPos+1)
+			args = append(args, cursorTime, *query.CursorID)
+		}
 		argPos += 2
 	}
-	baseQuery += fmt.Sprintf(" ORDER BY updated_at DESC, id DESC LIMIT $%d", argPos)
-	args = append(args, limit)
+	baseQuery += fmt.Sprintf(" ORDER BY %s %s, id %s LIMIT $%d", sortExpression, direction, direction, argPos)
+	args = append(args, query.Limit)
 
 	rows, err = r.db.Query(baseQuery, args...)
 	if err != nil {

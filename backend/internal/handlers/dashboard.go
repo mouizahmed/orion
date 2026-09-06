@@ -25,7 +25,6 @@ type DashboardActivityItem struct {
 	Timestamp  time.Time `json:"timestamp"`
 	NoteID     *string   `json:"note_id,omitempty"`
 	FolderID   *string   `json:"folder_id,omitempty"`
-	Visibility string    `json:"visibility,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -47,21 +46,15 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 		return
 	}
 
-	sortBy, err := parseActivitySort(c.DefaultQuery("sort", "updated"))
+	sortBy, err := parseNoteSort(c.DefaultQuery("sort", "updated"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sort parameter"})
 		return
 	}
 
-	direction, err := parseActivityDirection(c.DefaultQuery("direction", "desc"))
+	direction, err := parseSortDirection(c.DefaultQuery("direction", "desc"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid direction parameter"})
-		return
-	}
-
-	scope, err := parseActivityScope(c.DefaultQuery("scope", "owned"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope parameter"})
 		return
 	}
 
@@ -72,20 +65,17 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 	}
 
 	fetchLimit := limit + 1
-	notes := []models.Note{}
-	if scope != "shared" {
-		notes, err = h.noteRepo.ListActivityNotesByUser(userID, repository.NoteActivityQuery{
-			Sort:            sortBy,
-			Direction:       direction,
-			Limit:           fetchLimit,
-			CursorSortValue: cursorSortValue,
-			CursorID:        cursorID,
-		})
-		if err != nil {
-			log.Printf("dashboard: failed to list activity for user %s: %v", userID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load activity"})
-			return
-		}
+	notes, err := h.noteRepo.ListActivityNotesByUser(userID, repository.NoteActivityQuery{
+		Sort:            sortBy,
+		Direction:       direction,
+		Limit:           fetchLimit,
+		CursorSortValue: cursorSortValue,
+		CursorID:        cursorID,
+	})
+	if err != nil {
+		log.Printf("dashboard: failed to list activity for user %s: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load activity"})
+		return
 	}
 
 	hasMore := false
@@ -114,7 +104,6 @@ func (h *DashboardHandler) ListActivity(c *gin.Context) {
 			"next_cursor": nextCursor,
 			"sort":        sortBy,
 			"direction":   direction,
-			"scope":       scope,
 		},
 	})
 }
@@ -133,7 +122,7 @@ func parseActivityLimit(raw string) (int, error) {
 	return limit, nil
 }
 
-func parseActivitySort(raw string) (string, error) {
+func parseNoteSort(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "updated":
 		return "updated", nil
@@ -146,7 +135,7 @@ func parseActivitySort(raw string) (string, error) {
 	}
 }
 
-func parseActivityDirection(raw string) (string, error) {
+func parseSortDirection(raw string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "desc":
 		return "desc", nil
@@ -154,19 +143,6 @@ func parseActivityDirection(raw string) (string, error) {
 		return "asc", nil
 	default:
 		return "", fmt.Errorf("unsupported direction")
-	}
-}
-
-func parseActivityScope(raw string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "owned":
-		return "owned", nil
-	case "all":
-		return "all", nil
-	case "shared":
-		return "shared", nil
-	default:
-		return "", fmt.Errorf("unsupported scope")
 	}
 }
 
@@ -205,7 +181,6 @@ func noteToActivityItem(note models.Note) DashboardActivityItem {
 		Timestamp:  note.UpdatedAt,
 		NoteID:     &noteID,
 		FolderID:   note.FolderID,
-		Visibility: "private",
 		CreatedAt:  note.CreatedAt,
 		UpdatedAt:  note.UpdatedAt,
 	}

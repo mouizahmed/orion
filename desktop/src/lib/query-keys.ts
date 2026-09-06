@@ -5,12 +5,14 @@ export const queryKeys = {
   note: (accountID: string, noteID: string) => ['account', accountID, 'notes', 'detail', noteID] as const,
   notesByFolder: (accountID: string, folderID: string | null) =>
     ['account', accountID, 'notes', 'by-folder', folderID ?? 'unfiled'] as const,
+  notesByFolderSorted: (accountID: string, folderID: string | null, sorting: { sort: string; direction: string }) =>
+    [...queryKeys.notesByFolder(accountID, folderID), 'sorted', sorting] as const,
   notesByEvent: (accountID: string, eventID: string) => ['account', accountID, 'notes', 'by-event', eventID] as const,
   noteTranscript: (accountID: string, noteID: string) => ['account', accountID, 'notes', 'transcript', noteID] as const,
   noteAttendees: (accountID: string, noteID: string) => ['account', accountID, 'notes', 'attendees', noteID] as const,
   activity: (accountID: string) => ['account', accountID, 'activity'] as const,
-  activityFiltered: (accountID: string, filters: { sort: string; direction: string; scope: string }) =>
-    ['account', accountID, 'activity', filters] as const,
+  activityFiltered: (accountID: string, filters: { sort: string; direction: string } & Record<string, string>) =>
+    ['account', accountID, 'activity', { sort: filters.sort, direction: filters.direction }] as const,
   search: (accountID: string, normalizedQuery: string) => ['account', accountID, 'search', normalizedQuery] as const,
   calendarEventSearch: (accountID: string, noteID: string, normalizedQuery: string) =>
     ['account', accountID, 'calendar-event-search', noteID, normalizedQuery] as const,

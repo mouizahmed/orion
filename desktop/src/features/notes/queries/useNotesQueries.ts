@@ -7,7 +7,9 @@ import {
   noteTranscriptQueryOptions,
   notesByFolderQueryOptions,
   recentNotesQueryOptions,
+  sortedNotesByFolderQueryOptions,
 } from '@/features/notes/queries/note-query-options'
+import type { NoteSort, NoteSortDirection } from '@/features/notes/types'
 
 export function useFoldersQuery(accountID: string | undefined) {
   return useQuery({
@@ -27,6 +29,17 @@ export function useNotesByFolderQuery(accountID: string | undefined, folderID: s
   return useInfiniteQuery({
     ...notesByFolderQueryOptions(accountID ?? 'anonymous', folderID),
     enabled: Boolean(accountID && enabled),
+  })
+}
+
+export function useSortedNotesByFolderQuery(
+  accountID: string | undefined,
+  folderID: string | null,
+  sorting: { sort: NoteSort; direction: NoteSortDirection },
+) {
+  return useInfiniteQuery({
+    ...sortedNotesByFolderQueryOptions(accountID ?? 'anonymous', folderID, sorting),
+    enabled: Boolean(accountID),
   })
 }
 

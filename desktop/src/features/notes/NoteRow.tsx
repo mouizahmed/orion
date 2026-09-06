@@ -125,7 +125,7 @@ export function NoteRow({
           selected
             ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white'
             : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
-          'group-data-[state=open]/row-action-menu:border group-data-[state=open]/row-action-menu:border-neutral-200 group-data-[state=open]/row-action-menu:bg-neutral-100 group-data-[state=open]/row-action-menu:text-neutral-950 dark:group-data-[state=open]/row-action-menu:border-white/12 dark:group-data-[state=open]/row-action-menu:bg-white/10 dark:group-data-[state=open]/row-action-menu:text-white',
+          !selected && 'group-data-[state=open]/row-action-menu:bg-neutral-100 group-data-[state=open]/row-action-menu:text-neutral-950 dark:group-data-[state=open]/row-action-menu:bg-white/8 dark:group-data-[state=open]/row-action-menu:text-white',
         )}
       >
         <SidebarRowButton

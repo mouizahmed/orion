@@ -1,5 +1,5 @@
 import { authenticatedFetch } from '@/features/auth/auth-session'
-import type { ActivityRecord, ActivityScope, ActivitySort, ActivitySortDirection } from '@/features/home/types'
+import type { ActivityRecord, ActivitySort, ActivitySortDirection } from '@/features/home/types'
 import { API_BASE_URL } from '@/lib/api-config'
 
 
@@ -10,7 +10,6 @@ type ApiActivity = {
   timestamp: string
   note_id?: string | null
   folder_id?: string | null
-  visibility?: 'private' | 'shared'
   created_at: string
   updated_at: string
 }
@@ -23,7 +22,6 @@ function toActivityRecord(activity: ApiActivity): ActivityRecord {
     timestamp: Date.parse(activity.timestamp),
     noteId: activity.note_id ?? undefined,
     folderId: activity.folder_id ?? undefined,
-    visibility: activity.visibility,
     createdAt: Date.parse(activity.created_at),
     updatedAt: Date.parse(activity.updated_at),
   }
@@ -43,14 +41,12 @@ export async function listActivityPage(params: {
   cursor?: string | null
   sort?: ActivitySort
   direction?: ActivitySortDirection
-  scope?: ActivityScope
   signal?: AbortSignal
 } = {}): Promise<{ activity: ActivityRecord[]; nextCursor?: string; hasMore: boolean }> {
   const url = new URL(`${API_BASE_URL}/dashboard/activity`)
   url.searchParams.set('limit', String(params.limit ?? 20))
   url.searchParams.set('sort', params.sort ?? 'updated')
   url.searchParams.set('direction', params.direction ?? 'desc')
-  url.searchParams.set('scope', params.scope ?? 'owned')
   if (params.cursor) url.searchParams.set('cursor', params.cursor)
 
   const payload = await fetchJson<{

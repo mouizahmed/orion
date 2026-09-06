@@ -116,6 +116,16 @@ func (h *NotesHandler) ListNotes(c *gin.Context) {
 	if limit <= 0 {
 		limit = 20
 	}
+	sortBy, err := parseNoteSort(c.DefaultQuery("sort", "updated"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sort parameter"})
+		return
+	}
+	direction, err := parseSortDirection(c.DefaultQuery("direction", "desc"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid direction parameter"})
+		return
+	}
 
 	folderID := strings.TrimSpace(c.Query("folder_id"))
 	unfiledParam := strings.TrimSpace(c.Query("unfiled"))
@@ -138,7 +148,7 @@ func (h *NotesHandler) ListNotes(c *gin.Context) {
 	}
 
 	cursor := strings.TrimSpace(c.Query("cursor"))
-	var cursorTime *time.Time
+	var cursorSortValue *string
 	var cursorID *string
 	if cursor != "" {
 		decoded, err := base64.RawURLEncoding.DecodeString(cursor)
@@ -146,22 +156,28 @@ func (h *NotesHandler) ListNotes(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
 			return
 		}
-		parts := strings.SplitN(string(decoded), "|", 2)
-		if len(parts) != 2 {
+		decodedCursor := string(decoded)
+		separator := strings.LastIndex(decodedCursor, "|")
+		if separator < 0 || separator == len(decodedCursor)-1 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
 			return
 		}
-		parsed, err := time.Parse(time.RFC3339Nano, parts[0])
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cursor"})
-			return
-		}
-		cursorTime = &parsed
-		cursorID = &parts[1]
+		sortValue := decodedCursor[:separator]
+		id := decodedCursor[separator+1:]
+		cursorSortValue = &sortValue
+		cursorID = &id
 	}
 
 	fetchLimit := limit + 1
-	notes, err := h.noteRepo.ListNotesByUserCursor(userID, folderFilter, unfiled, fetchLimit, cursorTime, cursorID)
+	notes, err := h.noteRepo.ListNoteSummariesByUser(userID, repository.NoteSummaryQuery{
+		FolderID:        folderFilter,
+		Unfiled:         unfiled,
+		Sort:            sortBy,
+		Direction:       direction,
+		Limit:           fetchLimit,
+		CursorSortValue: cursorSortValue,
+		CursorID:        cursorID,
+	})
 	if err != nil {
 		log.Printf("notes: failed to list notes for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load notes"})
@@ -175,7 +191,7 @@ func (h *NotesHandler) ListNotes(c *gin.Context) {
 	}
 	if hasMore && len(notes) > 0 {
 		last := notes[len(notes)-1]
-		rawCursor := fmt.Sprintf("%s|%s", last.UpdatedAt.UTC().Format(time.RFC3339Nano), last.ID)
+		rawCursor := fmt.Sprintf("%s|%s", noteSummaryCursorValue(last, sortBy), last.ID)
 		encoded := base64.RawURLEncoding.EncodeToString([]byte(rawCursor))
 		nextCursor = &encoded
 	}
@@ -186,8 +202,21 @@ func (h *NotesHandler) ListNotes(c *gin.Context) {
 			"limit":       limit,
 			"has_more":    hasMore,
 			"next_cursor": nextCursor,
+			"sort":        sortBy,
+			"direction":   direction,
 		},
 	})
+}
+
+func noteSummaryCursorValue(note models.NoteSummary, sortBy string) string {
+	switch sortBy {
+	case "created":
+		return note.CreatedAt.UTC().Format(time.RFC3339Nano)
+	case "title":
+		return strings.ToLower(note.Title)
+	default:
+		return note.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
 }
 
 func (h *NotesHandler) Search(c *gin.Context) {

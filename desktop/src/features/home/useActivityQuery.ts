@@ -1,12 +1,12 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 
 import { listActivityPage } from '@/features/home/api/activity-client'
-import type { ActivityScope, ActivitySort, ActivitySortDirection } from '@/features/home/types'
+import type { ActivitySort, ActivitySortDirection } from '@/features/home/types'
 import { queryKeys } from '@/lib/query-keys'
 
 export function useActivityQuery(
   accountID: string | undefined,
-  filters: { sort: ActivitySort; direction: ActivitySortDirection; scope: ActivityScope },
+  filters: { sort: ActivitySort; direction: ActivitySortDirection },
 ) {
   return useInfiniteQuery({
     queryKey: queryKeys.activityFiltered(accountID ?? 'anonymous', filters),

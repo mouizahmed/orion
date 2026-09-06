@@ -1,4 +1,4 @@
-import type { NoteAttendee, NoteDetail, NoteRecord, NoteSummary } from '@/features/notes/types'
+import type { NoteAttendee, NoteDetail, NoteRecord, NoteSort, NoteSortDirection, NoteSummary } from '@/features/notes/types'
 import { authenticatedFetch, getAuthenticatedAccessToken } from '@/features/auth/auth-session'
 import { API_BASE_URL } from '@/lib/api-config'
 
@@ -160,6 +160,8 @@ export async function listNotesPage(params: {
   unfiled?: boolean
   limit?: number
   cursor?: string | null
+  sort?: NoteSort
+  direction?: NoteSortDirection
   signal?: AbortSignal
 }): Promise<{ notes: NoteSummary[]; nextCursor?: string; hasMore: boolean }> {
   const accessToken = await getAccessToken()
@@ -167,6 +169,8 @@ export async function listNotesPage(params: {
   const url = new URL(`${API_BASE_URL}/notes`)
   url.searchParams.set('limit', String(limit))
   if (params.cursor) url.searchParams.set('cursor', params.cursor)
+  if (params.sort) url.searchParams.set('sort', params.sort)
+  if (params.direction) url.searchParams.set('direction', params.direction)
   if (params.folderId) url.searchParams.set('folder_id', params.folderId)
   if (params.unfiled) url.searchParams.set('unfiled', 'true')
 

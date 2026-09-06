@@ -3,6 +3,7 @@ import { infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
 import { listFolders } from '@/features/notes/api/folders-client'
 import { getNote, listNotesByEvent, listNotesPage } from '@/features/notes/api/notes-client'
 import { getTranscriptSegments } from '@/features/notes/api/transcript-client'
+import type { NoteSort, NoteSortDirection } from '@/features/notes/types'
 import { queryKeys } from '@/lib/query-keys'
 
 export const NOTES_PAGE_SIZE = 20
@@ -33,6 +34,28 @@ export function notesByFolderQueryOptions(accountID: string, folderID: string | 
         unfiled: folderID === null,
         limit: NOTES_PAGE_SIZE,
         cursor: pageParam,
+        signal,
+      }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
+    staleTime: 15_000,
+  })
+}
+
+export function sortedNotesByFolderQueryOptions(
+  accountID: string,
+  folderID: string | null,
+  sorting: { sort: NoteSort; direction: NoteSortDirection },
+) {
+  return infiniteQueryOptions({
+    queryKey: queryKeys.notesByFolderSorted(accountID, folderID, sorting),
+    queryFn: ({ pageParam, signal }) =>
+      listNotesPage({
+        folderId: folderID ?? undefined,
+        unfiled: folderID === null,
+        limit: NOTES_PAGE_SIZE,
+        cursor: pageParam,
+        ...sorting,
         signal,
       }),
     initialPageParam: null as string | null,

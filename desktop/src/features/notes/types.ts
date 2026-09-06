@@ -1,3 +1,6 @@
+export type NoteSort = 'updated' | 'created' | 'title'
+export type NoteSortDirection = 'asc' | 'desc'
+
 export type NoteSummary = {
   id: string
   title: string
