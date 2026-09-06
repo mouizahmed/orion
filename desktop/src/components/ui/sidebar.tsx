@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { PanelLeft } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { sidebarActiveClassName } from '@/components/ui/sidebar-button'
 import { cn } from '@/lib/utils'
 
 type SidebarContextType = {
@@ -141,8 +142,10 @@ export function SidebarTrigger({ className }: { className?: string }) {
       variant="secondary"
       size="sm"
       onClick={() => sidebarContext.toggle()}
+      aria-pressed={sidebarContext.isOpen}
       className={cn(
         'flex h-8 items-center gap-2 rounded-full px-2 text-xs',
+        sidebarContext.isOpen && sidebarActiveClassName,
         className,
       )}
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}

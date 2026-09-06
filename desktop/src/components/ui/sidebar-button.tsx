@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils'
 
 type SidebarButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement>
 
+export const sidebarActiveClassName = 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white'
+
 export function SidebarRowButton({
   active,
   embedded,
@@ -15,11 +17,11 @@ export function SidebarRowButton({
     <button
       type="button"
       className={cn(
-        'flex h-8 w-full items-center justify-start gap-2 rounded-full px-2 text-xs',
+        'flex h-8 w-full items-center justify-start gap-2 rounded-md px-2 text-xs',
         embedded
           ? 'text-inherit'
           : active
-          ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white'
+          ? sidebarActiveClassName
           : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
         className,
       )}
@@ -33,24 +35,34 @@ export function SidebarRowButton({
 export function SidebarIconButton({
   revealOnRowHover,
   suppressHoverBackground,
+  active = false,
+  size = 'compact',
   className,
   children,
   ...props
-}: SidebarButtonProps & { revealOnRowHover?: boolean; suppressHoverBackground?: boolean }) {
+}: SidebarButtonProps & {
+  revealOnRowHover?: boolean
+  suppressHoverBackground?: boolean
+  active?: boolean
+  size?: 'compact' | 'row'
+}) {
   return (
     <button
       type="button"
       className={cn(
-        'group/action flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white',
-        revealOnRowHover && 'opacity-0 group-hover/row:opacity-100',
+        'group/action flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-500 hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white',
+        revealOnRowHover && 'opacity-0 group-hover/row:opacity-100 group-data-[state=open]/row-action-menu:opacity-100',
         className,
       )}
       {...props}
     >
       <span
         className={cn(
-          'flex h-6 w-6 items-center justify-center rounded-full border border-transparent',
-          !suppressHoverBackground && 'group-hover/action:border-neutral-300/35 group-hover/action:bg-neutral-200/65 dark:group-hover/action:border-transparent dark:group-hover/action:bg-white/8',
+          'flex items-center justify-center border border-transparent',
+          size === 'row' ? 'h-8 w-8 rounded-md' : 'h-6 w-6 rounded-sm',
+          !suppressHoverBackground && active
+            ? 'group-hover/action:border-neutral-300/55 group-hover/action:bg-neutral-200/85 dark:group-hover/action:border-transparent dark:group-hover/action:bg-white/16'
+            : !suppressHoverBackground && 'group-hover/action:border-neutral-300/35 group-hover/action:bg-neutral-200/65 dark:group-hover/action:border-transparent dark:group-hover/action:bg-white/8',
         )}
       >
         {children}
@@ -70,7 +82,7 @@ export function SidebarMenuItemButton({
     <button
       type="button"
       className={cn(
-        'flex h-8 w-full items-center gap-2 rounded-full px-2 text-left text-xs hover:bg-neutral-100 dark:hover:bg-white/10',
+        'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs hover:bg-neutral-100 dark:hover:bg-white/10',
         destructive
           ? 'text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-300 dark:hover:bg-red-500/10 dark:hover:text-red-200'
           : active

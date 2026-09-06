@@ -88,17 +88,17 @@ export function NoteRow({
                 {timestamp ? (
                   <span className={cn(
                     'text-xs leading-4 text-neutral-400 dark:text-neutral-500',
-                    (actions || menuContent) && 'group-hover:hidden',
+                    (actions || menuContent) && 'group-hover:hidden group-data-[state=open]/row-action-menu:hidden',
                   )}>
                     {timestamp}
                   </span>
                 ) : null}
                 {menuContent ? (
-                  <div className={cn(timestamp ? 'hidden group-hover:flex' : 'flex', 'items-center')}>
+                  <div className={cn(timestamp ? 'hidden group-hover:flex group-data-[state=open]/row-action-menu:flex' : 'flex', 'items-center')}>
                     <RowActionMenuTrigger aria-label={`More actions for ${title || 'Untitled'}`} />
                   </div>
                 ) : actions ? (
-                  <div className={cn(timestamp ? 'hidden group-hover:flex' : 'flex', 'items-center')}>
+                  <div className={cn(timestamp ? 'hidden group-hover:flex group-data-[state=open]/row-action-menu:flex' : 'flex', 'items-center')}>
                     {actions}
                   </div>
                 ) : null}
@@ -121,10 +121,11 @@ export function NoteRow({
     >
       <div
         className={cn(
-          'flex items-center rounded-full min-w-0',
+          'flex min-w-0 items-center rounded-md',
           selected
             ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white'
             : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-950 dark:text-neutral-300 dark:hover:bg-white/8 dark:hover:text-white',
+          'group-data-[state=open]/row-action-menu:border group-data-[state=open]/row-action-menu:border-neutral-200 group-data-[state=open]/row-action-menu:bg-neutral-100 group-data-[state=open]/row-action-menu:text-neutral-950 dark:group-data-[state=open]/row-action-menu:border-white/12 dark:group-data-[state=open]/row-action-menu:bg-white/10 dark:group-data-[state=open]/row-action-menu:text-white',
         )}
       >
         <SidebarRowButton
@@ -161,7 +162,7 @@ export function NoteRow({
         {!isRenaming && menuContent ? (
           <RowActionMenuTrigger
             variant="sidebar"
-            suppressHoverBackground={selected}
+            active={selected}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             aria-label={`More actions for ${title || 'Untitled'}`}
           />

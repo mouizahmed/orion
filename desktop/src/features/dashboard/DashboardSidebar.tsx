@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Home, MessageCircle, Notebook, Settings } from 'lucide-react'
 
 import { Sidebar as SidebarContainer, useSidebar } from '@/components/ui/sidebar'
-import { SidebarIconButton, SidebarRowButton } from '@/components/ui/sidebar-button'
+import { SidebarIconButton, SidebarRowButton, sidebarActiveClassName } from '@/components/ui/sidebar-button'
 import { DropdownItem } from '@/components/ui/dropdown-list'
 import { NotesTree } from '@/features/notes/NotesTree'
 import { CreateFolderDialog } from '@/features/notes/dialogs/CreateFolderDialog'
@@ -55,6 +55,11 @@ export default function DashboardSidebar({
   const avatarSrc = user?.picture ?? null
   const profileMenuRef = useRef<HTMLDivElement | null>(null)
   const displayName = user?.name || user?.email || 'Account'
+  const planLabel = user?.plan === 'professional'
+    ? 'Professional'
+    : user?.plan === 'business'
+      ? 'Business'
+      : 'Free'
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -250,7 +255,7 @@ export default function DashboardSidebar({
       <div className="border-t border-neutral-200 p-1 dark:border-white/10">
         <div
           ref={profileMenuRef}
-          className="relative flex h-8 items-center gap-2 rounded-full text-xs text-neutral-700 dark:text-neutral-200"
+          className="relative flex h-8 items-center gap-2 rounded-md text-xs text-neutral-700 dark:text-neutral-200"
         >
           <SidebarRowButton
             className="min-w-0 flex-1 text-left"
@@ -275,13 +280,14 @@ export default function DashboardSidebar({
             <span className="min-w-0 flex-1 truncate font-medium">{displayName}</span>
           </SidebarRowButton>
           <SidebarIconButton
+            size="row"
             aria-label="Settings"
             suppressHoverBackground={mode === 'settings'}
             onClick={() => {
               onOpenSettings?.()
               closeCompactSidebar()
             }}
-            className={mode === 'settings' ? 'border border-neutral-200 bg-neutral-100 text-neutral-950 dark:border-white/12 dark:bg-white/10 dark:text-white' : undefined}
+            className={mode === 'settings' ? sidebarActiveClassName : undefined}
             style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <Settings size={14} />
@@ -291,8 +297,39 @@ export default function DashboardSidebar({
               role="menu"
               className="absolute bottom-[calc(100%+6px)] left-1 z-50 w-[calc(100%-8px)] rounded-xl border border-neutral-200 bg-white/95 py-1 text-neutral-900 shadow-xl backdrop-blur-md dark:border-white/10 dark:bg-[#171417]/95 dark:text-neutral-100"
             >
+              <button
+                type="button"
+                role="menuitem"
+                className="mx-1 flex w-[calc(100%-8px)] items-center gap-2 rounded-md px-2 py-2 text-left outline-none transition-colors hover:bg-neutral-100 focus:bg-neutral-100 dark:hover:bg-white/10 dark:focus:bg-white/10"
+                onClick={() => {
+                  setProfileMenuOpen(false)
+                  onSelectSettingsSection?.('account')
+                  if (mode !== 'settings') onOpenSettings?.()
+                  closeCompactSidebar()
+                }}
+              >
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded-full object-cover"
+                    draggable={false}
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-xs font-semibold text-neutral-700 dark:bg-white/10 dark:text-white">
+                    {initials}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{displayName}</span>
+                  <span className="mt-0.5 block truncate text-xs text-neutral-500 dark:text-neutral-400">{planLabel}</span>
+                </span>
+              </button>
+              <div className="my-1 h-px bg-neutral-200 dark:bg-white/10" />
               <DropdownItem
                 role="menuitem"
+                radius="md"
                 onClick={() => {
                   setProfileMenuOpen(false)
                   logout()

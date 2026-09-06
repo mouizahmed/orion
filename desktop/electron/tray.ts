@@ -26,7 +26,7 @@ function buildTrayMenu(options: { onQuit: () => void }) {
 
   return Menu.buildFromTemplate([
     {
-      label: authenticated ? 'Open Dashboard' : 'Log in',
+      label: authenticated ? 'Open Orion' : 'Log in',
       click: () => {
         if (!isRendererAuthenticated()) {
           showAuthWindow()
@@ -35,6 +35,8 @@ function buildTrayMenu(options: { onQuit: () => void }) {
         revealDashboardWithDraftFlush()
       },
     },
+    { label: 'New Note' },
+    { label: 'Settings' },
     { type: 'separator' },
     {
       label: 'Quit',
@@ -67,10 +69,9 @@ export function setupTray(options: { onQuit: () => void }) {
   tray.setContextMenu(buildTrayMenu(options))
 
   tray.on('click', () => {
-    // While signed out, the tray icon only exposes the menu. The explicit
-    // "Log in" item is the action that reopens the auth window.
-    if (!isRendererAuthenticated()) return
-    revealDashboardWithDraftFlush()
+    // Keep a tray click menu-first in every auth state. The first menu item
+    // is the explicit action that opens the auth window or dashboard.
+    return
   })
 
   return tray

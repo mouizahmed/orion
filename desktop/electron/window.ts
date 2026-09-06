@@ -304,7 +304,7 @@ export function createDashboardWindow(noteId?: string) {
   }
 
   dashboardWin = new BrowserWindow({
-    width: 1400,
+    width: 1120,
     height: 800,
     minWidth: 640,
     minHeight: 480,

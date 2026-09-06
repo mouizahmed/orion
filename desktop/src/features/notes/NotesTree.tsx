@@ -169,7 +169,7 @@ export function NotesTree({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="group flex h-8 items-center justify-between rounded-full hover:bg-neutral-100 dark:hover:bg-white/8">
+      <div className="group flex h-8 items-center justify-between rounded-md hover:bg-neutral-100 dark:hover:bg-white/8">
         <button
           type="button"
           className="flex flex-1 items-center gap-2"
@@ -218,8 +218,9 @@ export function NotesTree({
                       >
                         <div
                           className={cn(
-                            'flex items-center rounded-full',
+                            'flex items-center rounded-md',
                             'hover:bg-neutral-100 dark:hover:bg-white/8',
+                            'group-data-[state=open]/row-action-menu:border group-data-[state=open]/row-action-menu:border-neutral-200 group-data-[state=open]/row-action-menu:bg-neutral-100 dark:group-data-[state=open]/row-action-menu:border-white/12 dark:group-data-[state=open]/row-action-menu:bg-white/10',
                           )}
                         >
                           <SidebarRowButton

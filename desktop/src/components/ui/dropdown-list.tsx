@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 type DropdownWidth = "sm" | "md" | "lg" | "trigger"
 type DropdownSize = "sm" | "md"
 type DropdownItemLayout = "single" | "multiline"
+type DropdownItemRadius = "full" | "md"
 
 const widthClasses: Record<DropdownWidth, string> = {
   sm: "w-36 min-w-36",
@@ -18,6 +19,11 @@ const widthClasses: Record<DropdownWidth, string> = {
 const itemSizeClasses: Record<DropdownSize, string> = {
   sm: "h-7 text-[11px]",
   md: "h-8 text-xs",
+}
+
+const itemRadiusClasses: Record<DropdownItemRadius, string> = {
+  full: "rounded-full",
+  md: "rounded-md",
 }
 
 function dropdownSurfaceClassName({
@@ -47,14 +53,17 @@ function dropdownItemClassName({
   size = "md",
   destructive = false,
   layout = "single",
+  radius = "full",
 }: {
   className?: string
   size?: DropdownSize
   destructive?: boolean
   layout?: DropdownItemLayout
+  radius?: DropdownItemRadius
 }) {
   return cn(
-    "relative mx-1 my-0.5 flex w-[calc(100%-8px)] cursor-pointer select-none items-center gap-2 rounded-full px-2 outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+    "relative mx-1 my-0.5 flex w-[calc(100%-8px)] cursor-pointer select-none items-center gap-2 px-2 outline-none transition-colors disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+    itemRadiusClasses[radius],
     layout === "multiline" ? "h-auto min-h-8 py-1.5 text-xs leading-4" : cn(itemSizeClasses[size], "leading-none"),
     destructive
       ? "text-red-600 hover:bg-red-50 hover:text-red-700 focus:bg-red-50 focus:text-red-700 dark:text-red-300 dark:hover:bg-red-500/12 dark:hover:text-red-200 dark:focus:bg-red-500/12 dark:focus:text-red-200"
@@ -103,12 +112,14 @@ function DropdownItem({
   size = "md",
   destructive = false,
   layout = "single",
+  radius = "full",
   children,
   ...props
 }: React.ComponentProps<"button"> & {
   size?: DropdownSize
   destructive?: boolean
   layout?: DropdownItemLayout
+  radius?: DropdownItemRadius
 }) {
   return (
     <button
@@ -119,6 +130,7 @@ function DropdownItem({
         size,
         destructive,
         layout,
+        radius,
       })}
       {...props}
     >
